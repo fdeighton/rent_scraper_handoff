@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comp Tracker — Fitzrovia AI Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <a class="sidebar__back" href="#/universe">
+        <span class="ic" data-icon="chevron-left"></span> Hub
+      </a>
+      <nav class="sidebar__nav" id="nav"></nav>
+      <div class="sidebar__foot">
+        <button title="Theme (decorative)"><span class="ic" data-icon="sun"></span></button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="content" id="view"></div>
+    </main>
+  </div>
+
+  <!-- Inlined data (window.COMP_DATA) so the page opens from file:// with no server -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

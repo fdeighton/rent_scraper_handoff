@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_preview.css"><style>
+body { padding: 24px; background: #FFFFFF; }
+.row { display: flex; gap: 16px; align-items: flex-end; }
+.box {
+  width: 80px; height: 60px;
+  background: #FAFAF7; border: 1px solid #E6E6E1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+}
+.box .px { font-size: 13px; font-weight: 600; color: #061031; }
+.box .name { font-family: var(--font-mono); font-size: 10px; color: #7F7F7F; }
+</style></head>
+<body>
+<div class="row">
+  <div class="box" style="border-radius:2px"><div class="px">2px</div><div class="name">xs · pills</div></div>
+  <div class="box" style="border-radius:4px"><div class="px">4px</div><div class="name">sm</div></div>
+  <div class="box" style="border-radius:6px"><div class="px">6px</div><div class="name">md · default</div></div>
+  <div class="box" style="border-radius:8px"><div class="px">8px</div><div class="name">lg · cards</div></div>
+  <div class="box" style="border-radius:12px"><div class="px">12px</div><div class="name">xl · dialogs</div></div>
+  <div class="box" style="border-radius:9999px"><div class="px">pill</div><div class="name">badges</div></div>
+</div>
+</body></html>

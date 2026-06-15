@@ -1,0 +1,17 @@
+{
+  "exported_tables": {
+    "comp_buildings": 110,
+    "fitz_properties": 13,
+    "comp_sets": 109,
+    "scrape_snapshots": 2047,
+    "unit_data": 40875
+  },
+  "notes": "scrape_snapshots excludes raw_content. Load .sql in LOAD_ORDER.",
+  "load_order": [
+    "comp_buildings",
+    "fitz_properties",
+    "comp_sets",
+    "scrape_snapshots",
+    "unit_data"
+  ]
+}

@@ -1,0 +1,257 @@
+/* ==========================================================================
+   Fitzrovia Design System — Colors & Type
+   --------------------------------------------------------------------------
+   Light mode is primary. Dark mode optional (not provided by default).
+   Reference brand: hub.fitzrovia.ca (internal AI Studio tools)
+   ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap");
+
+:root {
+  /* ----------------------------------------------------------------------
+     1. BRAND PALETTE (exact, do not approximate)
+     ---------------------------------------------------------------------- */
+  --fz-orange:        #FF4E31;   /* Accent only — sparingly. Primary CTAs, key callouts, active states. */
+  --fz-navy:          #061031;   /* Dominant brand color. Primary text, headers, key UI structure. */
+  --fz-blue-light:    #D6DFFA;   /* Surface tinting. Subtle row backgrounds, callout containers. */
+  --fz-grey:          #7F7F7F;   /* Secondary text, captions, disabled. */
+
+  /* Brand-derived support shades (oklch-tuned to live in the same family) */
+  --fz-orange-600:    #E83C20;   /* Pressed / hover-darken on orange CTAs */
+  --fz-orange-100:    #FFE6E0;   /* Soft wash for orange status pills, callouts */
+  --fz-orange-50:     #FFF3EF;   /* Tool-card avatar wash (see hub home reference) */
+  --fz-navy-800:      #11183C;   /* Sidebar surfaces / elevated dark UI */
+  --fz-navy-600:      #1F2750;   /* Hover on navy sidebars */
+  --fz-blue-50:       #EEF2FE;   /* Even softer surface tint */
+
+  /* ----------------------------------------------------------------------
+     2. NEUTRALS — light-mode primary
+     ---------------------------------------------------------------------- */
+  --fz-white:         #FFFFFF;
+  --fz-paper:         #FAFAF7;   /* App background — warm near-white, matches reference dashboards */
+  --fz-surface:       #FFFFFF;   /* Cards, panels, table rows */
+  --fz-surface-alt:   #F5F5F2;   /* Alternating rows, secondary surfaces */
+  --fz-border:        #E6E6E1;   /* Default hairlines */
+  --fz-border-strong: #CFCFC9;   /* Stronger dividers, input borders on focus-within */
+  --fz-grey-100:      #F2F2EF;
+  --fz-grey-200:      #E1E1DC;
+  --fz-grey-400:      #B5B5AF;
+  --fz-grey-600:      #7F7F7F;   /* = --fz-grey */
+  --fz-grey-800:      #4A4A47;
+
+  /* ----------------------------------------------------------------------
+     3. SEMANTIC — apply these in components, not raw brand vars
+     ---------------------------------------------------------------------- */
+  /* Foreground / text */
+  --fg-primary:       var(--fz-navy);        /* Body, headlines */
+  --fg-secondary:     var(--fz-grey-800);    /* Sub-copy, table values */
+  --fg-muted:         var(--fz-grey-600);    /* Captions, helper text, placeholders */
+  --fg-disabled:      var(--fz-grey-400);
+  --fg-inverse:       var(--fz-white);
+  --fg-accent:        var(--fz-orange);      /* Links inside cards, accent labels */
+  --fg-on-navy:       var(--fz-white);
+  --fg-on-orange:     var(--fz-white);
+
+  /* Background / surface */
+  --bg-app:           var(--fz-paper);
+  --bg-surface:       var(--fz-surface);
+  --bg-surface-alt:   var(--fz-surface-alt);
+  --bg-tint:          var(--fz-blue-light);  /* Subtle row tint, callout containers */
+  --bg-tint-soft:     var(--fz-blue-50);
+  --bg-accent-soft:   var(--fz-orange-50);   /* Tool avatars, soft accent pills */
+  --bg-accent:        var(--fz-orange);
+  --bg-accent-hover:  var(--fz-orange-600);
+  --bg-navy:          var(--fz-navy);
+  --bg-sidebar:       var(--fz-navy);
+
+  /* Borders */
+  --border-default:   var(--fz-border);
+  --border-strong:    var(--fz-border-strong);
+  --border-focus:     var(--fz-orange);
+
+  /* Status — calibrated to live alongside the orange accent without competing */
+  --status-success:       #1F8A5B;
+  --status-success-soft:  #E4F2EC;
+  --status-warning:       #C77A0F;       /* warm amber — distinct from orange accent */
+  --status-warning-soft:  #FBEFD9;
+  --status-danger:        var(--fz-orange);  /* Critical alerts use the brand orange (see Alerts reference) */
+  --status-danger-soft:   var(--fz-orange-100);
+  --status-info:          #2A6FDB;
+  --status-info-soft:     var(--fz-blue-light);
+
+  /* Focus ring — accessible, brand-tinted */
+  --focus-ring: 0 0 0 3px rgba(255, 78, 49, 0.28);
+
+  /* ----------------------------------------------------------------------
+     4. TYPOGRAPHY — Poppins SemiBold for headings, Poppins for body.
+        No serifs anywhere.
+     ---------------------------------------------------------------------- */
+  --font-sans:    "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+
+  /* Weight tokens — anchor on 400 / 600. */
+  --fw-light:     300;
+  --fw-regular:   400;
+  --fw-medium:    500;
+  --fw-semibold:  600;
+  --fw-bold:      700;
+
+  /* Type scale — comfortable, productivity-tool calibrated.
+     Pair: SemiBold for titles, Regular for body, Medium for table headers / labels. */
+  --fs-display:   34px;   /* Page title on hero pages (Hub home greeting) */
+  --fs-h1:        28px;
+  --fs-h2:        22px;
+  --fs-h3:        18px;
+  --fs-h4:        16px;
+  --fs-body:      14px;   /* Default UI body */
+  --fs-body-lg:   15px;
+  --fs-label:     13px;   /* Form labels, table headers */
+  --fs-caption:   12px;   /* Helper, footer */
+  --fs-micro:     11px;   /* Sidebar section labels, uppercase tags */
+
+  --lh-tight:     1.2;
+  --lh-snug:      1.35;
+  --lh-normal:    1.5;
+  --lh-relaxed:   1.6;
+
+  --tracking-tight:  -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;   /* Sidebar section labels, uppercase micro-text */
+  --tracking-wider:  0.08em;
+
+  /* ----------------------------------------------------------------------
+     5. SPACING SCALE — 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64
+     ---------------------------------------------------------------------- */
+  --sp-0:   0;
+  --sp-1:   4px;
+  --sp-2:   8px;
+  --sp-3:   12px;
+  --sp-4:   16px;
+  --sp-5:   24px;
+  --sp-6:   32px;
+  --sp-7:   48px;
+  --sp-8:   64px;
+  --sp-9:   96px;
+
+  /* ----------------------------------------------------------------------
+     6. RADII — moderate (4–8px), larger only on cards/dialogs
+     ---------------------------------------------------------------------- */
+  --radius-xs:     2px;   /* Tags, micro pills */
+  --radius-sm:     4px;   /* Buttons, inputs, small cards */
+  --radius-md:     6px;   /* Default — buttons, menu items */
+  --radius-lg:     8px;   /* Cards, callouts */
+  --radius-xl:     12px;  /* Dialogs, large surfaces */
+  --radius-pill:   9999px;
+
+  /* ----------------------------------------------------------------------
+     7. SHADOWS — subtle. No heavy material elevation.
+     ---------------------------------------------------------------------- */
+  --shadow-xs:  0 1px 2px rgba(6, 16, 49, 0.04);
+  --shadow-sm:  0 1px 2px rgba(6, 16, 49, 0.05), 0 1px 3px rgba(6, 16, 49, 0.04);
+  --shadow-md:  0 2px 4px rgba(6, 16, 49, 0.05), 0 4px 12px rgba(6, 16, 49, 0.06);
+  --shadow-lg:  0 6px 16px rgba(6, 16, 49, 0.08), 0 12px 32px rgba(6, 16, 49, 0.06);
+  --shadow-popover: 0 4px 12px rgba(6, 16, 49, 0.10), 0 12px 28px rgba(6, 16, 49, 0.08);
+
+  /* ----------------------------------------------------------------------
+     8. MOTION — fast, restrained
+     ---------------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emph:     cubic-bezier(0.3, 0, 0, 1);
+  --dur-fast:      120ms;
+  --dur-base:      180ms;
+  --dur-slow:      280ms;
+
+  /* ----------------------------------------------------------------------
+     9. LAYOUT
+     ---------------------------------------------------------------------- */
+  --sidebar-w:        232px;
+  --sidebar-w-narrow: 64px;
+  --header-h:         56px;
+  --content-max:      1280px;
+}
+
+/* ==========================================================================
+   Base element styles — use these or the utility classes below.
+   ========================================================================== */
+
+html, body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  color: var(--fg-primary);
+  background: var(--bg-app);
+  font-feature-settings: "ss01", "cv11";   /* Poppins stylistic alternates — modest improvement on tabular data */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, .h1 {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--fg-primary);
+  margin: 0;
+}
+
+h2, .h2 {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--fg-primary);
+  margin: 0;
+}
+
+h3, .h3 {
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--fg-primary);
+  margin: 0;
+}
+
+h4, .h4 {
+  font-size: var(--fs-h4);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--fg-primary);
+  margin: 0;
+}
+
+p, .body {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-normal);
+  color: var(--fg-primary);
+  margin: 0;
+}
+
+.label {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+  color: var(--fg-secondary);
+  letter-spacing: 0;
+}
+
+.caption {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-regular);
+  color: var(--fg-muted);
+}
+
+.eyebrow {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--fg-muted);
+}
+
+a {
+  color: var(--fg-accent);
+  text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+a:hover { color: var(--fz-orange-600); text-decoration: underline; text-underline-offset: 2px; }
+
+::selection { background: var(--fz-blue-light); color: var(--fz-navy); }

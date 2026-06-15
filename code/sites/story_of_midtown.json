@@ -1,0 +1,16 @@
+{
+  "building_name": "Story of Midtown",
+  "strategy": "playwright_render",
+  "initial_wait_ms": 5000,
+  "scroll": true,
+  "scroll_count": 5,
+  "section_clicks": [
+    "button:has-text(\"Brand New Suites\")"
+  ],
+  "next_button_selector": "a.floor-select__next-floor",
+  "next_button_wait_ms": 3000,
+  "max_pages": 30,
+  "section_wait_ms": 3000,
+  "shadow_host_selector": "floorplan-navigator.fpn-one",
+  "notes": "73 Broadway Brand New Suites only. Uses shadow DOM web component for content extraction with floor pagination."
+}

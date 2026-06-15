@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_preview.css"><style>
+body { padding: 0; margin: 0; background: #FFFFFF; }
+.sb {
+  width: 232px; background: #061031; color: #FFFFFF; padding: 18px 12px;
+  font-family: var(--font-sans); height: 100%;
+}
+.sb .brand { color: #FF4E31; font-weight: 600; letter-spacing: 0.04em; font-size: 14px; padding: 0 8px 4px; }
+.sb .tool { color: #FFFFFF; font-weight: 600; letter-spacing: 0.08em; font-size: 10px; padding: 0 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sb .grp { font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); padding: 14px 8px 8px; }
+.pill-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 4px; }
+.pl { padding: 3px 10px; font-size: 11px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.18); color: #FFFFFF; }
+.pl.on { background: #FF4E31; border-color: #FF4E31; }
+.nav { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+.nav .item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: rgba(255,255,255,0.85); }
+.nav .item.active { background: #FF4E31; color: #FFFFFF; font-weight: 500; }
+.nav .item:hover:not(.active) { background: #1F2750; }
+.dot { width: 14px; height: 14px; border-radius: 3px; background: rgba(255,255,255,0.4); flex-shrink: 0; }
+.nav .item.active .dot { background: #FFFFFF; }
+</style></head>
+<body>
+<div class="sb">
+  <div class="brand">FITZROVIA</div>
+  <div class="tool">WORK ORDERS INTELLIGENCE</div>
+  <div class="grp">GEOGRAPHY</div>
+  <div class="pill-row"><span class="pl on">All</span><span class="pl">Toronto</span><span class="pl">Montreal</span><span class="pl">Vancouver</span></div>
+  <div class="grp">BRAND</div>
+  <div class="pill-row"><span class="pl on">All</span><span class="pl">Collection</span><span class="pl">Maddox</span><span class="pl">Loxley</span></div>
+  <div class="nav">
+    <div class="item active"><span class="dot"></span>Portfolio Overview</div>
+    <div class="item"><span class="dot"></span>Alerts &amp; Intelligence</div>
+    <div class="item"><span class="dot"></span>Work Orders</div>
+  </div>
+</div>
+</body></html>

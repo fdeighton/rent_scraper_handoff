@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_preview.css"><style>
+body { padding: 32px 24px; background: #FAFAF7; }
+.row { display: flex; gap: 24px; }
+.elev {
+  width: 130px; height: 88px;
+  background: #FFFFFF; border: 1px solid #E6E6E1; border-radius: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+}
+.elev .name { font-size: 11px; font-weight: 600; color: #061031; }
+.elev .tok { font-family: var(--font-mono); font-size: 10px; color: #7F7F7F; }
+.s-xs { box-shadow: 0 1px 2px rgba(6,16,49,0.04); }
+.s-sm { box-shadow: 0 1px 2px rgba(6,16,49,0.05), 0 1px 3px rgba(6,16,49,0.04); }
+.s-md { box-shadow: 0 2px 4px rgba(6,16,49,0.05), 0 4px 12px rgba(6,16,49,0.06); }
+.s-lg { box-shadow: 0 6px 16px rgba(6,16,49,0.08), 0 12px 32px rgba(6,16,49,0.06); }
+</style></head>
+<body>
+<div class="row">
+  <div class="elev s-xs"><div class="name">XS</div><div class="tok">hairline</div></div>
+  <div class="elev s-sm"><div class="name">SM</div><div class="tok">resting card</div></div>
+  <div class="elev s-md"><div class="name">MD</div><div class="tok">menu / popover</div></div>
+  <div class="elev s-lg"><div class="name">LG</div><div class="tok">modal</div></div>
+</div>
+</body></html>

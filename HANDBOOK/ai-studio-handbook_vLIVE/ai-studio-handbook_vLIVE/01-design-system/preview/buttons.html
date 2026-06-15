@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_preview.css"><style>
+body { padding: 28px 24px; background: #FFFFFF; }
+.col { display: flex; flex-direction: column; gap: 16px; }
+.row { display: flex; gap: 12px; align-items: center; }
+.btn {
+  font-family: var(--font-sans); font-size: 14px; font-weight: 500;
+  height: 36px; padding: 0 16px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  border: 1px solid transparent; transition: background 120ms;
+}
+.btn-primary { background: #FF4E31; color: #FFFFFF; }
+.btn-primary:hover { background: #E83C20; }
+.btn-secondary { background: #FFFFFF; color: #061031; border-color: #E1E1DC; }
+.btn-secondary:hover { background: #F2F2EF; }
+.btn-ghost { background: transparent; color: #061031; }
+.btn-ghost:hover { background: #F2F2EF; }
+.btn-danger { background: #FFFFFF; color: #FF4E31; border-color: #FFE6E0; }
+.btn-disabled { background: #F2F2EF; color: #B5B5AF; cursor: not-allowed; }
+.btn-sm { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 4px; }
+.btn-lg { height: 44px; padding: 0 20px; font-size: 15px; }
+.lbl { font-family: var(--font-mono); font-size: 10px; color: #7F7F7F; width: 60px; }
+</style></head>
+<body>
+<div class="col">
+  <div class="row"><div class="lbl">primary</div><button class="btn btn-primary">Sign in</button><button class="btn btn-primary btn-sm">Save</button><button class="btn btn-primary btn-lg">Continue</button></div>
+  <div class="row"><div class="lbl">secondary</div><button class="btn btn-secondary">Cancel</button><button class="btn btn-secondary">Export CSV</button><button class="btn btn-ghost">Filter</button><button class="btn btn-danger">Delete</button><button class="btn btn-disabled" disabled>Disabled</button></div>
+</div>
+</body></html>

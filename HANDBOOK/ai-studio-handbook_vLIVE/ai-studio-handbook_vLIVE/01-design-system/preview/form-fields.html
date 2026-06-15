@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_preview.css"><style>
+body { padding: 24px; background: #FFFFFF; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #061031;
+}
+.field input, .field select {
+  height: 38px; padding: 0 12px; border-radius: 6px;
+  border: 1px solid #E1E1DC; background: #FFFFFF;
+  font-family: var(--font-sans); font-size: 14px; color: #061031;
+  outline: none;
+}
+.field input::placeholder { color: #B5B5AF; }
+.field input:focus, .field.focused input {
+  border-color: #FF4E31; box-shadow: 0 0 0 3px rgba(255,78,49,0.28);
+}
+.field.error input { border-color: #FF4E31; }
+.field .help { font-size: 12px; color: #7F7F7F; }
+.field .err { font-size: 12px; color: #FF4E31; }
+</style></head>
+<body>
+<div class="grid">
+  <div class="field"><label>Email address</label><input value="karim@fitzrovia.ca" readonly></div>
+  <div class="field focused"><label>Password</label><input type="password" value="••••••••"></div>
+  <div class="field"><label>Building</label><select><option>All Buildings</option></select></div>
+  <div class="field error"><label>Date range</label><input value="" placeholder="Select a range"><span class="err">Please choose a date range.</span></div>
+</div>
+</body></html>

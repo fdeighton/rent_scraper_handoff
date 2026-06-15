@@ -1,0 +1,46 @@
+/* Shared styles for Design System preview cards.
+   Cards are ~700px wide and small in height. Skip outer titles — asset name renders outside.
+*/
+@import url("../colors_and_type.css");
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-surface);
+}
+body {
+  padding: 20px 24px;
+  color: var(--fg-primary);
+  font-family: var(--font-sans);
+}
+
+.row { display: flex; align-items: center; gap: 12px; }
+.col { display: flex; flex-direction: column; gap: 12px; }
+.grid { display: grid; gap: 12px; }
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.swatch-chip {
+  width: 100%;
+  height: 56px;
+  border-radius: 8px;
+  border: 1px solid var(--fz-border);
+}
+.swatch-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-primary);
+  letter-spacing: -0.01em;
+}
+.swatch-hex {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.token { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); }

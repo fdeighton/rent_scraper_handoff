@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fitzrovia · Support Widget Design Review</title>
+  <link rel="stylesheet" href="widget.css" />
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel (pinned) -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <!-- Component modules (must register on window) -->
+  <script type="text/babel" src="Icons.jsx"></script>
+  <script type="text/babel" src="HostShell.jsx"></script>
+  <script type="text/babel" src="SupportDrawer.jsx"></script>
+  <script type="text/babel" src="Tab1Placement.jsx"></script>
+  <script type="text/babel" src="Tab2Flow.jsx"></script>
+  <script type="text/babel" src="Tab3Errors.jsx"></script>
+  <script type="text/babel" src="Tab4Rationale.jsx"></script>
+
+  <!-- App shell -->
+  <script type="text/babel">
+    const { useState } = React;
+
+    const TABS = [
+      { id: "placement",  label: "1 · Placement",   render: () => <PlacementComparison /> },
+      { id: "flow",       label: "2 · Hi-fi flow",  render: () => <HiFiFlow /> },
+      { id: "errors",     label: "3 · Error states",render: () => <ErrorStates /> },
+      { id: "rationale",  label: "4 · Rationale",   render: () => <Rationale /> },
+    ];
+
+    function App() {
+      const [tab, setTab] = useState("placement");
+      const active = TABS.find(t => t.id === tab) || TABS[0];
+      return (
+        <>
+          <div className="review-chrome" data-screen-label="Review chrome">
+            <div className="review-chrome__brand">
+              <div className="review-chrome__brand-mark">F</div>
+              <span>Fitzrovia AI Studio</span>
+            </div>
+            <span className="review-chrome__title">Design review · <b>Support widget</b></span>
+            <div className="review-tabs">
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  className={"review-tab" + (t.id === tab ? " is-active" : "")}
+                  onClick={() => setTab(t.id)}
+                >{t.label}</button>
+              ))}
+            </div>
+          </div>
+          <main data-screen-label={active.label}>
+            {active.render()}
+          </main>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

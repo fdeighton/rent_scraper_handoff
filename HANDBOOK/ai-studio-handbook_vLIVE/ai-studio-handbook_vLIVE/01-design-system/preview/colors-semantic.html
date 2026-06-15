@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="_preview.css"><style>
+.semrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 9999px;
+  font-size: 12px; font-weight: 500;
+}
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+.pill.success { background: #E4F2EC; color: #1F8A5B; }
+.pill.success .dot { background: #1F8A5B; }
+.pill.warn { background: #FBEFD9; color: #C77A0F; }
+.pill.warn .dot { background: #C77A0F; }
+.pill.danger { background: #FFE6E0; color: #FF4E31; }
+.pill.danger .dot { background: #FF4E31; }
+.pill.info { background: #D6DFFA; color: #2A6FDB; }
+.pill.info .dot { background: #2A6FDB; }
+.label { font-size: 11px; color: var(--fg-muted); margin-top: 6px; font-family: var(--font-mono); }
+</style></head>
+<body>
+<div class="semrow">
+  <div><span class="pill success"><span class="dot"></span>Success</span><div class="label">#1F8A5B</div></div>
+  <div><span class="pill warn"><span class="dot"></span>Warning</span><div class="label">#C77A0F</div></div>
+  <div><span class="pill danger"><span class="dot"></span>Critical</span><div class="label">#FF4E31</div></div>
+  <div><span class="pill info"><span class="dot"></span>Info</span><div class="label">#2A6FDB</div></div>
+</div>
+</body></html>

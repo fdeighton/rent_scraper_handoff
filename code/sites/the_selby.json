@@ -1,0 +1,11 @@
+{
+  "building_name": "The Selby",
+  "strategy": "playwright_render",
+  "setup_clicks": ["text=Availability", "button:has-text('List View')"],
+  "scroll": false,
+  "wait_selector": ".TableList-item",
+  "content_selector": ".UnitsList.TableList",
+  "pagination_selector": ".UnitsListWrapper .pagination a, .UnitsList ~ .pagination a",
+  "initial_wait_ms": 5000,
+  "notes": "Tricon Residential pattern: dismiss popup > Availability sidebar > List View tab > paginated table. Pagination is outside .UnitsList (sibling, not child)."
+}
