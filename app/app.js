@@ -786,7 +786,7 @@
     const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};vertical-align:middle;white-space:normal;background:${bg};${extra || ""}`;
 
     let rowsHtml = "";
-    const spacer = `<tr><td colspan="${NCOL}" style="height:8px;border:none;background:#FAFAF7"></td></tr>`;
+    const spacer = `<tr style="height:24px">${Array(NCOL).fill(`<td style="border:none;background:#FAFAF7;height:24px">&nbsp;</td>`).join("")}</tr>`;
     let firstBlock = true;
     cols.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
