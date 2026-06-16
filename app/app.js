@@ -833,8 +833,8 @@
           </div>
           <button class="btn" id="a-map">${icon("pin")} Map</button>
           <button class="btn" id="a-xlsx">${icon("download")} Export Excel</button>
-          <button class="btn btn--accent" id="a-export">${icon("doc")} Export PDF</button>
-          <button class="btn" id="a-addcomp">${icon("plus")} Add building</button>
+          <button class="btn" id="a-export">${icon("doc")} Export PDF</button>
+          <button class="btn btn--accent" id="a-addcomp">${icon("plus")} Add building</button>
           ${a.custom ? `<button class="btn" id="a-remove">Remove</button>` : ""}
         </div>
       </div>`;
@@ -876,7 +876,10 @@
   function compTableHtml(cols, types, snapDate, minWidth, pdf) {
     types = types || presentTypes(cols);
     const sm = {}; cols.forEach((c) => (sm[c.b.id] = colSnap(c.b.id, snapDate)));
-    const colHead = cols.map(({ b, bench }) => `<th class="${bench ? "col-bench" : ""}">${esc(b.name)}${bench ? " ★" : ""}${(!pdf && !bench) ? ` <button class="th-rm" data-rm="${b.id}" title="Remove ${esc(b.name)} from this set" aria-label="Remove ${esc(b.name)}">×</button>` : ""}</th>`).join("");
+    const colHead = cols.map(({ b, bench }) => {
+      const rm = !pdf && !bench;
+      return `<th class="${bench ? "col-bench" : ""}${rm ? " col-rm" : ""}">${esc(b.name)}${bench ? " ★" : ""}${rm ? `<button class="th-rm" data-rm="${b.id}" title="Remove ${esc(b.name)} from this set" aria-label="Remove ${esc(b.name)}">×</button>` : ""}</th>`;
+    }).join("");
 
     const cell = (c, html) => `<td class="${c.bench ? "col-bench" : ""}">${html}</td>`;
     const rowMeta = (label, fn) => `<tr><td class="rowlabel">${label}</td>${cols.map((c) => cell(c, fn(c))).join("")}</tr>`;

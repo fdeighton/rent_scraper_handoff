@@ -300,9 +300,15 @@ table.comp thead th {
 .comp thead .rowlabel { background: var(--navy); z-index: 3; }
 .comp td.col-bench, .comp th.col-bench { background: var(--orange-100); }
 .comp thead th.col-bench { color: var(--orange-600); }
-.comp-wrap thead th .th-rm { margin-left: 6px; border: none; background: rgba(255,255,255,.16); color: #fff;
+/* Remove-comp × is pinned to the right edge, vertically centered — identical
+   placement whether the building name is one line or two. col-rm reserves equal
+   side padding so the name stays centered in the header cell. */
+.comp-wrap thead th { position: relative; }
+.comp-wrap thead th.col-rm { padding-left: 22px; padding-right: 22px; }
+.comp-wrap thead th .th-rm { position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  border: none; background: rgba(255,255,255,.16); color: #fff;
   width: 16px; height: 16px; line-height: 15px; border-radius: 50%; font-size: 12px; padding: 0; cursor: pointer;
-  vertical-align: middle; transition: background .12s var(--ease); }
+  transition: background .12s var(--ease); }
 .comp-wrap thead th .th-rm:hover { background: var(--orange); }
 .comp .group-row td {
   background: #f3f4f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
