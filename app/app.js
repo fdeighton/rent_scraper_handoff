@@ -756,7 +756,7 @@
     // Fitzrovia palette (design-system.md): navy header, orange subject, light-
     // blue subject-row tint, green/red deltas, hairline borders.
     const NAVY = "#061031", ORANGE = "#FF4E31", TINT = "#EEF2FE", GREY = "#7F7F7F",
-      BORDER = "#E6E6E1", GREEN = "#1F8A5B", LBLUE = "#D6DFFA";
+      BORDER = "#E6E6E1", GREEN = "#1F8A5B", RED = "#C0392B", LBLUE = "#D6DFFA";
     const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
 
     // Headline KPIs (same computation as the on-screen summary strip).
