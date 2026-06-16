@@ -1020,7 +1020,7 @@
       return { content, avail: PAGE_H - (withHead ? headH : 0) - PAD_TOP - PAD_BOT - SAFE };
     };
 
-    // Wrap `inner` and shrink it uniformly to fit `avail` (only ever scales down).
+    // Shrink `inner` uniformly to fit a height (used for an oversized table).
     const fitToHeight = (inner, outer, avail) => {
       const nat = H(inner);
       if (nat > avail && nat > 0) {
@@ -1031,14 +1031,36 @@
       }
     };
 
-    // ---- Page 1: the whole dashboard, scaled to fit one page --------------
+    // Fit `inner` to FILL the page box: lay it out progressively wider than the
+    // page, then scale down so the result fills both width (W) and height
+    // (availH) — eliminating the side margins a pure height-fit would leave.
+    const fillBox = (inner, outer, W, availH) => {
+      let w = W;
+      for (let i = 0; i < 6; i++) {
+        inner.style.width = w + "px";
+        const scale = Math.min(1, availH / H(inner));
+        if (scale >= 1) { w = W; break; }      // fits at full width, no scaling needed
+        const dispW = w * scale;
+        if (Math.abs(dispW - W) < 3) break;     // converged: scaled width ≈ page width
+        w = w * (W / dispW);                    // widen so the scaled width fills W
+      }
+      inner.style.width = w + "px";
+      const scale = Math.min(1, availH / H(inner));
+      inner.style.transformOrigin = "top left";
+      inner.style.transform = `scale(${scale.toFixed(4)})`;
+      outer.style.width = W + "px";
+      outer.style.height = H(inner) * scale + "px";
+      outer.style.overflow = "hidden";
+    };
+
+    // ---- Page 1: the whole dashboard, scaled to FILL one page -------------
     {
       const { content, avail } = newPage(true);
       const outer = document.createElement("div"); outer.className = "rp-fit";
       const inner = document.createElement("div"); inner.className = "rp-fit-in";
       chartBlocks.forEach((b) => inner.appendChild(b));
       outer.appendChild(inner); content.appendChild(outer);
-      fitToHeight(inner, outer, avail);
+      fillBox(inner, outer, outer.getBoundingClientRect().width, avail);
     }
 
     // ---- Pages 2+: whole comp tables, packed, never split -----------------
