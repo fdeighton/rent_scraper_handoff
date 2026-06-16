@@ -478,7 +478,8 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .rp-pages { display: flex; flex-direction: column; align-items: center; gap: 22px;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rp-page { box-sizing: border-box; position: relative; width: 816px; height: 1056px; background: #fff; overflow: hidden;
-  box-shadow: var(--shadow-lg); border-radius: 2px; }
+  box-shadow: var(--shadow-lg); border-radius: 2px;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rp-page-body { padding: 18px 32px 28px; }
 /* Per-page footer pinned to the bottom of each sheet. */
 .rp-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: var(--navy);
@@ -583,9 +584,20 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .rp-tablewrap table.comp th, .rp-tablewrap table.comp td { padding: 6px 8px; }
 .rp-tablewrap table.comp thead th { position: static; }
 .rp-tablewrap .rowlabel { position: static; box-shadow: none; min-width: 110px; }
-.rp-tablewrap .prop-photo { width: 38px; height: 38px; }
+.rp-tablewrap .prop-photo { width: 38px; height: 38px; border-radius: 6px; box-shadow: 0 0 0 1px rgba(11,18,42,.08); }
 .rp-tablewrap .prop-name { font-size: 11px; }
 .rp-tablewrap .delta { font-size: 9px; }
+
+/* Cleaner detailed-comparables grid for the export: softer horizontal rules,
+   defined section dividers, and a tinted weighted-average summary row. */
+.rp-tablewrap { border-color: #e3e6ee; border-radius: var(--r-lg); }
+.rp-tablewrap table.comp th, .rp-tablewrap table.comp td { border-bottom: 1px solid #eef0f5; }
+.rp-tablewrap .group-row td { background: #eceff6; color: var(--navy); font-weight: 700; padding-top: 5px; padding-bottom: 5px; }
+.rp-tablewrap .group-row .rowlabel { background: #eceff6; }
+.rp-tablewrap .incentive-row td { font-size: 9.5px; line-height: 1.4; }
+.rp-tablewrap .wavg td { background: #f3f6fc; border-top: 1.5px solid var(--navy); }
+.rp-tablewrap .metric { font-size: 12px; }
+.rp-tablewrap .rowlabel { font-weight: 600; color: var(--navy-600); }
 
 @media print {
   body.report-open .app { display: none !important; }
