@@ -281,13 +281,13 @@ table.comp col.c-label { width: 160px; }
 table.comp col.c-data { width: 188px; }
 .rp-tablewrap table.comp col.c-label { width: 110px; }
 .rp-tablewrap table.comp col.c-data { width: 150px; }
-table.comp th, table.comp td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+table.comp th, table.comp td { text-align: center; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
 table.comp thead th {
   position: sticky; top: 0; background: var(--navy); color: #fff;
   font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; z-index: 2;
 }
 .comp .rowlabel {
-  position: sticky; left: 0; background: var(--surface); z-index: 1;
+  position: sticky; left: 0; background: var(--surface); z-index: 1; text-align: left;
   font-weight: 500; color: var(--navy); min-width: 150px; box-shadow: 1px 0 0 var(--border);
 }
 .comp thead .rowlabel { background: var(--navy); z-index: 3; }
@@ -295,13 +295,13 @@ table.comp thead th {
 .comp thead th.col-bench { color: var(--orange-600); }
 .comp .group-row td {
   background: #f3f4f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--navy-600); font-weight: 600;
+  color: var(--navy-600); font-weight: 600; text-align: left;
 }
 .comp .group-row .rowlabel { background: #f3f4f8; }
 .comp .prop-photo { width: 56px; height: 56px; border-radius: var(--r-md); object-fit: cover; background: var(--navy-800); }
 .comp .prop-name { font-weight: 600; font-size: 14px; }
 .comp .prop-name.bench { color: var(--orange-600); }
-.comp .incentive-row td { background: var(--warning-soft); color: #7a4d0a; font-size: 12px; }
+.comp .incentive-row td { background: var(--warning-soft); color: #7a4d0a; font-size: 12px; text-align: left; }
 .comp .incentive-row .rowlabel { background: var(--warning-soft); }
 .comp .metric { font-weight: 600; font-size: 14px; }
 .comp .metric.muted { color: var(--grey); font-weight: 400; }
@@ -346,7 +346,7 @@ svg .axis-label { fill: var(--grey); font-size: 11px; }
 
 /* KPI strip */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: var(--sp-4); margin-bottom: var(--sp-5); }
-.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-sm); }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--sp-4); box-shadow: var(--shadow-sm); text-align: center; }
 .kpi__val { font-size: 28px; font-weight: 600; letter-spacing: -.01em; }
 .kpi__val.success { color: var(--success); }
 .kpi__val.accent { color: var(--orange); }
@@ -362,14 +362,14 @@ svg .axis-label { fill: var(--grey); font-size: 11px; }
 .detail-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 .detail-media .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--navy-800), var(--navy-600)); color: #4d5786; }
 .stat3 { display: flex; gap: var(--sp-6); }
-.stat3 .s { text-align: left; }
+.stat3 .s { text-align: center; }
 .stat3 .s b { font-size: 26px; font-weight: 600; display: block; }
 .stat3 .s.ok b { color: var(--success); }
 .stat3 .s.err b { color: var(--orange-600); }
 .stat3 .s span { font-size: 11px; color: var(--grey); }
 
 table.hist { width: 100%; border-collapse: collapse; font-size: 13px; }
-table.hist th, table.hist td { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: right; }
+table.hist th, table.hist td { padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: center; }
 table.hist th:first-child, table.hist td:first-child { text-align: left; }
 table.hist thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); font-weight: 600; }
 table.hist tr.qtotal td { font-weight: 600; cursor: pointer; }
@@ -473,7 +473,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 
 /* KPI strip */
 .rp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); margin: 0 0 16px; }
-.rp-kpi { padding: 16px; border-left: 1px solid var(--border); }
+.rp-kpi { padding: 16px; border-left: 1px solid var(--border); text-align: center; }
 .rp-kpi:first-child { border-left: none; padding-left: 0; }
 .rp-kpi-l { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--grey); }
 .rp-kpi-v { font-size: 24px; font-weight: 600; margin-top: 4px; }
