@@ -477,6 +477,20 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .rp-page-body { padding: 18px 32px 28px; }
 .rp-fit-in { width: 100%; }   /* scaled uniformly by the paginator to fit a page */
 
+/* Report typography: Inter for the dense data (much larger x-height than Poppins,
+   so it stays legible when small/scaled); Poppins kept for the brand + headline.
+   Tabular lining figures align number columns and read crisply at any size. */
+.report-sheet, .rp-pages, .rp-page {
+  font-family: 'Inter', 'Poppins', -apple-system, Segoe UI, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.rp-brand, .rp-title { font-family: 'Poppins', 'Inter', sans-serif; }
+/* Nudge the tiny muted sub-labels heavier + darker so they hold up when small. */
+.rp-page .comp td .sub, .rp-tablewrap .comp td .sub,
+.rp-page .rb-name, .rp-page .wb-name { font-weight: 500; }
+.rp-page .comp td .sub, .rp-tablewrap .comp td .sub { color: #4a4f5a; }
+
 /* Header band */
 .rp-head { background: var(--navy); color: #fff; padding: 6px 32px 7px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rp-head-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
