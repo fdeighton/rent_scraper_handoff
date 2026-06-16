@@ -80,11 +80,16 @@
   function loadCustomAnalyses() {
     try {
       const arr = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
-      arr.forEach((a) => { if (!D.analyses.some((x) => x.id === a.id)) D.analyses.push(a); });
+      // Replace a matching seed analysis with the stored (edited) copy, else add.
+      arr.forEach((a) => {
+        const i = D.analyses.findIndex((x) => x.id === a.id);
+        if (i >= 0) D.analyses[i] = a; else D.analyses.push(a);
+      });
     } catch (e) {}
   }
   function saveCustomAnalyses() {
-    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(D.analyses.filter((a) => a.custom))); } catch (e) {}
+    // Persist user-created analyses AND any seed analysis the user has edited.
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(D.analyses.filter((a) => a.custom || a.edited))); } catch (e) {}
   }
   function deleteAnalysis(id) {
     const i = D.analyses.findIndex((a) => a.id === id);
@@ -648,6 +653,129 @@
   }
   const selectedSnap = (a) => snapState[a.id] || (runDates(a)[0] || null);
 
+  // ---- Add existing universe buildings to an analysis's comp set -----------
+  function addCompsToAnalysis(a, ids) {
+    const bb = bld(a.benchmark);
+    let order = a.comps.length;
+    ids.forEach((id) => {
+      if (id === a.benchmark || a.comps.some((c) => c.building === id)) return;
+      const cb = bld(id);
+      const dist = bb && cb && bb.lat != null && cb.lat != null ? haversine(bb.lat, bb.lng, cb.lat, cb.lng) : null;
+      a.comps.push({ building: id, order: order++, distance: dist });
+    });
+    a.edited = true;          // persist edits to seed analyses too (see loadCustomAnalyses)
+    saveCustomAnalyses();
+  }
+
+  function openAddCompModal(a) {
+    const existing = new Set([a.benchmark, ...a.comps.map((c) => c.building)]);
+    const buildings = Object.values(D.buildings)
+      .filter((b) => b.isActive !== false && !existing.has(b.id))
+      .sort((x, y) => x.name.localeCompare(y.name));
+
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Add buildings to comp set">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("plus")}</div>
+        <div class="modal__title">Add building to comp set</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="field">
+          <label>Buildings from the universe <span class="sub">(buildings already in this set are hidden)</span></label>
+          <div class="search" style="margin-bottom:8px">${icon("search")}<input type="text" id="ac-search" placeholder="Filter buildings…"/></div>
+          <div class="checklist" id="ac-list"></div>
+          <div class="selcount" id="ac-count">0 selected</div>
+        </div>
+      </div>
+      <div class="modal__foot">
+        <span class="modal-note">Saved in this browser only — not shared</span>
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--primary" id="ac-add">Add to set</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+
+    const selected = new Set();
+    const $ = (sel) => overlay.querySelector(sel);
+    const listEl = $("#ac-list");
+    function renderList() {
+      const q = ($("#ac-search").value || "").trim().toLowerCase();
+      const items = buildings.filter((b) => !q || (b.name + " " + (b.city || "")).toLowerCase().includes(q));
+      listEl.innerHTML = items.map((b) =>
+        `<label class="ci"><input type="checkbox" value="${b.id}" ${selected.has(b.id) ? "checked" : ""}/> <span>${esc(b.name)}</span><span class="city">${esc(b.city || "")}</span></label>`).join("") || '<div class="empty">No matches</div>';
+      listEl.querySelectorAll("input").forEach((cb) => (cb.onchange = () => {
+        cb.checked ? selected.add(cb.value) : selected.delete(cb.value);
+        $("#ac-count").textContent = selected.size + " selected";
+      }));
+    }
+    renderList();
+    $("#ac-search").oninput = renderList;
+
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((b) => (b.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+    $("#ac-add").onclick = () => {
+      if (selected.size) addCompsToAnalysis(a, [...selected]);
+      close();
+      route(); // re-render the current analysis page with the new comps
+    };
+  }
+
+  // ---- Excel (CSV) export of the comp set ----------------------------------
+  function csvCell(v) {
+    const s = v == null ? "" : String(v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function downloadFile(name, content, mime) {
+    const blob = new Blob([content], { type: mime + ";charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = name;
+    document.body.appendChild(link); link.click();
+    setTimeout(() => { URL.revokeObjectURL(url); link.remove(); }, 0);
+  }
+  function exportAnalysisExcel(a) {
+    const cols = compSetBuildings(a);
+    const snap = selectedSnap(a);
+    const types = presentTypes(cols);
+    const bench = bld(a.benchmark);
+    const rows = [];
+    rows.push(["Competitive Analysis", a.name]);
+    rows.push(["Benchmark", bench ? bench.name : ""]);
+    rows.push(["Snapshot", snap ? fmtDate(snap) : "Latest"]);
+    rows.push(["Comparables", String(cols.filter((c) => !c.bench).length)]);
+    rows.push([]);
+    rows.push(["Building", "Role", "Address", "City", "Year built", "Units", "Owner / manager", "Asset type",
+      "Distance (m)", "Unit type", "Avg rent ($/mo)", "Avg PSF ($/sf)", "Avg size (sf)", "Δ rent ($)", "Δ rent (%)", "Incentives", "Snapshot date"]);
+    cols.forEach((c) => {
+      const { cur, prev } = colSnap(c.b.id, snap);
+      const inc = cur && cur.incentives ? cur.incentives : "";
+      const sdate = cur && cur.date ? cur.date : (snap || "");
+      const base = [c.b.name, c.bench ? "Subject" : "Comp", c.b.address || "", c.b.city || "", c.b.yearBuilt || "",
+        c.b.unitCount || "", c.b.owner || "", c.b.assetType || "", c.bench ? "Benchmark" : (c.distance != null ? c.distance : "")];
+      const addMetric = (label, m, p, withInc) => {
+        if (!m || m.avgRent == null) return;
+        let dRent = "", dPct = "";
+        if (p && p.avgRent != null) {
+          dRent = Math.round(m.avgRent - p.avgRent);
+          dPct = p.avgRent ? (((m.avgRent - p.avgRent) / p.avgRent) * 100).toFixed(1) : "";
+        }
+        rows.push([...base, label, Math.round(m.avgRent), m.avgPsf != null ? Number(m.avgPsf).toFixed(2) : "",
+          m.avgSqft != null ? m.avgSqft : "", dRent, dPct, withInc ? inc : "", sdate]);
+      };
+      types.forEach((t) => addMetric(TYPE_LABEL[t], cur && cur.byType && cur.byType[t], prev && prev.byType && prev.byType[t], false));
+      addMetric("Weighted average", cur && cur.weighted, prev && prev.weighted, true);
+    });
+    const csv = "﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+    const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
+    downloadFile(`${safe} — comp analysis.csv`, csv, "text/csv");
+  }
+
   function renderAnalysis(id, tab) {
     const a = analysisById(id);
     if (!a) return renderUniverse();
@@ -666,6 +794,9 @@
             <button data-tab="summary" class="${tab === "summary" ? "active" : ""}">Summary</button>
             <button data-tab="trends" class="${tab === "trends" ? "active" : ""}">Rent Trends</button>
           </div>
+          <button class="btn" id="a-addcomp">${icon("plus")} Add building</button>
+          <button class="btn" id="a-map">${icon("map")} Map</button>
+          <button class="btn" id="a-xlsx">${icon("download")} Excel</button>
           ${a.custom ? `<button class="btn" id="a-remove">Remove</button>` : ""}
           <button class="btn btn--accent" id="a-export">${icon("download")} Export PDF</button>
         </div>
@@ -677,6 +808,12 @@
     if (rm) rm.onclick = () => { if (confirm(`Remove the "${a.name}" analysis? This only deletes your custom analysis, not any building data.`)) deleteAnalysis(id); };
     const ex = document.getElementById("a-export");
     if (ex) ex.onclick = () => openReport(a);
+    const addc = document.getElementById("a-addcomp");
+    if (addc) addc.onclick = () => openAddCompModal(a);
+    const mapb = document.getElementById("a-map");
+    if (mapb) mapb.onclick = () => { buState.bucket = a.id; buState.view = "map"; buState.city = "__all"; location.hash = "#/universe"; };
+    const xls = document.getElementById("a-xlsx");
+    if (xls) xls.onclick = () => exportAnalysisExcel(a);
     if (tab === "trends") renderTrends(a, cols);
     else renderSummary(a, cols);
   }
