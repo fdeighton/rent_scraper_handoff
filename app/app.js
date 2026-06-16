@@ -749,66 +749,76 @@
     const snap = selectedSnap(a);
     const types = presentTypes(cols);
     const bench = bld(a.benchmark);
-    const sm = {}; cols.forEach((c) => (sm[c.b.id] = colSnap(c.b.id, snap)));
     const ncomp = cols.filter((c) => !c.bench).length;
-    const n = cols.length;
 
-    // Fitzrovia palette (design-system.md): navy structure, orange accent,
-    // light-blue subject tint, warm incentive wash, hairline borders.
-    const NAVY = "#061031", ORANGE = "#FF4E31", LBLUE = "#D6DFFA", TINT = "#EEF2FE",
-      GREY = "#7F7F7F", BORDER = "#E6E6E1", WARM = "#FBEFD9", GREEN = "#1F8A5B", RED = "#C0392B";
+    // Tidy long format — one row per building × unit type, every metric in its
+    // own NUMERIC cell so Excel can sort / filter / pivot / compute on it.
+    // Fitzrovia palette (design-system.md): navy header, orange subject, light-
+    // blue subject-row tint, green/red deltas, hairline borders.
+    const NAVY = "#061031", ORANGE = "#FF4E31", TINT = "#EEF2FE", GREY = "#7F7F7F",
+      BORDER = "#E6E6E1", GREEN = "#1F8A5B", RED = "#C0392B";
     const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
+    const headers = ["Building", "Role", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)",
+      "Avg PSF ($/sf)", "Avg size (sf)", "Year built", "Units", "Owner / manager", "Asset type",
+      "Address", "City", "Distance (m)", "Incentives", "Snapshot"];
+    const NCOL = headers.length;
+
     const sTitle = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:15px;padding:11px 12px;`;
     const sMeta = `background:#fff;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
-    const sHeadL = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:11px;padding:8px;border:1px solid ${BORDER};text-align:left;`;
-    const sHead = (bn) => `background:${NAVY};color:${bn ? ORANGE : "#fff"};${F}font-weight:600;font-size:11px;padding:8px;border:1px solid ${BORDER};text-align:center;`;
-    const sSec = `background:${LBLUE};color:${NAVY};${F}font-weight:600;font-size:10px;letter-spacing:0.04em;padding:6px 8px;border:1px solid ${BORDER};text-align:left;`;
-    const sLbl = `background:#fff;color:${NAVY};${F}font-weight:600;font-size:11px;padding:6px 8px;border:1px solid ${BORDER};text-align:left;`;
-    const sCell = (bn) => `${F}font-size:11px;color:${NAVY};padding:6px 8px;border:1px solid ${BORDER};text-align:center;background:${bn ? TINT : "#fff"};`;
-    const sInc = (bn) => `${F}font-size:10px;color:#7a4d0a;padding:6px 8px;border:1px solid ${BORDER};text-align:center;background:${bn ? "#F6E3C4" : WARM};`;
-    const tr = (c) => `<tr>${c}</tr>`;
-    const span = (s) => `<td colspan="${n + 1}" style="${s}">`;
+    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};text-align:center;`;
+    const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};background:${bg};${extra || ""}`;
 
-    const xlDelta = (m, p) => {
-      if (!m || m.avgRent == null || !p || p.avgRent == null) return "";
-      const d = m.avgRent - p.avgRent;
-      const pct = p.avgRent ? Math.abs((d / p.avgRent) * 100).toFixed(1) : "0.0";
-      const col = d > 0 ? GREEN : d < 0 ? RED : GREY;
-      const sign = d > 0 ? "+" : d < 0 ? "−" : "";
-      return ` <span style="color:${col};font-size:9px">${sign}$${Math.abs(Math.round(d)).toLocaleString()} (${pct}%)</span>`;
-    };
-    const metric = (c, m, p, wavg) => {
-      const st = sCell(c.bench) + (wavg ? `font-weight:700;border-top:2px solid ${NAVY};` : "");
-      if (!m || m.avgRent == null) return `<td style="${st}color:${GREY}">—</td>`;
-      return `<td style="${st}"><b style="font-size:12px">${money(m.avgRent)}</b>${xlDelta(m, p)}<br><span style="color:${GREY};font-size:9px">${psf(m.avgPsf)}/sf · ${m.avgSqft || "—"} sf</span></td>`;
-    };
+    let rowsHtml = "";
+    cols.forEach((c) => {
+      const { cur, prev } = colSnap(c.b.id, snap);
+      if (!cur) return;
+      const subj = c.bench;
+      const bg = subj ? TINT : "#fff";
+      const sdate = cur.date ? fmtDate(cur.date) : (snap ? fmtDate(snap) : "Latest");
+      const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
+
+      const emit = (unitLabel, m, p, incVal, wavg) => {
+        if (!m || m.avgRent == null) return;
+        const b = wavg ? "font-weight:700;" : "";
+        const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
+        const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
+        const dCol = d > 0 ? GREEN : d < 0 ? RED : GREY;
+        const cell = (v, align, extra) => `<td style="${cs(align || "center", bg, b + (extra || ""))}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+        rowsHtml += "<tr>" +
+          `<td style="${cs("left", bg, (subj ? `color:${ORANGE};` : "") + "font-weight:600;" + b)}">${esc(c.b.name)}${subj ? " ★" : ""}</td>` +
+          cell(subj ? "Subject" : "Comp") +
+          cell(unitLabel, "left") +
+          cell(Math.round(m.avgRent)) +
+          cell(d == null ? "" : Math.round(d), "center", `color:${dCol};`) +
+          cell(dPct == null ? "" : dPct, "center", `color:${dCol};`) +
+          cell(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "") +
+          cell(m.avgSqft != null ? m.avgSqft : "") +
+          cell(c.b.yearBuilt || "") +
+          cell(c.b.unitCount || "") +
+          cell(esc(c.b.owner || ""), "left") +
+          cell(esc(c.b.assetType || "")) +
+          cell(esc(c.b.address || ""), "left") +
+          cell(esc(c.b.city || ""), "left") +
+          cell(dist) +
+          `<td style="${cs("left", bg, b + "font-size:9px;color:#7a4d0a;")}">${incVal ? esc(incVal) : ""}</td>` +
+          cell(sdate) +
+          "</tr>";
+      };
+      types.forEach((t) => emit(TYPE_LABEL[t], cur.byType && cur.byType[t], prev && prev.byType && prev.byType[t], "", false));
+      emit("Weighted average", cur.weighted, prev && prev.weighted, cur.incentives || "", true);
+    });
 
     let body = "";
-    body += tr(`${span(sTitle)}Competitive Analysis — ${esc(a.name)}</td>`);
-    body += tr(`${span(sMeta)}Benchmark: ${esc(bench ? bench.name : "—")} &nbsp;·&nbsp; Snapshot: ${esc(snap ? fmtDate(snap) : "Latest")} &nbsp;·&nbsp; ${ncomp} comparables &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td>`);
-    body += tr(`<td colspan="${n + 1}" style="height:6px;border:none"></td>`);
-    body += tr(`<td style="${sHeadL}">Metric</td>${cols.map((c) => `<td style="${sHead(c.bench)}">${esc(c.b.name)}${c.bench ? " ★" : ""}</td>`).join("")}`);
-    body += tr(`${span(sSec)}PROPERTY</td>`);
-    const meta = (label, fn) => tr(`<td style="${sLbl}">${label}</td>${cols.map((c) => `<td style="${sCell(c.bench)}">${fn(c)}</td>`).join("")}`);
-    body += meta("Address", (c) => esc(c.b.address || "—"));
-    body += meta("City", (c) => esc(c.b.city || "—"));
-    body += meta("Year built", (c) => c.b.yearBuilt || "—");
-    body += meta("Units", (c) => c.b.unitCount || "—");
-    body += meta("Owner / manager", (c) => esc(c.b.owner || "—"));
-    body += meta("Asset type", (c) => esc(c.b.assetType || "—"));
-    body += meta("Distance to site", (c) => (c.bench ? "Benchmark" : c.distance != null ? c.distance + " m" : "—"));
-    body += tr(`<td style="${sLbl}">Incentives</td>${cols.map((c) => { const s = sm[c.b.id].cur; return `<td style="${sInc(c.bench)}">${s && s.incentives ? esc(s.incentives) : "None advertised"}</td>`; }).join("")}`);
-    body += tr(`${span(sSec)}SNAPSHOT — ${esc(snap ? fmtDate(snap) : "Latest")} · gross rent, $/sf, avg size, vs prior Δ</td>`);
-    types.forEach((t) => {
-      body += tr(`<td style="${sLbl}">${TYPE_LABEL[t]}</td>${cols.map((c) => metric(c, sm[c.b.id].cur && sm[c.b.id].cur.byType[t], sm[c.b.id].prev && sm[c.b.id].prev.byType[t], false)).join("")}`);
-    });
-    body += tr(`<td style="${sLbl}border-top:2px solid ${NAVY}">Weighted average</td>${cols.map((c) => metric(c, sm[c.b.id].cur && sm[c.b.id].cur.weighted, sm[c.b.id].prev && sm[c.b.id].prev.weighted, true)).join("")}`);
+    body += `<tr><td colspan="${NCOL}" style="${sTitle}">Competitive Analysis — ${esc(a.name)}</td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sMeta}">Benchmark: ${esc(bench ? bench.name : "—")} &nbsp;·&nbsp; Snapshot: ${esc(snap ? fmtDate(snap) : "Latest")} &nbsp;·&nbsp; ${ncomp} comparables &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="height:6px;border:none"></td></tr>`;
+    body += `<tr>${headers.map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
+    body += rowsHtml;
 
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">` +
       `<head><meta charset="utf-8"/>` +
       `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Comp Analysis</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
-      `<style>td{mso-number-format:"\\@";vertical-align:middle}</style></head>` +
-      `<body><table border="0" cellspacing="0" cellpadding="0">${body}</table></body></html>`;
+      `</head><body><table border="0" cellspacing="0" cellpadding="0">${body}</table></body></html>`;
     const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
     downloadFile(`${safe} — comp analysis.xls`, html, "application/vnd.ms-excel");
   }
