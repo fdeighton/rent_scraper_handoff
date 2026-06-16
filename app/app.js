@@ -720,7 +720,8 @@
       </td>`;
     }).join("")}</tr>`;
 
-    return `<table class="comp"><thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
+    const colGroup = `<colgroup><col class="c-label"/>${cols.map(() => '<col class="c-data"/>').join("")}</colgroup>`;
+    return `<table class="comp">${colGroup}<thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function renderSummary(a, cols) {
@@ -862,7 +863,7 @@
     const benchCol = cols.find((c) => c.bench);
     const compCols = cols.filter((c) => !c.bench);
     const types = presentTypes(cols);
-    const CHUNK = 4;
+    const CHUNK = 3; // benchmark + 3 comps = 4 cols → fits Letter width without clipping in print
     let out = "";
     if (!compCols.length) {
       out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types)}</div>` : "";
