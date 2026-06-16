@@ -1,0 +1,3 @@
+# Only the static site needs to ship. Keep source/build artifacts off the web.
+build_data.py
+README.md

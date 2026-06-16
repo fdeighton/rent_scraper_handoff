@@ -1,0 +1,25 @@
+# Secrets — NEVER commit (handbook hard rule)
+.env
+.env.local
+.env.*.local
+
+# Python
+**/venv/
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# Scraper runtime artifacts
+**/.chrome_profiles/
+**/debug_screenshots/
+**/logs/
+**/_batches/
+
+# Node / Vercel
+node_modules/
+.vercel
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
