@@ -151,7 +151,10 @@ def main():
         note = row[8] if len(row) > 8 else ""
         if note == "NULL":
             note = ""
-        units_by_snap[snap].append({"type": utype, "sqft": sqft, "rent": rent, "psf": psf, "note": note[:48]})
+        bath = row[3] if len(row) > 3 else ""
+        if bath == "NULL":
+            bath = ""
+        units_by_snap[snap].append({"type": utype, "bath": bath, "sqft": sqft, "rent": rent, "psf": psf, "note": note[:48]})
 
     def aggregate(units):
         """building_summary-style aggregate. rent NOT NULL only."""
@@ -246,7 +249,7 @@ def main():
                 continue
             # the individual priced listings that roll up into the cell averages
             listings = [
-                {"type": u["type"], "rent": round(u["rent"]), "sqft": u["sqft"],
+                {"type": u["type"], "bath": u["bath"], "rent": round(u["rent"]), "sqft": u["sqft"],
                  "psf": u["psf"], "note": u["note"]}
                 for u in us if u["rent"] is not None
             ]

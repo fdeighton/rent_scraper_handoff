@@ -995,40 +995,158 @@
   }
 
   // Drill-down: the individual listings that rolled up into a clicked cell.
+  // Unit-backup modal: filter tabs by unit type, a sortable per-unit table, and
+  // a summary-by-unit-type table — opened by clicking a cell in the comp table.
   function openUnitsModal(bid, type, snapDate) {
     const b = bld(bid); if (!b) return;
     const snap = snapshotAt(bid, snapDate).cur;
-    const units = ((snap && snap.units) ? snap.units : [])
-      .filter((u) => type === "__all" || u.type === type)
-      .slice().sort((x, y) => y.rent - x.rent);
-    const n = units.length;
-    const avgRent = n ? Math.round(units.reduce((s, u) => s + u.rent, 0) / n) : null;
-    const ps = units.filter((u) => u.psf != null);
-    const avgPsf = ps.length ? ps.reduce((s, u) => s + u.psf, 0) / ps.length : null;
-    const label = type === "__all" ? "All units (weighted)" : (TYPE_LABEL[type] || type);
-    const body = n
-      ? `<table class="units-tbl"><thead><tr><th>Unit / notes</th><th>Type</th><th>Sq ft</th><th>Rent</th><th>$/sf</th></tr></thead><tbody>${
-          units.map((u) => `<tr><td>${esc(u.note || "—")}</td><td>${TYPE_LABEL[u.type] || u.type}</td><td class="tnum">${u.sqft || "—"}</td><td class="tnum">${money(u.rent)}</td><td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td></tr>`).join("")
-        }</tbody></table>`
-      : '<div class="empty">No individual listings recorded for this cell.</div>';
+    const all = (snap && Array.isArray(snap.units)) ? snap.units.slice() : [];
+    const typesPresent = UNIT_TYPES.filter((t) => all.some((u) => u.type === t));
+    const st = {
+      type: (type && type !== "__all" && all.some((u) => u.type === type)) ? type : "__all",
+      sort: "rent", dir: -1,
+    };
+    const COLS = [
+      { k: "type", label: "Unit Type", num: false },
+      { k: "bath", label: "Bath", num: true },
+      { k: "sqft", label: "SF", num: true },
+      { k: "rent", label: "Rent", num: true },
+      { k: "psf", label: "Rent PSF", num: true },
+      { k: "note", label: "Notes", num: false },
+    ];
+    const numOf = (v) => (v == null || v === "" ? null : +v);
+
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
-    overlay.innerHTML = `<div class="modal modal--wide" role="dialog" aria-modal="true">
-      <div class="modal__head">
-        <div class="modal__chip">${icon("building")}</div>
-        <div><div class="modal__title">${esc(b.name)} — ${label}</div>
-          <div class="sub">Snapshot ${fmtDate(snapDate)} · ${n} listing${n === 1 ? "" : "s"} · avg ${money(avgRent)}${avgPsf != null ? " · " + psf(avgPsf) + "/sf" : ""}</div></div>
-        <button class="modal__x" data-close aria-label="Close">&times;</button>
+    overlay.innerHTML = `<div class="modal modal--units" role="dialog" aria-modal="true">
+      <div class="um-head">
+        <div class="um-head-id">
+          <div class="um-title">${esc(b.name)} — Unit Backup</div>
+          <div class="um-sub">Last scraped: ${snap && snap.date ? fmtDate(snap.date) : "—"}</div>
+        </div>
+        <div class="um-head-act">
+          <button class="btn" id="um-xlsx">${icon("download")} Export Excel</button>
+          <button class="modal__x" data-close aria-label="Close">&times;</button>
+        </div>
       </div>
-      <div class="modal__body">${body}</div>
-      <div class="modal__foot"><span class="modal-note">Individual listings behind the cell average</span><button class="btn btn--primary" data-close>Close</button></div>
+      <div class="um-body">
+        <div class="um-block">
+          <div class="um-label">Individual units <span class="um-count" id="um-count"></span></div>
+          <div class="um-tabs" id="um-tabs"></div>
+          <div id="um-table"></div>
+        </div>
+        <div class="um-block">
+          <div class="um-label">Summary by unit type</div>
+          <div id="um-summary"></div>
+        </div>
+      </div>
     </div>`;
     document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+
+    const rowsForType = () => all.filter((u) => st.type === "__all" || u.type === st.type);
+    const sortRows = (rows) => {
+      const c = COLS.find((x) => x.k === st.sort) || COLS[3];
+      return rows.slice().sort((x, y) => {
+        let a, bb;
+        if (c.num) { a = numOf(x[c.k]); bb = numOf(y[c.k]); a = a == null ? -Infinity : a; bb = bb == null ? -Infinity : bb; }
+        else { a = (x[c.k] || "").toString().toLowerCase(); bb = (y[c.k] || "").toString().toLowerCase(); }
+        return a < bb ? -st.dir : a > bb ? st.dir : 0;
+      });
+    };
+    const arrow = (k) => (st.sort === k ? (st.dir < 0 ? " ↓" : " ↑") : "");
+    const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+
+    function renderTabs() {
+      const tab = (key, label, cnt) => `<button class="um-tab ${st.type === key ? "active" : ""}" data-t="${key}">${label} (${cnt})</button>`;
+      let html = tab("__all", "All", all.length);
+      typesPresent.forEach((t) => { html += tab(t, TYPE_LABEL[t] || t, all.filter((u) => u.type === t).length); });
+      $("#um-tabs").innerHTML = html;
+      $("#um-tabs").querySelectorAll(".um-tab").forEach((bn) => (bn.onclick = () => { st.type = bn.dataset.t; render(); }));
+    }
+    function renderTable() {
+      const rows = sortRows(rowsForType());
+      $("#um-count").textContent = `(${rows.length} of ${all.length})`;
+      if (!rows.length) { $("#um-table").innerHTML = '<div class="empty">No individual listings recorded.</div>'; return; }
+      const head = COLS.map((c) => `<th class="um-th" data-s="${c.k}">${c.label}<span class="um-sorti">${arrow(c.k)}</span></th>`).join("");
+      const body = rows.map((u) => `<tr>
+        <td>${TYPE_LABEL[u.type] || u.type}</td>
+        <td class="tnum">${u.bath || "—"}</td>
+        <td class="tnum">${u.sqft || "—"}</td>
+        <td class="tnum"><b>${money(u.rent)}</b></td>
+        <td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td>
+        <td class="um-note" title="${esc(u.note || "")}">${esc(u.note || "—")}</td>
+      </tr>`).join("");
+      $("#um-table").innerHTML = `<table class="um-tbl"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+      $("#um-table").querySelectorAll(".um-th").forEach((th) => (th.onclick = () => {
+        const k = th.dataset.s;
+        if (st.sort === k) st.dir *= -1; else { st.sort = k; st.dir = COLS.find((c) => c.k === k).num ? -1 : 1; }
+        renderTable();
+      }));
+    }
+    function renderSummary() {
+      const sumRow = (label, us, bold) => {
+        const sf = avg(us.filter((u) => u.sqft != null).map((u) => +u.sqft));
+        const r = avg(us.map((u) => u.rent));
+        const p = avg(us.filter((u) => u.psf != null).map((u) => +u.psf));
+        return `<tr class="${bold ? "um-wavg" : ""}"><td>${label}</td><td class="tnum">${us.length}</td><td class="tnum">${sf != null ? Math.round(sf).toLocaleString() : "—"}</td><td class="tnum">${r != null ? money(r) : "—"}</td><td class="tnum">${p != null ? psf(p) : "—"}</td></tr>`;
+      };
+      let rows = "";
+      typesPresent.forEach((t) => { rows += sumRow(TYPE_LABEL[t] || t, all.filter((u) => u.type === t), false); });
+      rows += sumRow("Weighted Average", all, true);
+      $("#um-summary").innerHTML = `<table class="um-tbl um-sum"><thead><tr><th>Unit Type</th><th># Units</th><th>Avg SF</th><th>Avg Rent</th><th>Avg PSF</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+    function render() { renderTabs(); renderTable(); renderSummary(); }
+    render();
+
+    $("#um-xlsx").onclick = () => exportUnitsExcel(b, snap, all);
     const close = () => { overlay.remove(); document.removeEventListener("keydown", k); };
     const k = (e) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", k);
     overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  }
+
+  // Excel export for the unit-backup modal (individual units + summary by type).
+  function exportUnitsExcel(b, snap, units) {
+    const NAVY = "#061031", GREY = "#7F7F7F", BORDER = "#E6E6E1", LBLUE = "#D6DFFA";
+    const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
+    const NCOL = 6;
+    const sTitle = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:14px;padding:10px 12px;`;
+    const sMeta = `background:#FAFAF7;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
+    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 8px;border:1px solid ${BORDER};text-align:center;`;
+    const sBand = `background:${LBLUE};color:${NAVY};${F}font-weight:600;font-size:10px;letter-spacing:.04em;padding:6px 8px;border:1px solid ${BORDER};`;
+    const cell = (v, align, extra) => `<td style="${F}font-size:11px;color:${NAVY};padding:5px 8px;border:1px solid ${BORDER};text-align:${align || "center"};${extra || ""}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+    const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+    const types = UNIT_TYPES.filter((t) => units.some((u) => u.type === t));
+
+    let body = `<tr><td colspan="${NCOL}" style="${sTitle}">${esc(b.name)} — Unit Backup</td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sMeta}">Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"} &nbsp;·&nbsp; ${units.length} individual units &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="height:6px;border:none"></td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sBand}">INDIVIDUAL UNITS</td></tr>`;
+    body += `<tr>${["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"].map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
+    units.forEach((u) => {
+      body += "<tr>" + cell(TYPE_LABEL[u.type] || u.type, "left") + cell(u.bath || "") + cell(u.sqft != null ? u.sqft : "") +
+        cell(u.rent != null ? Math.round(u.rent) : "") + cell(u.psf != null ? +Number(u.psf).toFixed(2) : "") +
+        cell(esc(u.note || ""), "left", `font-size:10px;color:${GREY};white-space:normal;`) + "</tr>";
+    });
+    body += `<tr><td colspan="${NCOL}" style="height:10px;border:none"></td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sBand}">SUMMARY BY UNIT TYPE</td></tr>`;
+    body += `<tr>${["Unit Type", "# Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)", ""].map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
+    const sumRow = (label, us, bold) => {
+      const sf = avg(us.filter((u) => u.sqft != null).map((u) => +u.sqft));
+      const r = avg(us.map((u) => u.rent));
+      const p = avg(us.filter((u) => u.psf != null).map((u) => +u.psf));
+      const bw = bold ? "font-weight:700;" : "";
+      return `<tr>${cell(label, "left", bw)}${cell(us.length, "center", bw)}${cell(sf != null ? Math.round(sf) : "", "center", bw)}${cell(r != null ? Math.round(r) : "", "center", bw)}${cell(p != null ? +p.toFixed(2) : "", "center", bw)}${cell("")}</tr>`;
+    };
+    types.forEach((t) => { body += sumRow(TYPE_LABEL[t] || t, units.filter((u) => u.type === t), false); });
+    body += sumRow("Weighted Average", units, true);
+
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"/></head>` +
+      `<body><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse">${body}</table></body></html>`;
+    const safe = (b.name || "building").replace(/[^\w\- ]+/g, "").trim() || "building";
+    downloadFile(`${safe} — unit backup.xls`, html, "application/vnd.ms-excel");
   }
 
   function renderSummary(a, cols) {

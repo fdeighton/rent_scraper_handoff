@@ -349,6 +349,33 @@ table.comp thead th {
 .units-tbl tbody tr:hover { background: var(--row-hover); }
 .modal--wide { width: 680px; }
 
+/* Unit-backup modal */
+.modal--units { width: 760px; max-width: 92vw; padding: 0; overflow: hidden; }
+.um-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
+.um-title { font-size: 17px; font-weight: 600; color: var(--navy); }
+.um-sub { font-size: 12px; color: var(--grey); margin-top: 3px; }
+.um-head-act { display: flex; align-items: center; gap: 10px; }
+.um-head-act .modal__x { position: static; }
+.um-body { padding: 16px 22px 22px; max-height: 72vh; overflow-y: auto; }
+.um-block { margin-bottom: 22px; }
+.um-block:last-child { margin-bottom: 0; }
+.um-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); margin-bottom: 10px; }
+.um-count { color: var(--navy-600); }
+.um-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.um-tab { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; font-weight: 500; color: var(--navy-600); cursor: pointer; transition: background .12s var(--ease), color .12s var(--ease); }
+.um-tab:hover { border-color: var(--navy-600); }
+.um-tab.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+.um-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.um-tbl th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--grey); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); background: #f7f8fa; white-space: nowrap; }
+.um-th { cursor: pointer; user-select: none; }
+.um-th:hover { color: var(--navy); }
+.um-sorti { color: var(--orange); font-weight: 700; }
+.um-tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--navy); }
+.um-tbl tbody tr:hover { background: var(--row-hover); }
+.um-note { color: var(--grey); font-size: 12px; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.um-sum th { cursor: default; }
+.um-wavg td { font-weight: 700; color: var(--navy); border-top: 2px solid var(--navy); }
+
 .delta { font-size: 10px; font-weight: 600; margin-left: 6px; }
 .delta.up { color: var(--success); }
 .delta.down { color: var(--orange-600); }
