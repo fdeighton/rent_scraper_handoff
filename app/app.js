@@ -859,6 +859,19 @@
   }
   function reportKey(e) { if (e.key === "Escape") closeReport(); }
 
+  // Export as ONE continuous page sized to the content, so the dense 4-up grids
+  // never fragment across Letter pages (which caused the mid-report gaps).
+  function printReport() {
+    const sheet = document.querySelector("#report-root .report-sheet");
+    let st = document.getElementById("rp-page-size");
+    if (!st) { st = document.createElement("style"); st.id = "rp-page-size"; document.head.appendChild(st); }
+    if (sheet) {
+      const hIn = Math.ceil(sheet.scrollHeight / 96) + 0.3; // px → in @96dpi + buffer
+      st.textContent = `@media print { @page { size: 8.5in ${hIn}in; margin: 0; } }`;
+    }
+    window.print();
+  }
+
   // Full benchmark-vs-comps data table, chunked to benchmark + <=4 comps so each
   // table fits the report width (mirrors the detailed table from the prior report).
   function reportTables(a, cols) {
@@ -922,7 +935,7 @@
     document.body.appendChild(root);
     document.body.classList.add("report-open");
     document.getElementById("rp-close").onclick = closeReport;
-    document.getElementById("rp-print").onclick = () => window.print();
+    document.getElementById("rp-print").onclick = printReport;
     document.addEventListener("keydown", reportKey);
     root.scrollTop = 0;
   }

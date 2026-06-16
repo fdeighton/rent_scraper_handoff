@@ -475,16 +475,16 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .rp-band-badge { background: var(--orange); color: #fff; font-size: 10px; font-weight: 600; letter-spacing: .06em; padding: 3px 11px; border-radius: 3px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rp-subtitle { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); margin: 16px 0 10px; }
 
-/* 2-up unit-type grid — wider panels (legible bars + full names) and a 2-row
-   grid that can break between rows in print, so pages fill instead of gapping. */
-.rp-chartgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 32px; margin-bottom: 4px; }
-.rp-col { break-inside: avoid; padding-bottom: 8px; }
+/* 4-up unit-type grid (dense, matches the reference). The PDF exports as a single
+   continuous page (see printReport) so these never fragment across paper pages. */
+.rp-chartgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 4px; }
+.rp-col { break-inside: avoid; }
 .rp-col-title { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--navy-600); font-weight: 600; margin-bottom: 9px; }
 .rp-empty { font-size: 11px; color: var(--grey); }
 
 /* Ranked bars */
 .rb-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 10px; }
-.rb-name { width: 116px; flex: 0 0 116px; text-align: right; color: var(--navy-600); line-height: 1.2; overflow-wrap: anywhere; }
+.rb-name { width: 86px; flex: 0 0 86px; text-align: right; color: var(--navy-600); line-height: 1.2; overflow-wrap: anywhere; }
 .rb-name.sub-h { color: var(--orange-600); font-weight: 600; }
 .rb-bar-wrap { flex: 1; min-width: 0; }
 .rb-bar { display: block; height: 11px; background: #c7ccd8; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -493,7 +493,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 
 /* Week-over-week diverging bars */
 .wb-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 10px; }
-.wb-name { width: 116px; flex: 0 0 116px; text-align: right; color: var(--navy-600); line-height: 1.2; overflow-wrap: anywhere; }
+.wb-name { width: 86px; flex: 0 0 86px; text-align: right; color: var(--navy-600); line-height: 1.2; overflow-wrap: anywhere; }
 .wb-name.sub-h { color: var(--orange-600); font-weight: 600; }
 .wb-track { position: relative; flex: 1; min-width: 0; height: 11px; }
 .wb-center { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--border); }
@@ -528,7 +528,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
   body.report-open .report-toolbar { display: none !important; }
   body.report-open #report-root { position: static; background: #fff; overflow: visible; }
   body.report-open .report-pages { padding: 0; }
-  body.report-open .report-sheet { width: auto; margin: 0; box-shadow: none; }
+  body.report-open .report-sheet { width: 8.5in; margin: 0; box-shadow: none; }
   /* Keep small units intact, but let the 2-row chart grid break between rows. */
   body.report-open .rp-kpis, body.report-open .rp-col { break-inside: avoid; }
   body.report-open .rp-chartgrid { break-inside: auto; }
