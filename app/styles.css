@@ -515,10 +515,11 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .wb-bar.pos { background: var(--success); }
 .wb-bar.neg { background: #C0392B; }
 .wb-bar.zero { display: none; }
-.wb-val { width: 48px; flex: 0 0 48px; text-align: right; font-variant-numeric: tabular-nums; }
+.wb-val { width: 52px; flex: 0 0 52px; text-align: right; font-variant-numeric: tabular-nums; line-height: 1.25; }
 .wb-val.pos { color: var(--success); }
 .wb-val.neg { color: #C0392B; }
 .wb-val.zero { color: var(--grey); }
+.wb-pct { display: block; font-size: 8px; font-weight: 400; opacity: .8; }
 
 .rp-legend { display: flex; gap: 18px; font-size: 11px; color: var(--navy-600); margin: 2px 0 4px; }
 .rp-legend .lg-sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
