@@ -736,7 +736,7 @@
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
         <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
-        <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf · n=${cur.count}</div>
+        <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf</div>
       </td>`;
     };
 
