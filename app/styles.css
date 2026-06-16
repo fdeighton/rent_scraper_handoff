@@ -281,6 +281,11 @@ table.comp col.c-label { width: 160px; }
 table.comp col.c-data { width: 188px; }
 .rp-tablewrap table.comp col.c-label { width: 110px; }
 .rp-tablewrap table.comp col.c-data { width: 150px; }
+/* Summary table spans its card (no centered white bars). Data columns share the
+   width equally and auto-size to the comp count; a JS min-width (160 + 150·cols)
+   keeps columns ≥150px and lets the wrap scroll when there are many comps. */
+.comp-wrap table.comp { width: 100%; }
+.comp-wrap table.comp col.c-data { width: auto; }
 table.comp th, table.comp td { text-align: center; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
 table.comp thead th {
   position: sticky; top: 0; background: var(--navy); color: #fff;

@@ -699,7 +699,7 @@
 
   // Shared comp-table markup (used by the on-screen Summary and the PDF report).
   // snapDate selects which historical run to show (default: latest summary).
-  function compTableHtml(cols, types, snapDate) {
+  function compTableHtml(cols, types, snapDate, minWidth) {
     types = types || presentTypes(cols);
     const sm = {}; cols.forEach((c) => (sm[c.b.id] = colSnap(c.b.id, snapDate)));
     const colHead = cols.map(({ b, bench }) => `<th class="${bench ? "col-bench" : ""}">${esc(b.name)}${bench ? " ★" : ""}</th>`).join("");
@@ -752,7 +752,8 @@
     ).join("")}</tr>`;
 
     const colGroup = `<colgroup><col class="c-label"/>${cols.map(() => '<col class="c-data"/>').join("")}</colgroup>`;
-    return `<table class="comp">${colGroup}<thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
+    const style = minWidth ? ` style="min-width:${minWidth}px"` : "";
+    return `<table class="comp"${style}>${colGroup}<thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   // Drill-down: the individual listings that rolled up into a clicked cell.
@@ -806,7 +807,7 @@
          </div>`
       : "";
     document.getElementById("tabbody").innerHTML =
-      picker + kpiStrip(a, cols, sel) + `<div class="comp-wrap">${compTableHtml(cols, undefined, sel)}</div>`;
+      picker + kpiStrip(a, cols, sel) + `<div class="comp-wrap">${compTableHtml(cols, undefined, sel, 160 + cols.length * 150)}</div>`;
 
     const btn = document.getElementById("snap-btn");
     const dd = document.getElementById("snap-menu");
