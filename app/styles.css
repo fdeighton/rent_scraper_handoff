@@ -301,10 +301,10 @@ table.comp thead th {
 .comp td.col-bench, .comp th.col-bench { background: var(--orange-100); }
 .comp thead th.col-bench { color: var(--orange-600); }
 /* Remove-comp × is pinned to the right edge, vertically centered — identical
-   placement whether the building name is one line or two. col-rm reserves equal
-   side padding so the name stays centered in the header cell. */
-.comp-wrap thead th { position: relative; }
-.comp-wrap thead th.col-rm { padding-left: 22px; padding-right: 22px; }
+   placement whether the building name is one line or two. Symmetric side padding
+   on every data header keeps the building name centered in its cell. */
+.comp-wrap thead th { position: relative; text-align: center; }
+.comp-wrap thead th.col-bench, .comp-wrap thead th.col-rm { padding-left: 20px; padding-right: 20px; }
 .comp-wrap thead th .th-rm { position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
   border: none; background: rgba(255,255,255,.16); color: #fff;
   width: 16px; height: 16px; line-height: 15px; border-radius: 50%; font-size: 12px; padding: 0; cursor: pointer;
