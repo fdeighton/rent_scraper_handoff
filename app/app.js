@@ -1053,11 +1053,23 @@
       return tb;
     };
 
+    // Labels (band / legend / subtitle) must never be the last thing on a page:
+    // hold them in `lead` and commit them only once their following grid/table
+    // chunk is known to fit on the same page; otherwise the whole group breaks.
+    const isLabel = (el) => el.classList.contains("rp-subtitle") ||
+      el.classList.contains("rp-band") || el.classList.contains("rp-legend");
+    let lead = [];
+    const leadH = () => lead.reduce((s, el) => s + outerH(el), 0);
+    const placeLead = () => { lead.forEach((el) => { content.appendChild(el); used += outerH(el); }); lead = []; };
+
     blocks.forEach((block) => {
+      if (isLabel(block)) { lead.push(block); return; }
       const m = block.classList.contains("rp-tablewrap") ? meas.get(block) : null;
+      const lh = leadH();
       if (m) {
         const first = m.rowH[0] || 30;
-        if (used > 0 && used + m.theadH + first > avail) addPage(false);
+        if (used > 0 && used + lh + m.theadH + first > avail) addPage(false);
+        placeLead();
         let tb = newFrag(m);
         m.rows.forEach((row, i) => {
           const rh = m.rowH[i];
@@ -1068,11 +1080,13 @@
         used += m.wrapMB;
       } else {
         const h = outerH(block);
-        if (used > 0 && used + h > avail) addPage(false);
+        if (used > 0 && used + lh + h > avail) addPage(false);
+        placeLead();
         content.appendChild(block);     // move the original block
         used += h;
       }
     });
+    if (lead.length) placeLead();       // trailing labels (defensive)
 
     sheet.replaceWith(pages);
     return true;
