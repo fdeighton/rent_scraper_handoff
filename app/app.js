@@ -894,7 +894,7 @@
           <button class="btn" id="a-xlsx">${icon("download")} Export Excel</button>
           <button class="btn" id="a-export">${icon("doc")} Export PDF</button>
           <button class="btn btn--accent" id="a-addcomp">${icon("plus")} Add building</button>
-          ${a.custom ? `<button class="btn" id="a-remove">Remove</button>` : ""}
+          ${a.custom ? `<button class="btn btn--accent" id="a-remove">Remove analysis</button>` : ""}
         </div>
       </div>`;
 
