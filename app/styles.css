@@ -376,6 +376,17 @@ table.comp thead th {
 .um-sum th { cursor: default; }
 .um-wavg td { font-weight: 700; color: var(--navy); border-top: 2px solid var(--navy); }
 
+/* Rent Trends — building + unit-type checkbox selectors */
+.trend-controls { display: flex; gap: 28px; flex-wrap: wrap; margin: 4px 0 16px; }
+.trend-group { flex: 1; min-width: 260px; }
+.trend-group__h { display: flex; align-items: center; gap: 12px; font-size: 11px; font-weight: 600; color: var(--navy-600); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.trend-group__h span { margin-right: auto; }
+.trend-link { border: none; background: none; color: var(--orange); font-size: 11px; font-weight: 500; cursor: pointer; padding: 0; }
+.trend-link:hover { text-decoration: underline; }
+.trend-checks { display: flex; flex-wrap: wrap; gap: 7px 16px; }
+.tcheck { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--navy); cursor: pointer; }
+.tcheck input { accent-color: var(--orange); cursor: pointer; }
+
 .delta { font-size: 10px; font-weight: 600; margin-left: 6px; }
 .delta.up { color: var(--success); }
 .delta.down { color: var(--orange-600); }

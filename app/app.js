@@ -1205,6 +1205,10 @@
     const m = Math.floor(a.length / 2);
     return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
   }
+  function mean(arr) {
+    const a = arr.filter((v) => v != null);
+    return a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+  }
   function reportDate() {
     try { return new Date().toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" }); }
     catch (e) { return D.generatedAt; }
@@ -1257,19 +1261,19 @@
     const bw = (colSnap(a.benchmark, snapDate).cur || {}).weighted;
     const comps = cols.filter((c) => !c.bench).map((c) => (colSnap(c.b.id, snapDate).cur || {}).weighted).filter(Boolean);
     const n = comps.length;
-    const medRent = median(comps.map((w) => w.avgRent));
-    const medPsf = median(comps.map((w) => w.avgPsf));
+    const avgR = mean(comps.map((w) => w.avgRent));
+    const avgP = mean(comps.map((w) => w.avgPsf));
     const sRent = bw ? bw.avgRent : null, sPsf = bw ? bw.avgPsf : null;
-    const dRent = sRent != null && medRent != null ? sRent - medRent : null;
-    const dPsf = sPsf != null && medPsf != null ? sPsf - medPsf : null;
-    const annR = dRent == null ? "vs comp median" : `$${Math.abs(dRent).toFixed(1).replace(/\.0$/, "")} ${dRent < 0 ? "below" : "above"} comp median`;
-    const annP = dPsf == null ? "vs comp median" : `$${Math.abs(dPsf).toFixed(2)} ${dPsf < 0 ? "below" : "above"} comp median`;
+    const dRent = sRent != null && avgR != null ? sRent - avgR : null;
+    const dPsf = sPsf != null && avgP != null ? sPsf - avgP : null;
+    const annR = dRent == null ? "vs comp average" : `$${Math.abs(dRent).toFixed(1).replace(/\.0$/, "")} ${dRent < 0 ? "below" : "above"} comp average`;
+    const annP = dPsf == null ? "vs comp average" : `$${Math.abs(dPsf).toFixed(2)} ${dPsf < 0 ? "below" : "above"} comp average`;
     const kpi = (l, v, unit, s, cls) => `<div class="rp-kpi"><div class="rp-kpi-l">${l}</div><div class="rp-kpi-v ${cls || ""}">${v}<span>${unit}</span></div><div class="rp-kpi-s">${s}</div></div>`;
     return `<div class="rp-kpis">
       ${kpi("Subject Wtd. Avg Rent", sRent != null ? fmtRent(sRent) : "—", "/mo", annR)}
       ${kpi("Subject Wtd. Avg PSF", sPsf != null ? fmtPsf(sPsf) : "—", "/sf", annP)}
-      ${kpi("Comp Median Rent", medRent != null ? fmtRent(medRent) : "—", "/mo", `Across all ${n} comps`)}
-      ${kpi("Comp Median PSF", medPsf != null ? fmtPsf(medPsf) : "—", "/sf", `Across all ${n} comps`)}
+      ${kpi("Comp Avg Rent", avgR != null ? fmtRent(avgR) : "—", "/mo", `Across all ${n} comps`)}
+      ${kpi("Comp Avg PSF", avgP != null ? fmtPsf(avgP) : "—", "/sf", `Across all ${n} comps`)}
     </div>`;
   }
 
@@ -1277,9 +1281,9 @@
     const bw = (colSnap(a.benchmark, snapDate).cur || {}).weighted;
     const comps = cols.filter((c) => !c.bench).map((c) => (colSnap(c.b.id, snapDate).cur || {}).weighted).filter(Boolean);
     if (!bw || !comps.length) return "";
-    const medRent = median(comps.map((w) => w.avgRent)), medPsf = median(comps.map((w) => w.avgPsf));
-    const dRent = bw.avgRent - medRent, dPsf = bw.avgPsf - medPsf;
-    return `<div class="rp-narrative">${esc(a.name)} is priced <b>$${Math.abs(dRent).toFixed(1).replace(/\.0$/, "")}/mo ${dRent < 0 ? "below" : "above"}</b> the comp median of ${comps.length} properties. PSF is <b>${dPsf >= 0 ? "above" : "below"}</b> the cohort at <b>${fmtPsf(bw.avgPsf)}/sf</b>.</div>`;
+    const avgR = mean(comps.map((w) => w.avgRent)), avgP = mean(comps.map((w) => w.avgPsf));
+    const dRent = bw.avgRent - avgR, dPsf = bw.avgPsf - avgP;
+    return `<div class="rp-narrative">${esc(a.name)} is priced <b>$${Math.abs(dRent).toFixed(1).replace(/\.0$/, "")}/mo ${dRent < 0 ? "below" : "above"}</b> the comp average of ${comps.length} properties. PSF is <b>${dPsf >= 0 ? "above" : "below"}</b> the cohort at <b>${fmtPsf(bw.avgPsf)}/sf</b>.</div>`;
   }
 
   // One column: buildings ranked descending by a unit-type metric, subject in orange.
@@ -1572,13 +1576,18 @@
   let trendState = {};
   function renderTrends(a, cols) {
     const key = a.id;
-    if (!trendState[key]) trendState[key] = { metric: "avgPsf", type: "__all", off: {}, from: null, to: null };
+    if (!trendState[key]) trendState[key] = { metric: "avgPsf", types: ["__all"], bsel: null, from: null, to: null };
     const st = trendState[key];
+    if (!st.bsel) st.bsel = new Set(cols.map((c) => c.b.id));
 
-    // gather all dates across series
+    // gather dates + which unit types have any history across the comp set
     const allDates = new Set();
-    cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => allDates.add(p.date)));
-    let dates = [...allDates].sort();
+    const typeSet = new Set();
+    cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => {
+      allDates.add(p.date);
+      if (p.byType) Object.keys(p.byType).forEach((t) => typeSet.add(t));
+    }));
+    const dates = [...allDates].sort();
     if (!dates.length) {
       document.getElementById("tabbody").innerHTML = `<div class="card"><div class="empty">No snapshot history available for this comp set.</div></div>`;
       return;
@@ -1586,9 +1595,13 @@
     const minD = dates[0], maxD = dates[dates.length - 1];
     if (!st.from) st.from = minD;
     if (!st.to) st.to = maxD;
+    const availTypes = UNIT_TYPES.filter((t) => typeSet.has(t));
 
-    const typeOpts = ['<option value="__all">All units (weighted)</option>']
-      .concat(UNIT_TYPES.map((t) => `<option value="${t}" ${st.type === t ? "selected" : ""}>${TYPE_LABEL[t]}</option>`)).join("");
+    const typeChecks = [{ k: "__all", label: "All units (weighted)" }]
+      .concat(availTypes.map((t) => ({ k: t, label: TYPE_LABEL[t] })))
+      .map(({ k, label }) => `<label class="tcheck"><input type="checkbox" data-t="${k}" ${st.types.includes(k) ? "checked" : ""}/> ${label}</label>`).join("");
+    const buildChecks = cols.map((c) =>
+      `<label class="tcheck"><input type="checkbox" data-b="${c.b.id}" ${st.bsel.has(c.b.id) ? "checked" : ""}/> ${esc(c.b.name)}${c.bench ? " ★" : ""}</label>`).join("");
 
     document.getElementById("tabbody").innerHTML = `
       <div class="filters">
@@ -1597,55 +1610,88 @@
           <option value="avgPsf" ${st.metric === "avgPsf" ? "selected" : ""}>Average Rent PSF</option>
           <option value="avgRent" ${st.metric === "avgRent" ? "selected" : ""}>Average Gross Rent</option>
         </select>
-        <label>Unit type</label>
-        <select id="f-type">${typeOpts}</select>
         <label>From</label><input type="date" id="f-from" value="${st.from}" min="${minD}" max="${maxD}"/>
         <label>To</label><input type="date" id="f-to" value="${st.to}" min="${minD}" max="${maxD}"/>
       </div>
+      <div class="trend-controls">
+        <div class="trend-group">
+          <div class="trend-group__h"><span>Unit types</span><button class="trend-link" data-grp="t" data-on="1">All</button><button class="trend-link" data-grp="t" data-on="0">None</button></div>
+          <div class="trend-checks" id="tc-types">${typeChecks}</div>
+        </div>
+        <div class="trend-group">
+          <div class="trend-group__h"><span>Buildings</span><button class="trend-link" data-grp="b" data-on="1">All</button><button class="trend-link" data-grp="b" data-on="0">None</button></div>
+          <div class="trend-checks" id="tc-builds">${buildChecks}</div>
+        </div>
+      </div>
       <div class="card chart-card">
-        <h3>${st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent"}${st.type !== "__all" ? " · " + TYPE_LABEL[st.type] : ""}</h3>
+        <h3>${st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent"}</h3>
         <div id="chart"></div>
         <div class="legend" id="legend"></div>
       </div>`;
 
     const draw = () => drawChart(a, cols, st);
     document.getElementById("f-metric").onchange = (e) => { st.metric = e.target.value; renderTrends(a, cols); };
-    document.getElementById("f-type").onchange = (e) => { st.type = e.target.value; renderTrends(a, cols); };
     document.getElementById("f-from").onchange = (e) => { st.from = e.target.value; draw(); };
     document.getElementById("f-to").onchange = (e) => { st.to = e.target.value; draw(); };
+    document.querySelectorAll("#tc-types input").forEach((cb) => (cb.onchange = () => {
+      const t = cb.dataset.t;
+      if (cb.checked) { if (!st.types.includes(t)) st.types.push(t); }
+      else st.types = st.types.filter((x) => x !== t);
+      draw();
+    }));
+    document.querySelectorAll("#tc-builds input").forEach((cb) => (cb.onchange = () => {
+      cb.checked ? st.bsel.add(cb.dataset.b) : st.bsel.delete(cb.dataset.b);
+      draw();
+    }));
+    document.querySelectorAll(".trend-link").forEach((bn) => (bn.onclick = () => {
+      const on = bn.dataset.on === "1";
+      if (bn.dataset.grp === "t") st.types = on ? ["__all"].concat(availTypes) : [];
+      else st.bsel = on ? new Set(cols.map((c) => c.b.id)) : new Set();
+      renderTrends(a, cols);
+    }));
     draw();
   }
 
-  function seriesValue(point, st) {
-    if (st.type === "__all") return point[st.metric];
-    const bt = point.byType && point.byType[st.type];
-    return bt ? bt[st.metric] : null;
+  const TREND_DASH = ["", "6 4", "2 3", "9 3 2 3", "1 3"]; // per-unit-type line style when multiple types shown
+  function trendVal(point, metric, type) {
+    if (type === "__all") return point[metric];
+    const bt = point.byType && point.byType[type];
+    return bt ? bt[metric] : null;
   }
 
   function drawChart(a, cols, st) {
-    const W = Math.max(720, (document.getElementById("chart").clientWidth || 900));
+    const chartEl = document.getElementById("chart");
+    const W = Math.max(720, (chartEl.clientWidth || 900));
     const H = 420, padL = 64, padR = 24, padT = 16, padB = 56;
     const dates = (() => {
       const s = new Set();
       cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => { if (p.date >= st.from && p.date <= st.to) s.add(p.date); }));
       return [...s].sort();
     })();
-    if (!dates.length) { document.getElementById("chart").innerHTML = `<div class="empty">No data in selected range.</div>`; return; }
+    if (!dates.length) { chartEl.innerHTML = `<div class="empty">No data in selected range.</div>`; document.getElementById("legend").innerHTML = ""; return; }
     const xIdx = new Map(dates.map((d, i) => [d, i]));
     const x = (d) => padL + (dates.length === 1 ? (W - padL - padR) / 2 : (xIdx.get(d) / (dates.length - 1)) * (W - padL - padR));
 
-    // collect series
-    const series = cols.map((c, i) => {
-      const pts = (D.trends[c.b.id] || [])
-        .filter((p) => p.date >= st.from && p.date <= st.to)
-        .map((p) => ({ d: p.date, v: seriesValue(p, st) }))
-        .filter((p) => p.v != null && xIdx.has(p.d));
-      return { id: c.b.id, name: c.b.name, bench: c.bench, color: c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length], pts };
+    // One series per selected building × selected unit type.
+    const multiType = st.types.length > 1;
+    const series = [];
+    cols.forEach((c, i) => {
+      if (!st.bsel.has(c.b.id)) return;
+      const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
+      st.types.forEach((t, ti) => {
+        const pts = (D.trends[c.b.id] || [])
+          .filter((p) => p.date >= st.from && p.date <= st.to)
+          .map((p) => ({ d: p.date, v: trendVal(p, st.metric, t) }))
+          .filter((p) => p.v != null && xIdx.has(p.d));
+        if (!pts.length) return;
+        const tl = t === "__all" ? "All" : (TYPE_LABEL[t] || t);
+        series.push({ name: c.b.name, label: multiType ? `${c.b.name} · ${tl}` : c.b.name, bench: c.bench, color, dash: TREND_DASH[ti % TREND_DASH.length], pts });
+      });
     });
-    const visible = series.filter((s) => !st.off[s.id] && s.pts.length);
-    let vals = [];
-    visible.forEach((s) => s.pts.forEach((p) => vals.push(p.v)));
-    if (!vals.length) { document.getElementById("chart").innerHTML = `<div class="empty">No visible series — toggle one on in the legend.</div>`; renderLegend(a, cols, st, series); return; }
+    if (!series.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; document.getElementById("legend").innerHTML = ""; return; }
+
+    const vals = [];
+    series.forEach((s) => s.pts.forEach((p) => vals.push(p.v)));
     let yMin = Math.min(...vals), yMax = Math.max(...vals);
     const pad = (yMax - yMin) * 0.12 || yMax * 0.1;
     yMin = Math.max(0, yMin - pad); yMax = yMax + pad;
@@ -1660,19 +1706,16 @@
       grid += `<g class="grid"><line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/></g>
                <text class="axis-label" x="${padL - 10}" y="${yy + 4}" text-anchor="end">${fmtY(v)}</text>`;
     }
-    // x labels — thin out
     const step = Math.ceil(dates.length / 14);
     let xlab = "";
     dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) xlab += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
 
-    // lines
     let lines = "";
-    // draw comps first, benchmark last (on top)
-    const ordered = visible.slice().sort((s1, s2) => (s1.bench === s2.bench ? 0 : s1.bench ? 1 : -1));
+    const ordered = series.slice().sort((s1, s2) => (s1.bench === s2.bench ? 0 : s1.bench ? 1 : -1));
     ordered.forEach((s) => {
       const pathD = s.pts.map((p, i) => (i ? "L" : "M") + x(p.d) + " " + y(p.v)).join(" ");
       const sw = s.bench ? 3 : 1.5;
-      const dash = s.bench ? "" : 'stroke-dasharray="5 4"';
+      const dash = s.dash ? `stroke-dasharray="${s.dash}"` : "";
       lines += `<path d="${pathD}" fill="none" stroke="${s.color}" stroke-width="${sw}" ${dash} stroke-linecap="round" stroke-linejoin="round"/>`;
       s.pts.forEach((p) => {
         lines += s.bench
@@ -1681,21 +1724,11 @@
       });
     });
 
-    document.getElementById("chart").innerHTML =
+    chartEl.innerHTML =
       `<svg class="linechart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
         ${grid}${xlab}<g class="axis">${lines}</g></svg>`;
-    renderLegend(a, cols, st, series);
-  }
-
-  function renderLegend(a, cols, st, series) {
-    const lg = document.getElementById("legend");
-    lg.innerHTML = series.map((s) =>
-      `<span class="lg ${st.off[s.id] ? "off" : ""}" data-id="${s.id}">
-        <span class="dot" style="background:${s.color}"></span>${esc(s.name)}${s.bench ? " ★" : ""}</span>`).join("");
-    lg.querySelectorAll(".lg").forEach((el) => (el.onclick = () => {
-      st.off[el.dataset.id] = !st.off[el.dataset.id];
-      drawChart(a, cols, st);
-    }));
+    document.getElementById("legend").innerHTML = series.map((s) =>
+      `<span class="lg"><span class="dot" style="background:${s.color}"></span>${esc(s.label)}${s.bench ? " ★" : ""}</span>`).join("");
   }
 
   // ========================================================= Building Detail =
