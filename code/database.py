@@ -3,6 +3,8 @@ Supabase database operations for the scraper.
 Uses service_role key to bypass RLS via the REST API directly.
 """
 
+import time
+
 import httpx
 
 
@@ -10,7 +12,9 @@ class ScraperDB:
     """Writes scrape results to Supabase via the PostgREST API."""
 
     def __init__(self, url: str, service_key: str):
-        self.base_url = f"{url}/rest/v1"
+        self.root = url.rstrip("/")
+        self._key = service_key
+        self.base_url = f"{self.root}/rest/v1"
         self.headers = {
             "apikey": service_key,
             "Authorization": f"Bearer {service_key}",
@@ -41,6 +45,31 @@ class ScraperDB:
     def get_active_buildings(self) -> list[dict]:
         """Get all active comp buildings with their scrape config."""
         return self._get("comp_buildings", {"is_active": "eq.true", "select": "*"})
+
+    def upload_building_photo(
+        self, building_id: str, image_bytes: bytes, content_type: str = "image/jpeg"
+    ) -> str:
+        """Upsert a building photo into the comp-building-photos bucket (keyed by
+        building id, like the existing ones) and return its public URL."""
+        ext = "png" if "png" in content_type else "jpg"
+        path = f"comp-building-photos/{building_id}.{ext}"
+        resp = httpx.post(
+            f"{self.root}/storage/v1/object/{path}",
+            content=image_bytes,
+            headers={
+                "apikey": self._key,
+                "Authorization": f"Bearer {self._key}",
+                "Content-Type": content_type,
+                "x-upsert": "true",
+            },
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return f"{self.root}/storage/v1/object/public/{path}?t={int(time.time() * 1000)}"
+
+    def set_building_photo_url(self, building_id: str, photo_url: str) -> None:
+        """Set a building's photo_url (only call when it doesn't already have one)."""
+        self._patch("comp_buildings", {"photo_url": photo_url}, {"id": f"eq.{building_id}"})
 
     def get_building_by_name(self, name: str) -> dict | None:
         """Find a building by name (case-insensitive)."""

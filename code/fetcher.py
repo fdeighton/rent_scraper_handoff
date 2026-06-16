@@ -10,6 +10,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urljoin
 from typing import Optional
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -30,6 +31,22 @@ VIEWPORTS = [
 ]
 
 
+def extract_og_image(html: str, base_url: str) -> Optional[str]:
+    """Pull the marketing hero (og:image / twitter:image) URL from page HTML,
+    resolved to an absolute URL. og: meta tags are server-rendered in <head> for
+    SEO, so a plain HTML fetch picks them up without running the page's JS."""
+    pats = [
+        r'<meta[^>]+property=["\']og:image(?::secure_url|:url)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
+    ]
+    for p in pats:
+        m = re.search(p, html, re.IGNORECASE)
+        if m:
+            return urljoin(base_url, m.group(1).strip())
+    return None
+
+
 class PageFetcher:
     """Fetches rendered HTML from rental listing pages."""
 
@@ -42,6 +59,33 @@ class PageFetcher:
         # to main.py without round-tripping through Claude HTML extraction.
         self._last_api_units: list[dict] | None = None
         self._last_api_incentives: str | None = None
+
+    async def fetch_og_image(self, page_url: str):
+        """Fetch a listing/home page's og:image (the marketing hero shot) and
+        return (image_bytes, content_type), or None. Used to auto-populate a
+        building photo that matches the curated exterior photos already on file.
+        """
+        import httpx
+        ua = random.choice(USER_AGENTS)
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=20,
+                                         headers={"User-Agent": ua}) as client:
+                page = await client.get(page_url)
+                img_url = extract_og_image(page.text, str(page.url))
+                if not img_url:
+                    return None
+                img = await client.get(img_url, headers={"Referer": page_url})
+                if img.status_code != 200 or not img.content:
+                    return None
+                ct = (img.headers.get("content-type") or "image/jpeg").split(";")[0].strip().lower()
+                if not ct.startswith("image/"):
+                    ct = "image/jpeg"
+                if len(img.content) < 3000:   # skip sprites / 1px trackers / logos
+                    return None
+                return img.content, ct
+        except Exception as e:
+            print(f"      og:image fetch failed: {e}")
+            return None
 
     async def fetch(self, url: str, config: dict) -> str:
         """

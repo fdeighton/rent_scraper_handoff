@@ -259,6 +259,23 @@ async def scrape_building(
         # 6. Mark success
         db.update_snapshot_status(snapshot_id, "success")
 
+        # 6.5. Auto-capture an exterior photo (og:image) for buildings that don't
+        # have one yet — keeps quality on par with the curated photos and never
+        # overwrites an existing one. Non-fatal: a missing photo never fails a scrape.
+        if not building.get("photo_url"):
+            photo_src = building.get("website_url") or scrape_url
+            try:
+                shot = await fetcher.fetch_og_image(photo_src)
+                if shot:
+                    img_bytes, ct = shot
+                    photo_url = db.upload_building_photo(building["id"], img_bytes, ct)
+                    db.set_building_photo_url(building["id"], photo_url)
+                    print(f"    Captured building photo via og:image ({len(img_bytes):,} bytes)")
+                else:
+                    print(f"    No og:image found — photo left empty")
+            except Exception as e:
+                print(f"    Photo capture skipped: {e}")
+
         total_time = time.time() - start_time
         print(f"    [OK] Done in {total_time:.1f}s")
         return {
