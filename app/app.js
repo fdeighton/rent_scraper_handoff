@@ -60,11 +60,10 @@
   function delta(cur, prev) {
     if (cur == null || prev == null) return "";
     const d = cur - prev;
-    if (Math.round(d) === 0) return `<span class="delta flat">$0 · 0.0%</span>`;
+    if (Math.round(d) === 0) return `<span class="delta flat">$0 (0.0%)</span>`;
     const cls = d > 0 ? "up" : "down";
-    const arrow = d > 0 ? "▲" : "▼";
-    const pctStr = prev ? ` · ${(Math.abs(d / prev) * 100).toFixed(1)}%` : "";
-    return `<span class="delta ${cls}">${arrow} $${Math.abs(Math.round(d)).toLocaleString()}${pctStr}</span>`;
+    const pct = prev ? (Math.abs(d / prev) * 100).toFixed(1) : "0.0";
+    return `<span class="delta ${cls}">$${Math.abs(Math.round(d)).toLocaleString()} (${pct}%)</span>`;
   }
 
   // ========================================== New Analysis (create flow) ====
@@ -897,11 +896,12 @@
       const cls = r.d > 0 ? "pos" : r.d < 0 ? "neg" : "zero";
       const w = (Math.abs(r.d) / max) * 50;
       const style = r.d > 0 ? `left:50%;width:${w}%` : r.d < 0 ? `right:50%;width:${w}%` : "";
-      const pctStr = (r.d === 0 || r.pct == null) ? "" : `<span class="wb-pct">${r.pct > 0 ? "+" : "−"}${Math.abs(r.pct).toFixed(1)}%</span>`;
+      const valMain = r.d === 0 ? "$0" : "$" + (psfMode ? Math.abs(r.d).toFixed(2) : Math.abs(Math.round(r.d)).toLocaleString());
+      const pctStr = (r.d === 0 || r.pct == null) ? "" : `<span class="wb-pct">(${Math.abs(r.pct).toFixed(1)}%)</span>`;
       return `<div class="wb-row">
         <div class="wb-name ${r.sub ? "sub-h" : ""}">${esc(r.name)}${r.sub ? " ★" : ""}</div>
         <div class="wb-track"><span class="wb-center"></span><span class="wb-bar ${cls}" style="${style}"></span></div>
-        <div class="wb-val ${cls}">${r.d === 0 ? "$0" : fmtSigned(r.d, psfMode)}${pctStr}</div>
+        <div class="wb-val ${cls}">${valMain}${pctStr}</div>
       </div>`;
     }).join("");
     return `<div class="rp-col"><div class="rp-col-title">${TYPE_LABEL[t]}</div>${body}</div>`;
