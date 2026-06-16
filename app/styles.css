@@ -298,6 +298,10 @@ table.comp thead th {
 .comp thead .rowlabel { background: var(--navy); z-index: 3; }
 .comp td.col-bench, .comp th.col-bench { background: var(--orange-100); }
 .comp thead th.col-bench { color: var(--orange-600); }
+.comp-wrap thead th .th-rm { margin-left: 6px; border: none; background: rgba(255,255,255,.16); color: #fff;
+  width: 16px; height: 16px; line-height: 15px; border-radius: 50%; font-size: 12px; padding: 0; cursor: pointer;
+  vertical-align: middle; transition: background .12s var(--ease); }
+.comp-wrap thead th .th-rm:hover { background: var(--orange); }
 .comp .group-row td {
   background: #f3f4f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--navy-600); font-weight: 600; text-align: left;
