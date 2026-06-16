@@ -478,16 +478,16 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .rp-fit-in { width: 100%; }   /* scaled uniformly by the paginator to fit a page */
 
 /* Header band */
-.rp-head { background: var(--navy); color: #fff; padding: 16px 32px 14px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.rp-head-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.rp-eyebrow { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #8d95b5; }
-.rp-brand { color: var(--orange); font-weight: 700; letter-spacing: .08em; font-size: 13px; }
+.rp-head { background: var(--navy); color: #fff; padding: 6px 32px 7px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.rp-head-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+.rp-eyebrow { font-size: 8px; letter-spacing: .12em; text-transform: uppercase; color: #8d95b5; }
+.rp-brand { color: var(--orange); font-weight: 700; letter-spacing: .08em; font-size: 10px; }
 .rp-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.rp-title { font-size: 22px; font-weight: 600; line-height: 1.2; }
-.rp-title-addr { color: #c9cee3; font-size: 13px; margin-top: 3px; }
-.rp-sub { font-size: 11px; color: #8d95b5; margin-top: 5px; }
-.rp-head-meta { text-align: right; font-size: 11px; color: #c9cee3; line-height: 1.7; min-width: 0; }
-.rp-confidential { display: inline-block; border: 1px solid var(--orange); color: var(--orange); padding: 2px 8px; border-radius: 3px; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; margin-top: 4px; }
+.rp-title { font-size: 14px; font-weight: 600; line-height: 1.15; }
+.rp-title-addr { color: #c9cee3; font-size: 9.5px; margin-top: 1px; }
+.rp-sub { font-size: 8.5px; color: #8d95b5; margin-top: 2px; }
+.rp-head-meta { text-align: right; font-size: 8.5px; color: #c9cee3; line-height: 1.3; min-width: 0; }
+.rp-confidential { display: inline-block; border: 1px solid var(--orange); color: var(--orange); padding: 1px 6px; border-radius: 3px; font-size: 7.5px; letter-spacing: .1em; text-transform: uppercase; margin-top: 2px; }
 
 .rp-body { padding: 0 32px 32px; }
 
