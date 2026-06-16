@@ -475,6 +475,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .rp-page { box-sizing: border-box; width: 816px; height: 1056px; background: #fff; overflow: hidden;
   box-shadow: var(--shadow-lg); border-radius: 2px; }
 .rp-page-body { padding: 18px 32px 28px; }
+.rp-fit-in { width: 100%; }   /* scaled uniformly by the paginator to fit a page */
 
 /* Header band */
 .rp-head { background: var(--navy); color: #fff; padding: 16px 32px 14px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }

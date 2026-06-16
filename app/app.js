@@ -979,116 +979,89 @@
     return out;
   }
 
-  // Build explicit Letter-sized pages from the rendered report so every page is
-  // filled top-to-bottom: chart grids / KPI strip are placed whole; detailed
-  // tables are split row-by-row (header repeats) to flow into leftover space.
-  // The on-screen preview becomes WYSIWYG with the printed output. Returns false
-  // (and leaves the single flowing sheet) if heights can't be measured.
+  // Lay the report into explicit Letter pages with a fixed structure:
+  //   • Page 1  — the full summary dashboard (KPIs + all four chart grids),
+  //               uniformly scaled DOWN if needed so it always fits one page.
+  //   • Page 2+ — the Detailed Comparables tables, each kept WHOLE (never split
+  //               across a page); a table taller than a page is scaled to fit.
+  // Heights are read from the live, rendered DOM. Returns false (keeping the
+  // single flowing sheet) if nothing can be measured.
   function paginate(root) {
     const sheet = root.querySelector(".report-sheet");
     const head = sheet && sheet.querySelector(".rp-head");
     const body = sheet && sheet.querySelector(".rp-body");
     if (!sheet || !head || !body || typeof head.getBoundingClientRect !== "function") return false;
-    const PAGE_H = 1056;          // Letter @ 96dpi
-    const PAD = 46;               // .rp-page-body vertical padding (18 + 28)
-    const SAFE = 10;              // guard against sub-pixel overflow
-    const cs = (el, p) => parseFloat(getComputedStyle(el)[p]) || 0;
-    const outerH = (el) => el.getBoundingClientRect().height + cs(el, "marginTop") + cs(el, "marginBottom");
-    const headH = head.getBoundingClientRect().height;
+    const PAGE_H = 1056, PAD_TOP = 18, PAD_BOT = 28, SAFE = 6;
+    const H = (el) => el.getBoundingClientRect().height;
+    const headH = H(head);
     if (!headH) return false;
 
-    // Pre-measure detail tables before any DOM move disturbs layout.
-    const meas = new Map();
-    body.querySelectorAll(".rp-tablewrap").forEach((w) => {
-      const t = w.querySelector("table");
-      if (!t) return;
-      const thead = t.querySelector("thead");
-      const cg = t.querySelector("colgroup");
-      const rows = [...t.querySelectorAll("tbody > tr")];
-      meas.set(w, {
-        cg, thead,
-        theadH: thead ? thead.getBoundingClientRect().height : 0,
-        rows,
-        rowH: rows.map((r) => r.getBoundingClientRect().height),
-        wrapMB: cs(w, "marginBottom"),
-      });
-    });
-
-    // Ordered leaf blocks (the section wrappers themselves carry no height we use).
-    const blocks = [];
+    // Split blocks into the chart dashboard vs the detail section.
+    const detailSec = body.querySelector(".rp-section--flow");
+    const chartBlocks = [];
     body.querySelectorAll(":scope > .rp-section").forEach((sec) => {
-      [...sec.children].forEach((c) => blocks.push(c));
+      if (sec !== detailSec) [...sec.children].forEach((c) => chartBlocks.push(c));
     });
-    if (!blocks.length) return false;
+    const detailKids = detailSec ? [...detailSec.children] : [];
+    const detailBand = detailKids.find((c) => c.classList.contains("rp-band"));
+    const detailTables = detailKids.filter((c) => c.classList.contains("rp-tablewrap"));
+    if (!chartBlocks.length) return false;
 
     const pages = document.createElement("div");
     pages.className = "rp-pages";
-    let content, used, avail;
-    const addPage = (withHead) => {
-      const pg = document.createElement("div");
-      pg.className = "rp-page";
-      let hH = 0;
-      if (withHead) { pg.appendChild(head); hH = headH; }
-      content = document.createElement("div");
-      content.className = "rp-page-body";
-      pg.appendChild(content);
-      pages.appendChild(pg);
-      avail = PAGE_H - hH - PAD - SAFE;
-      used = 0;
-    };
-    addPage(true);
+    sheet.parentNode.insertBefore(pages, sheet); // live in the DOM so heights measure correctly
 
-    const newFrag = (m) => {
-      const w = document.createElement("div");
-      w.className = "rp-tablewrap";
-      const t = document.createElement("table");
-      t.className = "comp";
-      if (m.cg) t.appendChild(m.cg.cloneNode(true));
-      if (m.thead) t.appendChild(m.thead.cloneNode(true));
-      const tb = document.createElement("tbody");
-      t.appendChild(tb);
-      w.appendChild(t);
-      content.appendChild(w);
-      used += m.theadH;
-      return tb;
+    const newPage = (withHead) => {
+      const pg = document.createElement("div"); pg.className = "rp-page";
+      if (withHead) pg.appendChild(head);
+      const content = document.createElement("div"); content.className = "rp-page-body";
+      pg.appendChild(content); pages.appendChild(pg);
+      return { content, avail: PAGE_H - (withHead ? headH : 0) - PAD_TOP - PAD_BOT - SAFE };
     };
 
-    // Labels (band / legend / subtitle) must never be the last thing on a page:
-    // hold them in `lead` and commit them only once their following grid/table
-    // chunk is known to fit on the same page; otherwise the whole group breaks.
-    const isLabel = (el) => el.classList.contains("rp-subtitle") ||
-      el.classList.contains("rp-band") || el.classList.contains("rp-legend");
-    let lead = [];
-    const leadH = () => lead.reduce((s, el) => s + outerH(el), 0);
-    const placeLead = () => { lead.forEach((el) => { content.appendChild(el); used += outerH(el); }); lead = []; };
-
-    blocks.forEach((block) => {
-      if (isLabel(block)) { lead.push(block); return; }
-      const m = block.classList.contains("rp-tablewrap") ? meas.get(block) : null;
-      const lh = leadH();
-      if (m) {
-        const first = m.rowH[0] || 30;
-        if (used > 0 && used + lh + m.theadH + first > avail) addPage(false);
-        placeLead();
-        let tb = newFrag(m);
-        m.rows.forEach((row, i) => {
-          const rh = m.rowH[i];
-          if (tb.childElementCount > 0 && used + rh > avail) { addPage(false); tb = newFrag(m); }
-          tb.appendChild(row);          // move the original row
-          used += rh;
-        });
-        used += m.wrapMB;
-      } else {
-        const h = outerH(block);
-        if (used > 0 && used + lh + h > avail) addPage(false);
-        placeLead();
-        content.appendChild(block);     // move the original block
-        used += h;
+    // Wrap `inner` and shrink it uniformly to fit `avail` (only ever scales down).
+    const fitToHeight = (inner, outer, avail) => {
+      const nat = H(inner);
+      if (nat > avail && nat > 0) {
+        inner.style.transformOrigin = "top center";
+        inner.style.transform = `scale(${(avail / nat).toFixed(4)})`;
+        outer.style.height = avail + "px";
+        outer.style.overflow = "hidden";
       }
-    });
-    if (lead.length) placeLead();       // trailing labels (defensive)
+    };
 
-    sheet.replaceWith(pages);
+    // ---- Page 1: the whole dashboard, scaled to fit one page --------------
+    {
+      const { content, avail } = newPage(true);
+      const outer = document.createElement("div"); outer.className = "rp-fit";
+      const inner = document.createElement("div"); inner.className = "rp-fit-in";
+      chartBlocks.forEach((b) => inner.appendChild(b));
+      outer.appendChild(inner); content.appendChild(outer);
+      fitToHeight(inner, outer, avail);
+    }
+
+    // ---- Pages 2+: whole comp tables, packed, never split -----------------
+    if (detailTables.length) {
+      let pg = newPage(false);
+      if (detailBand) pg.content.appendChild(detailBand);
+      let used = detailBand ? H(detailBand) : 0;
+      detailTables.forEach((tw) => {
+        const twH = H(tw);
+        if (used > 0 && used + twH > pg.avail) { pg = newPage(false); used = 0; }
+        pg.content.appendChild(tw);
+        if (twH > pg.avail) { // a single table taller than a page → scale it down
+          const outer = document.createElement("div"); outer.className = "rp-fit";
+          const inner = document.createElement("div"); inner.className = "rp-fit-in";
+          pg.content.insertBefore(outer, tw); inner.appendChild(tw); outer.appendChild(inner);
+          fitToHeight(inner, outer, pg.avail);
+          used = pg.avail;
+        } else {
+          used += twH + 14; // gap between stacked tables
+        }
+      });
+    }
+
+    sheet.remove();
     return true;
   }
 
