@@ -1222,19 +1222,27 @@
     }
 
     // ---- Pages 2+: whole comp tables, packed, never split -----------------
+    // The DETAIL band rides with the first table (placed only once we know which
+    // page that table lands on) so it can't be stranded on an otherwise-empty
+    // page — e.g. a comp with a very long incentive makes table 1 too tall to
+    // follow the band, which would orphan the band and blank the rest of a page.
     if (detailTables.length) {
+      const bandH = detailBand ? H(detailBand) : 0;
       let pg = newPage();
-      if (detailBand) pg.content.appendChild(detailBand);
-      let used = detailBand ? H(detailBand) : 0;
-      detailTables.forEach((tw) => {
+      let used = 0;
+      detailTables.forEach((tw, idx) => {
+        const lead = idx === 0 ? detailBand : null;
+        const leadH = lead ? bandH : 0;
         const twH = H(tw);
-        if (used > 0 && used + twH > pg.avail) { pg = newPage(); used = 0; }
+        if (used > 0 && used + leadH + twH > pg.avail) { pg = newPage(); used = 0; }
+        if (lead) { pg.content.appendChild(lead); used += leadH; }
         pg.content.appendChild(tw);
-        if (twH > pg.avail) { // a single table taller than a page → scale it down
+        const room = pg.avail - used; // height left on this page (after the band)
+        if (twH > room) { // too tall → scale this table to fit the remaining room
           const outer = document.createElement("div"); outer.className = "rp-fit";
           const inner = document.createElement("div"); inner.className = "rp-fit-in";
           pg.content.insertBefore(outer, tw); inner.appendChild(tw); outer.appendChild(inner);
-          fitToHeight(inner, outer, pg.avail);
+          fitToHeight(inner, outer, room);
           used = pg.avail;
         } else {
           used += twH + 14; // gap between stacked tables
