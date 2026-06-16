@@ -188,6 +188,7 @@ def main():
         return rows
 
     summary, prev_summary, trends, history, quarterly = {}, {}, {}, {}, {}
+    snapshots = {}  # last N successful snapshots per building (for the historical picker)
 
     for b in comp_buildings:
         bid = b["id"]
@@ -232,6 +233,23 @@ def main():
             if len(succ) >= 2:
                 pby, pw = aggregate(units_by_snap.get(succ[-2]["id"], []))
                 prev_summary[bid] = {"date": succ[-2]["date"], "byType": pby, "weighted": pw}
+
+        # last up-to-8 successful snapshots (newest first) for the historical picker
+        sfull = []
+        for s in succ[-8:]:
+            by, w = aggregate(units_by_snap.get(s["id"], []))
+            if not w:
+                continue
+            sfull.append({
+                "date": s["date"],
+                "incentives": s["incentives"],
+                "byType": {t: {"avgRent": by[t]["avgRent"], "avgPsf": by[t]["avgPsf"],
+                               "avgSqft": by[t]["avgSqft"], "count": by[t]["count"]} for t in by},
+                "weighted": w,
+            })
+        sfull.reverse()
+        if sfull:
+            snapshots[bid] = sfull
 
         # quarterly rollup — latest successful snapshot per quarter
         qmap = {}
@@ -320,6 +338,7 @@ def main():
         "trends": trends,
         "history": history,
         "quarterly": quarterly,
+        "snapshots": snapshots,
     }
 
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))

@@ -36,6 +36,8 @@
     "edit": '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     "doc": '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/>',
     "star": '<path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17.3 5.8 20.7l1.6-6.8L2.2 8.9l6.9-.6z"/>',
+    "calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/>',
+    "chevron-down": '<path d="M6 9l6 6 6-6"/>',
   };
   const icon = (n) => `<span class="ic">${ICONS[n] ? `<svg viewBox="0 0 24 24">${ICONS[n]}</svg>` : ""}</span>`;
 
@@ -616,6 +618,36 @@
     return UNIT_TYPES.filter((t) => set.has(t));
   }
 
+  // ---- Historical snapshot selection ---------------------------------------
+  const snapState = {}; // analysisId -> selected snapshot date (YYYY-MM-DD)
+
+  // Run dates offered in the picker = the benchmark's recent snapshot dates
+  // (newest first); fall back to the union of comp dates if no benchmark history.
+  function runDates(a) {
+    const snaps = D.snapshots || {};
+    if (a.benchmark && snaps[a.benchmark] && snaps[a.benchmark].length) return snaps[a.benchmark].map((s) => s.date);
+    const set = new Set();
+    a.comps.forEach((c) => (snaps[c.building] || []).forEach((s) => set.add(s.date)));
+    return [...set].sort().reverse().slice(0, 8);
+  }
+  // A building's snapshot as of `date` (the most recent on/before it) + the one before, for Δ.
+  function snapshotAt(id, date) {
+    const list = (D.snapshots || {})[id] || []; // newest first
+    const i = list.findIndex((s) => s.date <= date);
+    if (i === -1) return { cur: null, prev: null };
+    return { cur: list[i], prev: list[i + 1] || null };
+  }
+  // Unify: with a snapDate use the historical snapshot; otherwise the latest summary.
+  function colSnap(id, snapDate) {
+    if (snapDate) return snapshotAt(id, snapDate);
+    const s = D.summary[id], p = D.prevSummary[id];
+    return {
+      cur: s ? { date: s.date, incentives: s.incentives, byType: s.byType, weighted: s.weighted } : null,
+      prev: p ? { byType: p.byType, weighted: p.weighted } : null,
+    };
+  }
+  const selectedSnap = (a) => snapState[a.id] || (runDates(a)[0] || null);
+
   function renderAnalysis(id, tab) {
     const a = analysisById(id);
     if (!a) return renderUniverse();
@@ -649,10 +681,10 @@
     else renderSummary(a, cols);
   }
 
-  function kpiStrip(a, cols) {
+  function kpiStrip(a, cols, snapDate) {
     const bench = cols.find((c) => c.bench);
-    const benchSum = bench ? D.summary[bench.b.id] : null;
-    const compSums = cols.filter((c) => !c.bench).map((c) => D.summary[c.b.id]).filter(Boolean);
+    const benchSum = bench ? colSnap(bench.b.id, snapDate).cur : null;
+    const compSums = cols.filter((c) => !c.bench).map((c) => colSnap(c.b.id, snapDate).cur).filter(Boolean);
     const mktRent = compSums.length ? Math.round(compSums.reduce((s, x) => s + (x.weighted ? x.weighted.avgRent : 0), 0) / compSums.length) : null;
     const mktPsf = compSums.length ? (compSums.reduce((s, x) => s + (x.weighted && x.weighted.avgPsf ? x.weighted.avgPsf : 0), 0) / compSums.length) : null;
     const bRent = benchSum && benchSum.weighted ? benchSum.weighted.avgRent : null;
@@ -666,8 +698,10 @@
   }
 
   // Shared comp-table markup (used by the on-screen Summary and the PDF report).
-  function compTableHtml(cols, types) {
+  // snapDate selects which historical run to show (default: latest summary).
+  function compTableHtml(cols, types, snapDate) {
     types = types || presentTypes(cols);
+    const sm = {}; cols.forEach((c) => (sm[c.b.id] = colSnap(c.b.id, snapDate)));
     const colHead = cols.map(({ b, bench }) => `<th class="${bench ? "col-bench" : ""}">${esc(b.name)}${bench ? " ★" : ""}</th>`).join("");
 
     const cell = (c, html) => `<td class="${c.bench ? "col-bench" : ""}">${html}</td>`;
@@ -687,21 +721,20 @@
     rows += rowMeta("Asset type", (c) => esc(c.b.assetType || "—"));
     rows += rowMeta("Distance to site", (c) => (c.bench ? "Benchmark" : c.distance != null ? c.distance + " m" : "—"));
 
-    // incentives
+    // incentives (for the selected snapshot)
     rows += `<tr class="incentive-row"><td class="rowlabel">Incentives</td>${cols.map((c) => {
-      const s = D.summary[c.b.id];
+      const s = sm[c.b.id].cur;
       return `<td class="${c.bench ? "col-bench" : ""}">${s && s.incentives ? esc(s.incentives) : '<span class="sub">None advertised</span>'}</td>`;
     }).join("")}</tr>`;
 
-    // latest snapshot group
-    const benchDate = cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
-    rows += `<tr class="group-row"><td class="rowlabel">Latest snapshot</td><td colspan="${cols.length}">as of ${fmtDate(benchDate)} · gross rent, $/sf, avg size, week-over-week Δ</td></tr>`;
+    // snapshot group (selected run)
+    const labelDate = snapDate || cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
+    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">as of ${fmtDate(labelDate)} · gross rent, $/sf, avg size, vs prior scrape Δ</td></tr>`;
 
     for (const t of types) {
       rows += `<tr><td class="rowlabel">${TYPE_LABEL[t]}</td>${cols.map((c) => {
-        const s = D.summary[c.b.id], p = D.prevSummary[c.b.id];
-        const cur = s && s.byType[t] ? s.byType[t] : null;
-        const prev = p && p.byType[t] ? p.byType[t] : null;
+        const cur = sm[c.b.id].cur && sm[c.b.id].cur.byType[t] ? sm[c.b.id].cur.byType[t] : null;
+        const prev = sm[c.b.id].prev && sm[c.b.id].prev.byType[t] ? sm[c.b.id].prev.byType[t] : null;
         if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
         return `<td class="${c.bench ? "col-bench" : ""}">
           <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
@@ -712,9 +745,8 @@
 
     // weighted average
     rows += `<tr class="wavg"><td class="rowlabel">Weighted average</td>${cols.map((c) => {
-      const s = D.summary[c.b.id], p = D.prevSummary[c.b.id];
-      const cur = s && s.weighted ? s.weighted : null;
-      const prev = p && p.weighted ? p.weighted : null;
+      const cur = sm[c.b.id].cur && sm[c.b.id].cur.weighted ? sm[c.b.id].cur.weighted : null;
+      const prev = sm[c.b.id].prev && sm[c.b.id].prev.weighted ? sm[c.b.id].prev.weighted : null;
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
       return `<td class="${c.bench ? "col-bench" : ""}">
         <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
@@ -727,8 +759,31 @@
   }
 
   function renderSummary(a, cols) {
+    const dates = runDates(a);
+    const sel = selectedSnap(a);
+    const menu = dates.map((d, i) => `<button class="snap-opt ${d === sel ? "active" : ""}" data-d="${d}">${fmtDate(d)}${i === 0 ? " · latest" : ""}</button>`).join("");
+    const picker = dates.length
+      ? `<div class="snap-bar">
+           <span class="snap-cap">Historical snapshot</span>
+           <div class="snap-dd">
+             <button class="snap-btn" id="snap-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(sel)}</span>${icon("chevron-down")}</button>
+             <div class="snap-menu" id="snap-menu" hidden>${menu}</div>
+           </div>
+         </div>`
+      : "";
     document.getElementById("tabbody").innerHTML =
-      kpiStrip(a, cols) + `<div class="comp-wrap">${compTableHtml(cols)}</div>`;
+      picker + kpiStrip(a, cols, sel) + `<div class="comp-wrap">${compTableHtml(cols, undefined, sel)}</div>`;
+
+    const btn = document.getElementById("snap-btn");
+    const dd = document.getElementById("snap-menu");
+    if (btn && dd) {
+      btn.onclick = (e) => { e.stopPropagation(); dd.hidden = !dd.hidden; };
+      document.addEventListener("click", () => { dd.hidden = true; }, { once: true });
+      dd.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = () => {
+        snapState[a.id] = o.dataset.d;
+        renderSummary(a, cols);
+      }));
+    }
   }
 
   // ====================================================== PDF Report =========
@@ -753,9 +808,10 @@
   const fmtPsf = (v) => "$" + Number(v).toFixed(2);
   const fmtSigned = (d, psf) => (d > 0 ? "+" : d < 0 ? "−" : "") + "$" + (psf ? Math.abs(d).toFixed(2) : Math.abs(Math.round(d)).toLocaleString());
 
-  function reportHeader(a, cols) {
+  function reportHeader(a, cols, snapDate) {
     const b = bld(a.benchmark) || {};
     const n = cols.filter((c) => !c.bench).length;
+    const scrapedDate = snapDate || (D.summary[a.benchmark] ? D.summary[a.benchmark].date : null);
     const loc = `${esc(a.city || b.city || "")}${(a.province || b.province) ? ", " + esc(a.province || b.province) : ""}`;
     return `<div class="rp-head">
       <div class="rp-head-top">
@@ -768,7 +824,7 @@
           <div class="rp-sub">${esc(ASSET_LONG[a.assetType] || a.assetType || "Comparable Set")} · Class A Comparables · ${loc} · All ${n} Comps · Weighted Average Summary</div>
         </div>
         <div class="rp-head-meta">
-          <div>Scraped ${esc(D.summary[a.benchmark] ? fmtDate(D.summary[a.benchmark].date) : reportDate())} · Subject ${esc(a.name)} · Fitzrovia</div>
+          <div>Scraped ${esc(scrapedDate ? fmtDate(scrapedDate) : reportDate())} · Subject ${esc(a.name)} · Fitzrovia</div>
           <div>Comps ${n} total · Type ${esc(a.assetType || b.assetType || "—")} · Built ${a.yearBuilt || b.yearBuilt || "—"} · Units ${a.unitCount || b.unitCount || "—"}</div>
           <div><span class="rp-confidential">Internal &amp; Confidential</span></div>
         </div>
@@ -776,9 +832,9 @@
     </div>`;
   }
 
-  function reportKpis(a, cols) {
-    const bw = (D.summary[a.benchmark] || {}).weighted;
-    const comps = cols.filter((c) => !c.bench).map((c) => (D.summary[c.b.id] || {}).weighted).filter(Boolean);
+  function reportKpis(a, cols, snapDate) {
+    const bw = (colSnap(a.benchmark, snapDate).cur || {}).weighted;
+    const comps = cols.filter((c) => !c.bench).map((c) => (colSnap(c.b.id, snapDate).cur || {}).weighted).filter(Boolean);
     const n = comps.length;
     const medRent = median(comps.map((w) => w.avgRent));
     const medPsf = median(comps.map((w) => w.avgPsf));
@@ -796,9 +852,9 @@
     </div>`;
   }
 
-  function reportNarrative(a, cols) {
-    const bw = (D.summary[a.benchmark] || {}).weighted;
-    const comps = cols.filter((c) => !c.bench).map((c) => (D.summary[c.b.id] || {}).weighted).filter(Boolean);
+  function reportNarrative(a, cols, snapDate) {
+    const bw = (colSnap(a.benchmark, snapDate).cur || {}).weighted;
+    const comps = cols.filter((c) => !c.bench).map((c) => (colSnap(c.b.id, snapDate).cur || {}).weighted).filter(Boolean);
     if (!bw || !comps.length) return "";
     const medRent = median(comps.map((w) => w.avgRent)), medPsf = median(comps.map((w) => w.avgPsf));
     const dRent = bw.avgRent - medRent, dPsf = bw.avgPsf - medPsf;
@@ -806,10 +862,10 @@
   }
 
   // One column: buildings ranked descending by a unit-type metric, subject in orange.
-  function rankedCol(cols, t, metric) {
+  function rankedCol(cols, t, metric, snapDate) {
     const fmt = metric === "avgPsf" ? fmtPsf : fmtRent;
     const rows = cols.map((c) => {
-      const bt = (D.summary[c.b.id] || { byType: {} }).byType[t];
+      const bt = ((colSnap(c.b.id, snapDate).cur || { byType: {} }).byType || {})[t];
       return bt && bt[metric] != null ? { name: c.b.name, val: bt[metric], sub: c.bench } : null;
     }).filter(Boolean).sort((x, y) => y.val - x.val);
     const body = rows.length
@@ -823,11 +879,12 @@
   }
 
   // One column: week-over-week Δ per building, diverging from centre (▲ green / ▼ red).
-  function wowCol(cols, t, metric) {
+  function wowCol(cols, t, metric, snapDate) {
     const psfMode = metric === "avgPsf";
     const rows = cols.map((c) => {
-      const cur = (D.summary[c.b.id] || { byType: {} }).byType[t];
-      const prev = (D.prevSummary[c.b.id] || { byType: {} }).byType[t];
+      const sc = colSnap(c.b.id, snapDate);
+      const cur = ((sc.cur || { byType: {} }).byType || {})[t];
+      const prev = ((sc.prev || { byType: {} }).byType || {})[t];
       if (!cur || cur[metric] == null) return null;
       const d = prev && prev[metric] != null ? cur[metric] - prev[metric] : 0;
       return { name: c.b.name, d: psfMode ? +d.toFixed(2) : Math.round(d), sub: c.bench };
@@ -849,7 +906,7 @@
 
   const reportBand = (title, sub, badge) =>
     `<div class="rp-band"><div class="rp-band-l"><b>${title}</b> — ${sub}</div><div class="rp-band-badge">${badge}</div></div>`;
-  const reportGrid = (cols, fn, metric) => `<div class="rp-chartgrid">${REPORT_TYPES.map((t) => fn(cols, t, metric)).join("")}</div>`;
+  const reportGrid = (cols, fn, metric, snapDate) => `<div class="rp-chartgrid">${REPORT_TYPES.map((t) => fn(cols, t, metric, snapDate)).join("")}</div>`;
 
   function closeReport() {
     const r = document.getElementById("report-root");
@@ -861,18 +918,18 @@
 
   // Full benchmark-vs-comps data table, chunked to benchmark + <=4 comps so each
   // table fits the report width (mirrors the detailed table from the prior report).
-  function reportTables(a, cols) {
+  function reportTables(a, cols, snapDate) {
     const benchCol = cols.find((c) => c.bench);
     const compCols = cols.filter((c) => !c.bench);
     const types = presentTypes(cols);
     const CHUNK = 3; // benchmark + 3 comps = 4 cols → fits Letter width without clipping in print
     let out = "";
     if (!compCols.length) {
-      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types)}</div>` : "";
+      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types, snapDate)}</div>` : "";
     } else {
       for (let i = 0; i < compCols.length; i += CHUNK) {
         const pageCols = benchCol ? [benchCol, ...compCols.slice(i, i + CHUNK)] : compCols.slice(i, i + CHUNK);
-        out += `<div class="rp-tablewrap">${compTableHtml(pageCols, types)}</div>`;
+        out += `<div class="rp-tablewrap">${compTableHtml(pageCols, types, snapDate)}</div>`;
       }
     }
     return out;
@@ -881,22 +938,23 @@
   function openReport(a) {
     const cols = compSetBuildings(a);
     const n = cols.filter((c) => !c.bench).length;
+    const snap = selectedSnap(a); // report reflects the same run selected in the Summary
     const doc = `<div class="report-sheet">
-      ${reportHeader(a, cols)}
+      ${reportHeader(a, cols, snap)}
       <div class="rp-body">
         <div class="rp-section">
-          ${reportKpis(a, cols)}
-          ${reportNarrative(a, cols)}
+          ${reportKpis(a, cols, snap)}
+          ${reportNarrative(a, cols, snap)}
         </div>
         <div class="rp-section">
           ${reportBand("All-Cohort Summary", `All ${n} Comps · By Unit Type`, "SUMMARY")}
           <div class="rp-subtitle">Avg rent by unit type ($/mo) — all comps</div>
-          ${reportGrid(cols, rankedCol, "avgRent")}
+          ${reportGrid(cols, rankedCol, "avgRent", snap)}
           <div class="rp-subtitle">Avg PSF by unit type ($/sf) — all comps</div>
-          ${reportGrid(cols, rankedCol, "avgPsf")}
+          ${reportGrid(cols, rankedCol, "avgPsf", snap)}
         </div>
         <div class="rp-section">
-          ${reportBand("Week-over-Week Changes", "Rent &amp; PSF Δ vs previous scrape · By Unit Type", "WOW")}
+          ${reportBand("Week-over-Week Changes", "Rent &amp; PSF Δ vs prior scrape · By Unit Type", "WOW")}
           <div class="rp-legend">
             <span><span class="lg-sw inc"></span> Increase</span>
             <span><span class="lg-sw dec"></span> Decrease</span>
@@ -904,13 +962,13 @@
             <span><span class="lg-sw subj"></span> Subject ★</span>
           </div>
           <div class="rp-subtitle">Rent — week-over-week ($/mo)</div>
-          ${reportGrid(cols, wowCol, "avgRent")}
+          ${reportGrid(cols, wowCol, "avgRent", snap)}
           <div class="rp-subtitle">PSF — week-over-week ($/sf)</div>
-          ${reportGrid(cols, wowCol, "avgPsf")}
+          ${reportGrid(cols, wowCol, "avgPsf", snap)}
         </div>
         <div class="rp-section rp-section--flow">
-          ${reportBand("Detailed Comparables", `Subject + ${n} comps · latest snapshot · weekly Δ`, "DETAIL")}
-          ${reportTables(a, cols)}
+          ${reportBand("Detailed Comparables", `Subject + ${n} comps · snapshot ${snap ? fmtDate(snap) : "latest"} · vs prior Δ`, "DETAIL")}
+          ${reportTables(a, cols, snap)}
         </div>
       </div>
     </div>`;

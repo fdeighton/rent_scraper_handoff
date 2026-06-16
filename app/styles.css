@@ -312,6 +312,20 @@ table.comp thead th {
 .delta.flat { color: var(--grey); }
 .sub { color: var(--grey); font-size: 11px; }
 
+/* Historical snapshot picker */
+.snap-bar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.snap-cap { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--grey); }
+.snap-dd { position: relative; }
+.snap-btn { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--navy); font-size: 13px; font-weight: 600; }
+.snap-btn:hover { background: #f3f4f8; }
+.snap-btn .ic { color: var(--navy-600); }
+.snap-btn .ic:last-child { width: 14px; height: 14px; }
+.snap-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-lg); overflow: hidden; }
+.snap-menu[hidden] { display: none; }
+.snap-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 13px; color: var(--navy); font-variant-numeric: tabular-nums; }
+.snap-opt:hover { background: var(--row-hover); }
+.snap-opt.active { background: var(--orange-100); color: var(--orange-600); font-weight: 600; }
+
 /* ================================================================== Charts */
 .chart-card { margin-bottom: var(--sp-5); }
 .chart-card h3 { font-size: 16px; font-weight: 600; margin: 0 0 var(--sp-4); }
@@ -532,11 +546,11 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
   /* Each major section is kept whole and dynamically placed on a page where it
      fits — no mid-section splits, no stranded headers, no half-page voids. */
   body.report-open .rp-section { break-inside: avoid; }
-  /* ...except the long detailed-tables section, which flows across pages with a
-     repeating header row. */
+  /* The detailed-tables section is long, so it flows across pages — but each
+     individual comp table stays WHOLE (a building's data never splits across a
+     page break), and the DETAIL band stays with its first table. */
   body.report-open .rp-section--flow { break-inside: auto; }
-  body.report-open .rp-tablewrap { break-inside: auto; border: none; overflow: visible; }
-  body.report-open .rp-tablewrap table.comp thead { display: table-header-group; }
-  body.report-open .rp-tablewrap tr { break-inside: avoid; }
+  body.report-open .rp-tablewrap { break-inside: avoid; border: none; overflow: visible; }
+  body.report-open .rp-band { break-after: avoid; }
   @page { size: letter portrait; margin: 0.4in; }
 }
