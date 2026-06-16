@@ -418,7 +418,7 @@
       <div class="page-head">
         <div class="page-head__main">
           <h1 class="page-title">Building Universe</h1>
-          <div class="page-sub">${D.counts.buildings} buildings tracked · ${D.counts.analyses} analyses · seed exported ${esc(D.generatedAt)}</div>
+          <div class="page-sub">${universeList("").length} buildings tracked · ${D.analyses.length} analyses · seed exported ${esc(D.generatedAt)}</div>
         </div>
         <div class="page-actions">
           <div class="search">${icon("search")}<input id="bu-search" placeholder="Search buildings, address, city…" value="${esc(buState.q)}"/></div>
