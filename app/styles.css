@@ -303,7 +303,7 @@ table.comp thead th {
 /* Remove-comp × is pinned to the right edge, vertically centered — identical
    placement whether the building name is one line or two. Symmetric side padding
    on every data header keeps the building name centered in its cell. */
-.comp-wrap thead th { position: relative; text-align: center; }
+.comp-wrap thead th { position: relative; text-align: center; vertical-align: middle; }
 .comp-wrap thead th.col-bench, .comp-wrap thead th.col-rm { padding-left: 20px; padding-right: 20px; }
 .comp-wrap thead th .th-rm { position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
   border: none; background: rgba(255,255,255,.16); color: #fff;
