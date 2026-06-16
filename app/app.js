@@ -1031,21 +1031,23 @@
       }
     };
 
-    // Fit `inner` to FILL the page box: lay it out progressively wider than the
-    // page, then scale down so the result fills both width (W) and height
-    // (availH) — eliminating the side margins a pure height-fit would leave.
+    // Fit `inner` to FILL the page box in BOTH dimensions: pick a layout width
+    // whose scaled result fills the page width (W) AND the page height (availH).
+    // Scales up short dashboards and down tall ones, so page 1 is always full.
+    // Iterates with damping (height responds to width via wrapping); MAXUP keeps
+    // a sparse comp set from blowing up.
     const fillBox = (inner, outer, W, availH) => {
+      const MAXUP = 2.2;
+      const sc = () => Math.min(MAXUP, availH / H(inner));
       let w = W;
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         inner.style.width = w + "px";
-        const scale = Math.min(1, availH / H(inner));
-        if (scale >= 1) { w = W; break; }      // fits at full width, no scaling needed
-        const dispW = w * scale;
-        if (Math.abs(dispW - W) < 3) break;     // converged: scaled width ≈ page width
-        w = w * (W / dispW);                    // widen so the scaled width fills W
+        const dispW = w * sc();
+        if (Math.abs(dispW - W) < 2) break;     // converged: scaled width ≈ page width
+        w *= Math.pow(W / dispW, 0.7);          // damped step toward filling W
       }
       inner.style.width = w + "px";
-      const scale = Math.min(1, availH / H(inner));
+      const scale = sc();
       inner.style.transformOrigin = "top left";
       inner.style.transform = `scale(${scale.toFixed(4)})`;
       outer.style.width = W + "px";
