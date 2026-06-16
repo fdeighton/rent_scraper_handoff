@@ -297,7 +297,7 @@ table.comp thead th {
   position: sticky; left: 0; background: var(--surface); z-index: 1; text-align: left;
   font-weight: 500; color: var(--navy); min-width: 150px; box-shadow: 1px 0 0 var(--border);
 }
-.comp thead .rowlabel { background: var(--navy); z-index: 3; }
+.comp thead .rowlabel { background: var(--navy); color: #fff; z-index: 3; }
 .comp td.col-bench, .comp th.col-bench { background: var(--orange-100); }
 .comp thead th.col-bench { color: var(--orange-600); }
 /* Remove-comp × is pinned to the right edge, vertically centered — identical
