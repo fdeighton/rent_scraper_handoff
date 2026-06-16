@@ -777,23 +777,27 @@
       "Address", "City", "Distance (m)", "Incentives", "Snapshot"];
     const NCOL = headers.length;
 
+    // Explicit column widths so nothing clips; text columns wrap (rows auto-grow).
+    const widths = [150, 52, 94, 78, 64, 64, 72, 70, 60, 50, 112, 72, 130, 74, 78, 240, 76];
+    const colgroup = `<colgroup>${widths.map((w) => `<col style="width:${w}px"/>`).join("")}</colgroup>`;
     const sTitle = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:15px;padding:11px 12px;`;
-    const sMeta = `background:#fff;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
-    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};text-align:center;`;
-    const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};background:${bg};${extra || ""}`;
+    const sMeta = `background:#FAFAF7;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
+    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};border-bottom:2px solid ${ORANGE};text-align:center;vertical-align:middle;`;
+    const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};vertical-align:middle;white-space:normal;background:${bg};${extra || ""}`;
 
     let rowsHtml = "";
     cols.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
       if (!cur) return;
       const subj = c.bench;
-      const bg = subj ? TINT : "#fff";
       const sdate = cur.date ? fmtDate(cur.date) : (snap ? fmtDate(snap) : "Latest");
       const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
 
       const emit = (unitLabel, m, p, incVal, wavg) => {
         if (!m || m.avgRent == null) return;
-        const b = wavg ? "font-weight:700;" : "";
+        // weighted row closes each building block: tinted band + navy top rule
+        const bg = wavg ? (subj ? "#D7DEF2" : "#EEF1F8") : (subj ? TINT : "#fff");
+        const b = wavg ? `font-weight:700;border-top:2px solid ${NAVY};` : "";
         const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
         const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
         const dCol = d > 0 ? GREEN : d < 0 ? RED : GREY;
@@ -840,7 +844,7 @@
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">` +
       `<head><meta charset="utf-8"/>` +
       `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Comp Analysis</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
-      `</head><body><table border="0" cellspacing="0" cellpadding="0">${body}</table></body></html>`;
+      `</head><body style="margin:0;background:#FAFAF7"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#FAFAF7">${colgroup}${body}</table></body></html>`;
     const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
     downloadFile(`${safe} — comp analysis.xls`, html, "application/vnd.ms-excel");
   }
