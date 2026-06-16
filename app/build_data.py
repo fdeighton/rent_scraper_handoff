@@ -269,6 +269,8 @@ def main():
             "address": b.get("address"),
             "city": b.get("city"),
             "province": b.get("province"),
+            "lat": b.get("latitude"),
+            "lng": b.get("longitude"),
             "photo": b.get("photo_url"),
             "yearBuilt": b.get("year_built"),
             "unitCount": b.get("unit_count"),

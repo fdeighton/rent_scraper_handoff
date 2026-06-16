@@ -35,6 +35,7 @@
     "check": '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>',
     "edit": '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     "doc": '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/>',
+    "star": '<path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17.3 5.8 20.7l1.6-6.8L2.2 8.9l6.9-.6z"/>',
   };
   const icon = (n) => `<span class="ic">${ICONS[n] ? `<svg viewBox="0 0 24 24">${ICONS[n]}</svg>` : ""}</span>`;
 
@@ -63,6 +64,136 @@
     return `<span class="delta ${cls}">${arrow} $${Math.abs(d).toLocaleString()}</span>`;
   }
 
+  // ========================================== New Analysis (create flow) ====
+  // Great-circle distance in metres — mirrors schema.sql haversine_distance().
+  function haversine(la1, lo1, la2, lo2) {
+    if ([la1, lo1, la2, lo2].some((v) => v == null)) return null;
+    const R = 6371000, t = Math.PI / 180;
+    const dLat = (la2 - la1) * t, dLng = (lo2 - lo1) * t;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(la1 * t) * Math.cos(la2 * t) * Math.sin(dLng / 2) ** 2;
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  }
+
+  const CUSTOM_KEY = "comp_custom_analyses_v1";
+  function loadCustomAnalyses() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
+      arr.forEach((a) => { if (!D.analyses.some((x) => x.id === a.id)) D.analyses.push(a); });
+    } catch (e) {}
+  }
+  function saveCustomAnalyses() {
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(D.analyses.filter((a) => a.custom))); } catch (e) {}
+  }
+  function deleteAnalysis(id) {
+    const i = D.analyses.findIndex((a) => a.id === id);
+    if (i >= 0) D.analyses.splice(i, 1);
+    saveCustomAnalyses();
+    location.hash = "#/universe";
+  }
+  function createAnalysis({ name, benchmark, compIds }) {
+    const bb = bld(benchmark);
+    const id = "custom-" + Date.now().toString(36);
+    const comps = compIds.map((cid, i) => {
+      const cb = bld(cid);
+      return { building: cid, order: i, distance: bb && cb ? haversine(bb.lat, bb.lng, cb.lat, cb.lng) : null };
+    });
+    D.analyses.push({
+      id, name, address: bb && bb.address, city: bb && bb.city, province: bb && bb.province,
+      yearBuilt: bb && bb.yearBuilt, unitCount: bb && bb.unitCount, assetType: bb && bb.assetType,
+      benchmark, order: 999, comps, custom: true,
+    });
+    saveCustomAnalyses();
+    renderNav();
+    location.hash = "#/analysis/" + id;
+  }
+
+  function openNewAnalysisModal() {
+    const buildings = Object.values(D.buildings).filter((b) => b.isActive !== false).sort((a, b) => a.name.localeCompare(b.name));
+    const benchSet = benchmarkIds();
+    // surface Fitzrovia benchmark buildings first, then the rest
+    const ordered = buildings.slice().sort((a, b) => (benchSet.has(b.id) - benchSet.has(a.id)) || a.name.localeCompare(b.name));
+    const benchOpts = ordered.map((b) => `<option value="${b.id}">${esc(b.name)}${b.city ? " — " + esc(b.city) : ""}${benchSet.has(b.id) ? "  ★" : ""}</option>`).join("");
+
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="New Analysis">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("building")}</div>
+        <div class="modal__title">New Analysis</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="field" id="f-name">
+          <label for="na-name">Analysis name</label>
+          <input type="text" id="na-name" placeholder="e.g. Collection - Yorkville"/>
+          <div class="err"></div>
+        </div>
+        <div class="field" id="f-bench">
+          <label for="na-bench">Benchmark building <span class="sub">(★ = Fitzrovia property)</span></label>
+          <select id="na-bench"><option value="">Select a building…</option>${benchOpts}</select>
+          <div class="err"></div>
+        </div>
+        <div class="field" id="f-comps">
+          <label>Comparable buildings</label>
+          <div class="search" style="margin-bottom:8px">${icon("search")}<input type="text" id="na-search" placeholder="Filter buildings…"/></div>
+          <div class="checklist" id="na-list"></div>
+          <div class="selcount" id="na-count">0 selected</div>
+          <div class="err"></div>
+        </div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--primary" id="na-create">Create analysis</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+
+    const selected = new Set();
+    const $ = (sel) => overlay.querySelector(sel);
+    const listEl = $("#na-list"), benchSel = $("#na-bench");
+
+    function renderList() {
+      const q = ($("#na-search").value || "").trim().toLowerCase();
+      const benchId = benchSel.value;
+      const items = buildings.filter((b) => b.id !== benchId).filter((b) => !q || (b.name + " " + (b.city || "")).toLowerCase().includes(q));
+      listEl.innerHTML = items.map((b) =>
+        `<label class="ci"><input type="checkbox" value="${b.id}" ${selected.has(b.id) ? "checked" : ""}/> <span>${esc(b.name)}</span><span class="city">${esc(b.city || "")}</span></label>`).join("") || '<div class="empty">No matches</div>';
+      listEl.querySelectorAll("input").forEach((cb) => (cb.onchange = () => {
+        cb.checked ? selected.add(cb.value) : selected.delete(cb.value);
+        $("#na-count").textContent = selected.size + " selected";
+      }));
+    }
+    renderList();
+    $("#na-search").oninput = renderList;
+    benchSel.onchange = () => { selected.delete(benchSel.value); $("#na-count").textContent = selected.size + " selected"; renderList(); };
+
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((b) => (b.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+    $("#na-create").onclick = () => {
+      const name = $("#na-name").value.trim();
+      const benchmark = benchSel.value;
+      const compIds = [...selected];
+      let bad = false;
+      const setErr = (fid, msg) => {
+        const f = $(fid), e = f.querySelector(".err");
+        if (msg) { f.classList.add("invalid"); e.textContent = msg; e.style.display = "block"; bad = true; }
+        else { f.classList.remove("invalid"); e.style.display = "none"; }
+      };
+      // error contract: validate on submit, say what to do, never lose input
+      setErr("#f-name", name ? "" : "Add a name for this analysis.");
+      setErr("#f-bench", benchmark ? "" : "Pick the benchmark building.");
+      setErr("#f-comps", compIds.length ? "" : "Select at least one comparable building.");
+      if (bad) return;
+      close();
+      createAnalysis({ name, benchmark, compIds });
+    };
+    setTimeout(() => $("#na-name").focus(), 0);
+  }
+
   // ============================================================== Sidebar ===
   function renderNav() {
     const route = location.hash || "#/universe";
@@ -72,27 +203,57 @@
     for (const a of D.analyses) {
       const active = route.includes("/analysis/" + a.id);
       html += `<button class="nav-item ${active ? "active" : ""}" data-go="#/analysis/${a.id}">
-          ${icon("building")}<span class="nav-item__label">${esc(a.name)}</span></button>`;
+          ${icon("building")}<span class="nav-item__label">${esc(a.name)}</span>${a.custom ? '<span class="nav-tag">custom</span>' : ""}</button>`;
     }
-    html += `<button class="nav-item" data-go="#/universe">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
+    html += `<button class="nav-item" data-action="new-analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
     $nav.innerHTML = html;
     $nav.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
+    $nav.querySelectorAll('[data-action="new-analysis"]').forEach((b) => (b.onclick = openNewAnalysisModal));
   }
 
   // ===================================================== Building Universe ===
-  let buState = { q: "", view: "list" };
-  function renderUniverse() {
-    const ids = Object.keys(D.buildings);
-    const q = buState.q.trim().toLowerCase();
-    const filtered = ids
-      .map((id) => D.buildings[id])
+  let buState = { q: "", view: "list", city: "__all", bucket: "__all" };
+  let uMap = null, uCluster = null, uLines = null;
+  const benchmarkIds = () => new Set(D.analyses.map((a) => a.benchmark));
+
+  // Buildings shown on the map given the current search + comp-set bucket.
+  // In bucket mode we show one analysis's benchmark (orange) + its comps (navy),
+  // and expose the benchmark as the "anchor" so we can draw connector lines.
+  function bucketBuildings() {
+    const q = (buState.q || "").trim().toLowerCase();
+    const match = (b) => !q || (b.name + " " + (b.address || "") + " " + (b.city || "")).toLowerCase().includes(q);
+    if (buState.bucket && buState.bucket !== "__all") {
+      const a = analysisById(buState.bucket);
+      const ids = [];
+      if (a) { if (a.benchmark) ids.push(a.benchmark); a.comps.forEach((c) => ids.push(c.building)); }
+      const list = ids.map((id) => bld(id)).filter(Boolean).filter(match);
+      const anchor = a && a.benchmark ? bld(a.benchmark) : null;
+      return { list, benchSet: new Set(a && a.benchmark ? [a.benchmark] : []), anchor };
+    }
+    return { list: universeList(buState.q), benchSet: benchmarkIds(), anchor: null };
+  }
+
+  function universeList(q) {
+    q = (q || "").trim().toLowerCase();
+    return Object.values(D.buildings)
       .filter((b) => b.isActive !== false)
       .filter((b) => !q || (b.name + " " + (b.address || "") + " " + (b.city || "")).toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function destroyMap() {
+    if (uMap) { try { uMap.remove(); } catch (e) {} }
+    uMap = null; uCluster = null; uLines = null;
+  }
+  function renderUniverse() {
+    destroyMap();
+    const filtered = universeList(buState.q);
+    const hasLeaflet = typeof window.L !== "undefined";
 
     let body;
     if (buState.view === "map") {
-      body = `<div class="card"><div class="empty">${icon("map")}<br/>Map view renders on live CartoDB tiles — available in the deployed app. ${filtered.length} buildings would be plotted across Toronto, Montreal, Vancouver &amp; Mississauga.</div></div>`;
+      body = hasLeaflet ? mapShellHtml(filtered) :
+        `<div class="card"><div class="empty">${icon("map")}<br/>The map needs the Leaflet library + CartoDB tiles, which load over the network. You appear to be offline — switch to List view, or reopen with a connection.</div></div>`;
     } else {
       body = `<div class="bu-grid">${filtered.map(buCard).join("")}</div>`;
     }
@@ -115,16 +276,151 @@
       ${body}`;
 
     const s = document.getElementById("bu-search");
-    s.oninput = () => { buState.q = s.value; const g = $view.querySelector(".bu-grid"); if (g) g.innerHTML = idsToCards(s.value); };
+    s.oninput = () => {
+      buState.q = s.value;
+      if (buState.view === "map" && uCluster) setUniverseMarkers();
+      else { const g = $view.querySelector(".bu-grid"); if (g) g.innerHTML = idsToCards(s.value); }
+    };
     $view.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { buState.view = b.dataset.v; renderUniverse(); }));
+
+    if (buState.view === "map" && hasLeaflet) wireMap(filtered);
   }
-  function idsToCards(q) {
-    q = (q || "").trim().toLowerCase();
-    return Object.values(D.buildings)
-      .filter((b) => b.isActive !== false)
-      .filter((b) => !q || (b.name + " " + (b.address || "") + " " + (b.city || "")).toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map(buCard).join("");
+  function idsToCards(q) { return universeList(q).map(buCard).join(""); }
+
+  // ---- Map (Leaflet + CartoDB Positron, branded markers) -------------------
+  function mapCities() {
+    const counts = {};
+    universeList("").forEach((b) => { if (b.lat != null && b.city) counts[b.city] = (counts[b.city] || 0) + 1; });
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  }
+  function mapShellHtml(list) {
+    const cityBtns = ['<button class="city-btn ' + (buState.city === "__all" ? "active" : "") + '" data-city="__all">All</button>']
+      .concat(mapCities().map((c) => `<button class="city-btn ${buState.city === c ? "active" : ""}" data-city="${esc(c)}">${esc(c)}</button>`)).join("");
+    const bucketOpts = ['<option value="__all">All buildings</option>']
+      .concat(D.analyses.map((a) => `<option value="${a.id}" ${buState.bucket === a.id ? "selected" : ""}>${esc(a.name)} (${a.comps.length} comps)</option>`)).join("");
+    const inBucket = buState.bucket && buState.bucket !== "__all";
+    return `<div class="map-shell">
+      <div class="map-toolbar">
+        <div class="bucket-pick">
+          <label for="bu-bucket">Compare set</label>
+          <select id="bu-bucket">${bucketOpts}</select>
+        </div>
+        <div class="city-btns" ${inBucket ? 'style="opacity:.5;pointer-events:none"' : ""}>${cityBtns}</div>
+        <div class="map-legend">
+          <span class="lg"><span class="swatch bench"></span> ${inBucket ? "Benchmark" : "Fitzrovia benchmark"}</span>
+          <span class="lg"><span class="swatch comp"></span> ${inBucket ? "Comp in set" : "Competitor"}</span>
+          ${inBucket ? '<span class="lg"><span class="swatch line"></span> Compared to</span>' : ""}
+        </div>
+      </div>
+      <div id="bu-map"></div>
+    </div>`;
+  }
+  function markerIcon(isBench) {
+    const glyph = isBench ? ICONS.star : ICONS.building;
+    return window.L.divIcon({
+      className: "",
+      html: `<div class="mk ${isBench ? "mk--bench" : "mk--comp"}"><svg viewBox="0 0 24 24">${glyph}</svg></div>`,
+      iconSize: isBench ? [38, 38] : [30, 30],
+      iconAnchor: isBench ? [19, 19] : [15, 15],
+    });
+  }
+  function clusterIcon(cluster) {
+    const n = cluster.getChildCount();
+    const size = n < 10 ? 34 : n < 50 ? 42 : 50;
+    return window.L.divIcon({
+      className: "",
+      html: `<div class="mk-cluster" style="width:${size}px;height:${size}px"><div>${n}</div></div>`,
+      iconSize: [size, size],
+    });
+  }
+  // Light hover hint (ephemeral). Rich detail lives in the click popup below.
+  function tipHtml(b) {
+    return `<div class="mk-tip__inner"><div><div class="mk-tip__name">${esc(b.name)}</div><div class="mk-tip__meta">${esc(b.city || "")} · click for details</div></div></div>`;
+  }
+  // Persistent popup opened on marker click — stays open until a major change
+  // (view toggle / bucket / search / city / navigation) rebuilds the layer.
+  function popupHtml(b) {
+    const sum = D.summary[b.id];
+    const photo = b.photo ? `<img class="pop-photo" src="${esc(b.photo)}" onerror="this.style.display='none'"/>` : "";
+    const badges = [b.assetType, b.yearBuilt ? "Built " + b.yearBuilt : null, b.unitCount ? b.unitCount + " units" : null]
+      .filter(Boolean).map((x) => `<span class="badge">${esc(x)}</span>`).join("");
+    const stats = sum && sum.weighted
+      ? `<div class="pop-stats">
+           <div><b class="tnum">${money(sum.weighted.avgRent)}</b><span>avg gross rent</span></div>
+           <div><b class="tnum">${psf(sum.weighted.avgPsf)}/sf</b><span>avg PSF</span></div>
+           <div><b class="tnum">${sum.weighted.count}</b><span>units</span></div>
+         </div>` : "";
+    const inc = sum && sum.incentives ? `<div class="pop-inc">${esc(sum.incentives)}</div>` : "";
+    const dateline = sum ? `<div class="pop-date">Latest snapshot ${fmtDate(sum.date)}</div>` : `<div class="pop-date">No successful scrape yet</div>`;
+    return `<div class="pop">
+      ${photo}
+      <div class="pop-name">${esc(b.name)}</div>
+      <div class="pop-addr">${esc(b.address || "")}${b.city ? ", " + esc(b.city) : ""}</div>
+      <div class="pop-badges">${badges}</div>
+      ${stats}${inc}${dateline}
+      <a class="pop-btn" href="#/building/${b.id}">View building →</a>
+    </div>`;
+  }
+  function setUniverseMarkers() {
+    if (!uCluster) return;
+    const { list, benchSet, anchor } = bucketBuildings();
+    uCluster.clearLayers();
+    if (uLines) uLines.clearLayers();
+    const pts = [];
+
+    // connector lines benchmark -> each comp (only in bucket mode)
+    if (anchor && anchor.lat != null && uLines) {
+      list.forEach((b) => {
+        if (b.id === anchor.id || b.lat == null || b.lng == null) return;
+        window.L.polyline([[anchor.lat, anchor.lng], [b.lat, b.lng]], {
+          color: "#1F2750", weight: 1.5, opacity: 0.35, dashArray: "4 5", interactive: false,
+        }).addTo(uLines);
+      });
+    }
+
+    list.forEach((b) => {
+      if (b.lat == null || b.lng == null) return;
+      const m = window.L.marker([b.lat, b.lng], { icon: markerIcon(benchSet.has(b.id)) });
+      m.bindTooltip(tipHtml(b), { direction: "top", offset: [0, -16], className: "mk-tip", opacity: 1 });
+      m.bindPopup(popupHtml(b), {
+        className: "mk-pop", closeButton: true, closeOnClick: false, autoClose: true,
+        minWidth: 232, maxWidth: 264, offset: [0, -12],
+      });
+      // hide the hover hint while the persistent popup is open for this marker
+      m.on("popupopen", () => m.closeTooltip());
+      uCluster.addLayer(m);
+      pts.push([b.lat, b.lng]);
+    });
+    if (pts.length) uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
+    else uMap.setView([43.7, -79.4], 11);
+  }
+  function wireMap(list) {
+    const L = window.L;
+    uMap = L.map("bu-map", { zoomControl: true, scrollWheelZoom: true, attributionControl: true });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd", maxZoom: 19, attribution: "&copy; OpenStreetMap, &copy; CARTO",
+    }).addTo(uMap);
+    uLines = L.layerGroup().addTo(uMap);
+    uCluster = L.markerClusterGroup
+      ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true })
+      : L.layerGroup();
+    uMap.addLayer(uCluster);
+    setUniverseMarkers();
+    setTimeout(() => uMap && uMap.invalidateSize(), 60);
+
+    const bucketSel = document.getElementById("bu-bucket");
+    if (bucketSel) bucketSel.onchange = () => {
+      buState.bucket = bucketSel.value;
+      buState.city = "__all";
+      renderUniverse(); // re-render so toolbar (city lock, legend) reflects bucket mode
+    };
+
+    $view.querySelectorAll("[data-city]").forEach((btn) => (btn.onclick = () => {
+      buState.city = btn.dataset.city;
+      $view.querySelectorAll("[data-city]").forEach((x) => x.classList.toggle("active", x === btn));
+      const subset = bucketBuildings().list.filter((b) => b.lat != null && (buState.city === "__all" || b.city === buState.city)).map((b) => [b.lat, b.lng]);
+      if (subset.length && uMap) uMap.fitBounds(subset, { padding: [40, 40], maxZoom: buState.city === "__all" ? 14 : 13 });
+    }));
   }
   function buCard(b) {
     const sum = D.summary[b.id];
@@ -182,12 +478,17 @@
             <button data-tab="summary" class="${tab === "summary" ? "active" : ""}">Summary</button>
             <button data-tab="trends" class="${tab === "trends" ? "active" : ""}">Rent Trends</button>
           </div>
-          <button class="btn" onclick="window.print()">${icon("download")} Export PDF</button>
+          ${a.custom ? `<button class="btn" id="a-remove">Remove</button>` : ""}
+          <button class="btn btn--accent" id="a-export">${icon("download")} Export PDF</button>
         </div>
       </div>`;
 
     $view.innerHTML = head + `<div id="tabbody"></div>`;
     $view.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => (location.hash = `#/analysis/${id}/${b.dataset.tab}`)));
+    const rm = document.getElementById("a-remove");
+    if (rm) rm.onclick = () => { if (confirm(`Remove the "${a.name}" analysis? This only deletes your custom analysis, not any building data.`)) deleteAnalysis(id); };
+    const ex = document.getElementById("a-export");
+    if (ex) ex.onclick = () => openReport(a);
     if (tab === "trends") renderTrends(a, cols);
     else renderSummary(a, cols);
   }
@@ -208,8 +509,9 @@
     </div>`;
   }
 
-  function renderSummary(a, cols) {
-    const types = presentTypes(cols);
+  // Shared comp-table markup (used by the on-screen Summary and the PDF report).
+  function compTableHtml(cols, types) {
+    types = types || presentTypes(cols);
     const colHead = cols.map(({ b, bench }) => `<th class="${bench ? "col-bench" : ""}">${esc(b.name)}${bench ? " ★" : ""}</th>`).join("");
 
     const cell = (c, html) => `<td class="${c.bench ? "col-bench" : ""}">${html}</td>`;
@@ -264,11 +566,208 @@
       </td>`;
     }).join("")}</tr>`;
 
+    return `<table class="comp"><thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderSummary(a, cols) {
     document.getElementById("tabbody").innerHTML =
-      kpiStrip(a, cols) +
-      `<div class="comp-wrap"><table class="comp">
-        <thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead>
-        <tbody>${rows}</tbody></table></div>`;
+      kpiStrip(a, cols) + `<div class="comp-wrap">${compTableHtml(cols)}</div>`;
+  }
+
+  // ====================================================== PDF Report =========
+  // Ranked-bar competitive report matching docs/screenshots/05-pdf-report.png:
+  // rich header + 4 median KPIs + narrative, then ALL-COHORT SUMMARY (avg rent
+  // and avg PSF ranked bars per unit type, subject highlighted) and
+  // WEEK-OVER-WEEK diverging bars (rent + PSF Δ vs previous scrape).
+  const REPORT_TYPES = ["bachelor", "1-bed", "2-bed", "3-bed"];
+  const ASSET_LONG = { PBR: "Purpose-Built Rental", Condo: "Condominium" };
+
+  function median(arr) {
+    const a = arr.filter((v) => v != null).slice().sort((x, y) => x - y);
+    if (!a.length) return null;
+    const m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  }
+  function reportDate() {
+    try { return new Date().toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" }); }
+    catch (e) { return D.generatedAt; }
+  }
+  const fmtRent = (v) => "$" + Math.round(v).toLocaleString();
+  const fmtPsf = (v) => "$" + Number(v).toFixed(2);
+  const fmtSigned = (d, psf) => (d > 0 ? "+" : d < 0 ? "−" : "") + "$" + (psf ? Math.abs(d).toFixed(2) : Math.abs(Math.round(d)).toLocaleString());
+
+  function reportHeader(a, cols) {
+    const b = bld(a.benchmark) || {};
+    const n = cols.filter((c) => !c.bench).length;
+    const loc = `${esc(a.city || b.city || "")}${(a.province || b.province) ? ", " + esc(a.province || b.province) : ""}`;
+    return `<div class="rp-head">
+      <div class="rp-head-top">
+        <div class="rp-eyebrow">Export — Competitive Analysis · Summary</div>
+        <div class="rp-brand">FITZROVIA</div>
+      </div>
+      <div class="rp-head-row">
+        <div class="rp-head-id">
+          <div class="rp-title">${esc(a.name)} <span class="rp-title-sub">/ ${esc(a.address || b.address || "")}${loc ? ", " + loc : ""}</span></div>
+          <div class="rp-sub">${esc(ASSET_LONG[a.assetType] || a.assetType || "Comparable Set")} · Class A Comparables · ${loc} · All ${n} Comps · Weighted Average Summary</div>
+        </div>
+        <div class="rp-head-meta">
+          <div>Scraped ${esc(D.summary[a.benchmark] ? fmtDate(D.summary[a.benchmark].date) : reportDate())} · Subject ${esc(a.name)} · Fitzrovia</div>
+          <div>Comps ${n} total · Type ${esc(a.assetType || b.assetType || "—")} · Built ${a.yearBuilt || b.yearBuilt || "—"} · Units ${a.unitCount || b.unitCount || "—"}</div>
+          <div><span class="rp-confidential">Internal &amp; Confidential</span></div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function reportKpis(a, cols) {
+    const bw = (D.summary[a.benchmark] || {}).weighted;
+    const comps = cols.filter((c) => !c.bench).map((c) => (D.summary[c.b.id] || {}).weighted).filter(Boolean);
+    const n = comps.length;
+    const medRent = median(comps.map((w) => w.avgRent));
+    const medPsf = median(comps.map((w) => w.avgPsf));
+    const sRent = bw ? bw.avgRent : null, sPsf = bw ? bw.avgPsf : null;
+    const dRent = sRent != null && medRent != null ? sRent - medRent : null;
+    const dPsf = sPsf != null && medPsf != null ? sPsf - medPsf : null;
+    const annR = dRent == null ? "vs comp median" : `$${Math.abs(dRent).toFixed(1).replace(/\.0$/, "")} ${dRent < 0 ? "below" : "above"} comp median`;
+    const annP = dPsf == null ? "vs comp median" : `$${Math.abs(dPsf).toFixed(2)} ${dPsf < 0 ? "below" : "above"} comp median`;
+    const kpi = (l, v, unit, s, cls) => `<div class="rp-kpi"><div class="rp-kpi-l">${l}</div><div class="rp-kpi-v ${cls || ""}">${v}<span>${unit}</span></div><div class="rp-kpi-s">${s}</div></div>`;
+    return `<div class="rp-kpis">
+      ${kpi("Subject Wtd. Avg Rent", sRent != null ? fmtRent(sRent) : "—", "/mo", annR)}
+      ${kpi("Subject Wtd. Avg PSF", sPsf != null ? fmtPsf(sPsf) : "—", "/sf", annP)}
+      ${kpi("Comp Median Rent", medRent != null ? fmtRent(medRent) : "—", "/mo", `Across all ${n} comps`)}
+      ${kpi("Comp Median PSF", medPsf != null ? fmtPsf(medPsf) : "—", "/sf", `Across all ${n} comps`)}
+    </div>`;
+  }
+
+  function reportNarrative(a, cols) {
+    const bw = (D.summary[a.benchmark] || {}).weighted;
+    const comps = cols.filter((c) => !c.bench).map((c) => (D.summary[c.b.id] || {}).weighted).filter(Boolean);
+    if (!bw || !comps.length) return "";
+    const medRent = median(comps.map((w) => w.avgRent)), medPsf = median(comps.map((w) => w.avgPsf));
+    const dRent = bw.avgRent - medRent, dPsf = bw.avgPsf - medPsf;
+    return `<div class="rp-narrative">${esc(a.name)} is priced <b>$${Math.abs(dRent).toFixed(1).replace(/\.0$/, "")}/mo ${dRent < 0 ? "below" : "above"}</b> the comp median of ${comps.length} properties. PSF is <b>${dPsf >= 0 ? "above" : "below"}</b> the cohort at <b>${fmtPsf(bw.avgPsf)}/sf</b>.</div>`;
+  }
+
+  // One column: buildings ranked descending by a unit-type metric, subject in orange.
+  function rankedCol(cols, t, metric) {
+    const fmt = metric === "avgPsf" ? fmtPsf : fmtRent;
+    const rows = cols.map((c) => {
+      const bt = (D.summary[c.b.id] || { byType: {} }).byType[t];
+      return bt && bt[metric] != null ? { name: c.b.name, val: bt[metric], sub: c.bench } : null;
+    }).filter(Boolean).sort((x, y) => y.val - x.val);
+    const body = rows.length
+      ? rows.map((r) => `<div class="rb-row">
+          <div class="rb-name ${r.sub ? "sub-h" : ""}">${esc(r.name)}${r.sub ? " ★" : ""}</div>
+          <div class="rb-bar-wrap"><span class="rb-bar ${r.sub ? "sub-h" : ""}" style="width:${Math.max(3, (r.val / rows[0].val) * 100)}%"></span></div>
+          <div class="rb-val">${fmt(r.val)}</div>
+        </div>`).join("")
+      : '<div class="rp-empty">No data</div>';
+    return `<div class="rp-col"><div class="rp-col-title">${TYPE_LABEL[t]}</div>${body}</div>`;
+  }
+
+  // One column: week-over-week Δ per building, diverging from centre (▲ green / ▼ red).
+  function wowCol(cols, t, metric) {
+    const psfMode = metric === "avgPsf";
+    const rows = cols.map((c) => {
+      const cur = (D.summary[c.b.id] || { byType: {} }).byType[t];
+      const prev = (D.prevSummary[c.b.id] || { byType: {} }).byType[t];
+      if (!cur || cur[metric] == null) return null;
+      const d = prev && prev[metric] != null ? cur[metric] - prev[metric] : 0;
+      return { name: c.b.name, d: psfMode ? +d.toFixed(2) : Math.round(d), sub: c.bench };
+    }).filter(Boolean).sort((x, y) => y.d - x.d);
+    if (!rows.length) return `<div class="rp-col"><div class="rp-col-title">${TYPE_LABEL[t]}</div><div class="rp-empty">No data</div></div>`;
+    const max = Math.max(1, ...rows.map((r) => Math.abs(r.d)));
+    const body = rows.map((r) => {
+      const cls = r.d > 0 ? "pos" : r.d < 0 ? "neg" : "zero";
+      const pct = (Math.abs(r.d) / max) * 50;
+      const style = r.d > 0 ? `left:50%;width:${pct}%` : r.d < 0 ? `right:50%;width:${pct}%` : "";
+      return `<div class="wb-row">
+        <div class="wb-name ${r.sub ? "sub-h" : ""}">${esc(r.name)}${r.sub ? " ★" : ""}</div>
+        <div class="wb-track"><span class="wb-center"></span><span class="wb-bar ${cls}" style="${style}"></span></div>
+        <div class="wb-val ${cls}">${r.d === 0 ? "$0" : fmtSigned(r.d, psfMode)}</div>
+      </div>`;
+    }).join("");
+    return `<div class="rp-col"><div class="rp-col-title">${TYPE_LABEL[t]}</div>${body}</div>`;
+  }
+
+  const reportBand = (title, sub, badge) =>
+    `<div class="rp-band"><div class="rp-band-l"><b>${title}</b> — ${sub}</div><div class="rp-band-badge">${badge}</div></div>`;
+  const reportGrid = (cols, fn, metric) => `<div class="rp-chartgrid">${REPORT_TYPES.map((t) => fn(cols, t, metric)).join("")}</div>`;
+
+  function closeReport() {
+    const r = document.getElementById("report-root");
+    if (r) r.remove();
+    document.body.classList.remove("report-open");
+    document.removeEventListener("keydown", reportKey);
+  }
+  function reportKey(e) { if (e.key === "Escape") closeReport(); }
+
+  // Full benchmark-vs-comps data table, chunked to benchmark + <=4 comps so each
+  // table fits the report width (mirrors the detailed table from the prior report).
+  function reportTables(a, cols) {
+    const benchCol = cols.find((c) => c.bench);
+    const compCols = cols.filter((c) => !c.bench);
+    const types = presentTypes(cols);
+    const CHUNK = 4;
+    let out = "";
+    if (!compCols.length) {
+      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types)}</div>` : "";
+    } else {
+      for (let i = 0; i < compCols.length; i += CHUNK) {
+        const pageCols = benchCol ? [benchCol, ...compCols.slice(i, i + CHUNK)] : compCols.slice(i, i + CHUNK);
+        out += `<div class="rp-tablewrap">${compTableHtml(pageCols, types)}</div>`;
+      }
+    }
+    return out;
+  }
+
+  function openReport(a) {
+    const cols = compSetBuildings(a);
+    const n = cols.filter((c) => !c.bench).length;
+    const doc = `<div class="report-sheet">
+      ${reportHeader(a, cols)}
+      <div class="rp-body">
+        ${reportKpis(a, cols)}
+        ${reportNarrative(a, cols)}
+        ${reportBand("All-Cohort Summary", `All ${n} Comps · By Unit Type`, "SUMMARY")}
+        <div class="rp-subtitle">Avg rent by unit type ($/mo) — all comps</div>
+        ${reportGrid(cols, rankedCol, "avgRent")}
+        <div class="rp-subtitle">Avg PSF by unit type ($/sf) — all comps</div>
+        ${reportGrid(cols, rankedCol, "avgPsf")}
+        ${reportBand("Week-over-Week Changes", "Rent &amp; PSF Δ vs previous scrape · By Unit Type", "WOW")}
+        <div class="rp-legend">
+          <span><span class="lg-sw inc"></span> Increase</span>
+          <span><span class="lg-sw dec"></span> Decrease</span>
+          <span><span class="lg-sw none"></span> No change</span>
+          <span><span class="lg-sw subj"></span> Subject ★</span>
+        </div>
+        <div class="rp-subtitle">Rent — week-over-week ($/mo)</div>
+        ${reportGrid(cols, wowCol, "avgRent")}
+        <div class="rp-subtitle">PSF — week-over-week ($/sf)</div>
+        ${reportGrid(cols, wowCol, "avgPsf")}
+        ${reportBand("Detailed Comparables", `Subject + ${n} comps · latest snapshot · weekly Δ`, "DETAIL")}
+        ${reportTables(a, cols)}
+      </div>
+    </div>`;
+
+    closeReport();
+    const root = document.createElement("div");
+    root.id = "report-root";
+    root.innerHTML = `
+      <div class="report-toolbar">
+        <div class="rt-title">${icon("doc")} PDF Report — ${esc(a.name)}</div>
+        <div class="rt-actions">
+          <button class="btn" id="rp-close">Close</button>
+          <button class="btn btn--accent" id="rp-print">${icon("download")} Save as PDF / Print</button>
+        </div>
+      </div>
+      <div class="report-pages">${doc}</div>`;
+    document.body.appendChild(root);
+    document.body.classList.add("report-open");
+    document.getElementById("rp-close").onclick = closeReport;
+    document.getElementById("rp-print").onclick = () => window.print();
+    document.addEventListener("keydown", reportKey);
+    root.scrollTop = 0;
   }
 
   // ============================================================== Trends =====
@@ -483,6 +982,7 @@
   // ============================================================== Router =====
   function route() {
     const h = location.hash || "#/universe";
+    destroyMap();
     renderNav();
     window.scrollTo(0, 0);
     const m = h.match(/^#\/analysis\/([^/]+)(?:\/(\w+))?/);
@@ -493,5 +993,6 @@
   }
   window.addEventListener("hashchange", route);
   window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); });
+  loadCustomAnalyses();
   route();
 })();
