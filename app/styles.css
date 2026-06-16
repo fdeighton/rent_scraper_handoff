@@ -564,7 +564,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
   body.report-open .rp-tablewrap { border: none; overflow: visible; }
   body.report-open .rp-tablewrap table.comp thead { display: table-header-group; }
   body.report-open .rp-tablewrap tr { break-inside: avoid; }
-  body.report-open .rp-band, body.report-open .rp-subtitle,
-  body.report-open .rp-legend { break-after: avoid; break-inside: avoid; }
+  body.report-open .rp-band { break-inside: avoid; }  /* may sit low on a page; lets detail flow up to fill */
+  body.report-open .rp-subtitle, body.report-open .rp-legend { break-after: avoid; break-inside: avoid; }
   @page { size: letter portrait; margin: 0.4in; }
 }
