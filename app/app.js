@@ -860,8 +860,9 @@
       </div>
       <div class="rp-head-row">
         <div class="rp-head-id">
-          <div class="rp-title">${esc(a.name)} <span class="rp-title-sub">/ ${esc(a.address || b.address || "")}${loc ? ", " + loc : ""}</span></div>
-          <div class="rp-sub">${esc(ASSET_LONG[a.assetType] || a.assetType || "Comparable Set")} · Class A Comparables · ${loc} · All ${n} Comps · Weighted Average Summary</div>
+          <div class="rp-title">${esc(a.name)}</div>
+          <div class="rp-title-addr">${esc(a.address || b.address || "")}${loc ? ", " + loc : ""}</div>
+          <div class="rp-sub">${esc(ASSET_LONG[a.assetType] || a.assetType || "Comparable Set")} · Class A Comparables · All ${n} Comps · Weighted Average Summary</div>
         </div>
         <div class="rp-head-meta">
           <div>Scraped ${esc(scrapedDate ? fmtDate(scrapedDate) : reportDate())} · Subject ${esc(a.name)} · Fitzrovia</div>
