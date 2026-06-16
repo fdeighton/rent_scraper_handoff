@@ -282,7 +282,7 @@ table.comp { border-collapse: collapse; table-layout: fixed; font-size: 13px; ma
 table.comp col.c-label { width: 160px; }
 table.comp col.c-data { width: 188px; }
 .rp-tablewrap table.comp col.c-label { width: 110px; }
-.rp-tablewrap table.comp col.c-data { width: 150px; }
+.rp-tablewrap table.comp col.c-data { width: auto; }   /* stretch evenly to fill the wrapper */
 /* Summary table spans its card (no centered white bars). Data columns share the
    width equally and auto-size to the comp count; a JS min-width (160 + 150·cols)
    keeps columns ≥150px and lets the wrap scroll when there are many comps. */
@@ -610,7 +610,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 
 /* Detailed comp table inside the report (static headers, compact) */
 .rp-tablewrap { overflow-x: auto; margin-bottom: 14px; break-inside: avoid; border: 1px solid var(--border); border-radius: var(--r-md); }
-.rp-tablewrap table.comp { font-size: 10px; }
+.rp-tablewrap table.comp { font-size: 10px; width: 100%; }   /* fill the wrapper — no floating gap inside the border */
 .rp-tablewrap table.comp th, .rp-tablewrap table.comp td { padding: 6px 8px; }
 .rp-tablewrap table.comp thead th { position: static; }
 .rp-tablewrap .rowlabel { position: static; box-shadow: none; min-width: 110px; }
