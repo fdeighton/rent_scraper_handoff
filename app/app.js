@@ -699,7 +699,7 @@
 
   // Shared comp-table markup (used by the on-screen Summary and the PDF report).
   // snapDate selects which historical run to show (default: latest summary).
-  function compTableHtml(cols, types, snapDate, minWidth) {
+  function compTableHtml(cols, types, snapDate, minWidth, pdf) {
     types = types || presentTypes(cols);
     const sm = {}; cols.forEach((c) => (sm[c.b.id] = colSnap(c.b.id, snapDate)));
     const colHead = cols.map(({ b, bench }) => `<th class="${bench ? "col-bench" : ""}">${esc(b.name)}${bench ? " ★" : ""}</th>`).join("");
@@ -729,7 +729,8 @@
 
     // snapshot group (selected run)
     const labelDate = snapDate || cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
-    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">as of ${fmtDate(labelDate)} · gross rent, $/sf, avg size, vs prior scrape Δ · click a cell to see its listings</td></tr>`;
+    const snapHint = pdf ? "" : " · click a cell to see its listings";
+    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">as of ${fmtDate(labelDate)} · gross rent, $/sf, avg size, vs prior scrape Δ${snapHint}</td></tr>`;
 
     // one metric cell — clickable to drill into the individual listings behind the average
     const metricCell = (c, cur, prev, type) => {
@@ -970,11 +971,11 @@
     const CHUNK = 3; // benchmark + 3 comps = 4 cols → fits Letter width without clipping in print
     let out = "";
     if (!compCols.length) {
-      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types, snapDate)}</div>` : "";
+      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types, snapDate, undefined, true)}</div>` : "";
     } else {
       for (let i = 0; i < compCols.length; i += CHUNK) {
         const pageCols = benchCol ? [benchCol, ...compCols.slice(i, i + CHUNK)] : compCols.slice(i, i + CHUNK);
-        out += `<div class="rp-tablewrap">${compTableHtml(pageCols, types, snapDate)}</div>`;
+        out += `<div class="rp-tablewrap">${compTableHtml(pageCols, types, snapDate, undefined, true)}</div>`;
       }
     }
     return out;
