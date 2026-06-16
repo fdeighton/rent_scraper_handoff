@@ -782,13 +782,17 @@
     const colgroup = `<colgroup>${widths.map((w) => `<col style="width:${w}px"/>`).join("")}</colgroup>`;
     const sTitle = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:15px;padding:11px 12px;`;
     const sMeta = `background:#FAFAF7;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
-    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};border-bottom:2px solid ${ORANGE};text-align:center;vertical-align:middle;`;
+    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};border-bottom:2px solid #ffffff;text-align:center;vertical-align:middle;`;
     const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};vertical-align:middle;white-space:normal;background:${bg};${extra || ""}`;
 
     let rowsHtml = "";
+    const spacer = `<tr><td colspan="${NCOL}" style="height:8px;border:none;background:#FAFAF7"></td></tr>`;
+    let firstBlock = true;
     cols.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
       if (!cur) return;
+      if (!firstBlock) rowsHtml += spacer; // breathing room between properties
+      firstBlock = false;
       const subj = c.bench;
       const sdate = cur.date ? fmtDate(cur.date) : (snap ? fmtDate(snap) : "Latest");
       const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
