@@ -80,7 +80,8 @@ button { font-family: inherit; cursor: pointer; }
   border-bottom: 1px solid var(--navy-600);
 }
 .sidebar__back .ic { opacity: .8; }
-.sidebar__logo { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 4px; display: block; }
+.sidebar__logo { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 4px; display: block; }
+.sidebar__word { color: #fff; font-weight: 700; letter-spacing: .12em; font-size: 16px; line-height: 1; }
 .sidebar__nav { padding: var(--sp-4) var(--sp-3); overflow-y: auto; flex: 1; }
 .sidebar__section {
   font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
