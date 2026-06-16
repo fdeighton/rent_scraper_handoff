@@ -468,6 +468,14 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .report-sheet { box-sizing: border-box; width: 816px; background: #fff; margin: 0 auto; box-shadow: var(--shadow-lg);
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
+/* JS-paginated pages: each .rp-page is one Letter sheet (816x1056 @ 96dpi). The
+   header is full-bleed on page 1; .rp-page-body holds the packed content. */
+.rp-pages { display: flex; flex-direction: column; align-items: center; gap: 22px;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.rp-page { box-sizing: border-box; width: 816px; height: 1056px; background: #fff; overflow: hidden;
+  box-shadow: var(--shadow-lg); border-radius: 2px; }
+.rp-page-body { padding: 18px 32px 28px; }
+
 /* Header band */
 .rp-head { background: var(--navy); color: #fff; padding: 16px 32px 14px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rp-head-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -554,17 +562,23 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
   body.report-open .report-toolbar { display: none !important; }
   body.report-open #report-root { position: static; background: #fff; overflow: visible; }
   body.report-open .report-pages { padding: 0; }
+
+  /* Paginated mode (the JS auto-fit). Each .rp-page was packed to fit one Letter
+     sheet; height:auto + break-after keeps one sheet per physical page. margin:0
+     so the print content width matches the measured on-screen width (WYSIWYG). */
+  body.report-open .rp-pages { display: block; gap: 0; }
+  body.report-open .rp-page { width: auto; height: auto; min-height: 0; overflow: visible;
+    box-shadow: none; border-radius: 0; break-after: page; }
+  body.report-open .rp-page:last-child { break-after: auto; }
+  body.report-open .rp-tablewrap { border: none; overflow: visible; margin-bottom: 0; }
+
+  /* Fallback (single flowing sheet) if pagination was skipped: keep grids/KPIs
+     atomic, let detailed tables flow with a repeating header. */
   body.report-open .report-sheet { width: auto; margin: 0; box-shadow: none; }
-  /* Content flows to fill each page top-to-bottom. Chart grids + KPI strip stay
-     atomic (a 4-up grid can't split); detailed tables FLOW across pages so they
-     fill whatever space follows a grid (repeating header, rows never split) —
-     this prevents the lone-grid-then-huge-void pages. Headers stick to content. */
   body.report-open .rp-kpis, body.report-open .rp-col,
   body.report-open .rp-chartgrid { break-inside: avoid; }
-  body.report-open .rp-tablewrap { border: none; overflow: visible; }
   body.report-open .rp-tablewrap table.comp thead { display: table-header-group; }
   body.report-open .rp-tablewrap tr { break-inside: avoid; }
-  body.report-open .rp-band { break-inside: avoid; }  /* may sit low on a page; lets detail flow up to fill */
   body.report-open .rp-subtitle, body.report-open .rp-legend { break-after: avoid; break-inside: avoid; }
-  @page { size: letter portrait; margin: 0.4in; }
+  @page { size: letter portrait; margin: 0; }
 }

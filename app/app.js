@@ -979,6 +979,105 @@
     return out;
   }
 
+  // Build explicit Letter-sized pages from the rendered report so every page is
+  // filled top-to-bottom: chart grids / KPI strip are placed whole; detailed
+  // tables are split row-by-row (header repeats) to flow into leftover space.
+  // The on-screen preview becomes WYSIWYG with the printed output. Returns false
+  // (and leaves the single flowing sheet) if heights can't be measured.
+  function paginate(root) {
+    const sheet = root.querySelector(".report-sheet");
+    const head = sheet && sheet.querySelector(".rp-head");
+    const body = sheet && sheet.querySelector(".rp-body");
+    if (!sheet || !head || !body || typeof head.getBoundingClientRect !== "function") return false;
+    const PAGE_H = 1056;          // Letter @ 96dpi
+    const PAD = 46;               // .rp-page-body vertical padding (18 + 28)
+    const SAFE = 10;              // guard against sub-pixel overflow
+    const cs = (el, p) => parseFloat(getComputedStyle(el)[p]) || 0;
+    const outerH = (el) => el.getBoundingClientRect().height + cs(el, "marginTop") + cs(el, "marginBottom");
+    const headH = head.getBoundingClientRect().height;
+    if (!headH) return false;
+
+    // Pre-measure detail tables before any DOM move disturbs layout.
+    const meas = new Map();
+    body.querySelectorAll(".rp-tablewrap").forEach((w) => {
+      const t = w.querySelector("table");
+      if (!t) return;
+      const thead = t.querySelector("thead");
+      const cg = t.querySelector("colgroup");
+      const rows = [...t.querySelectorAll("tbody > tr")];
+      meas.set(w, {
+        cg, thead,
+        theadH: thead ? thead.getBoundingClientRect().height : 0,
+        rows,
+        rowH: rows.map((r) => r.getBoundingClientRect().height),
+        wrapMB: cs(w, "marginBottom"),
+      });
+    });
+
+    // Ordered leaf blocks (the section wrappers themselves carry no height we use).
+    const blocks = [];
+    body.querySelectorAll(":scope > .rp-section").forEach((sec) => {
+      [...sec.children].forEach((c) => blocks.push(c));
+    });
+    if (!blocks.length) return false;
+
+    const pages = document.createElement("div");
+    pages.className = "rp-pages";
+    let content, used, avail;
+    const addPage = (withHead) => {
+      const pg = document.createElement("div");
+      pg.className = "rp-page";
+      let hH = 0;
+      if (withHead) { pg.appendChild(head); hH = headH; }
+      content = document.createElement("div");
+      content.className = "rp-page-body";
+      pg.appendChild(content);
+      pages.appendChild(pg);
+      avail = PAGE_H - hH - PAD - SAFE;
+      used = 0;
+    };
+    addPage(true);
+
+    const newFrag = (m) => {
+      const w = document.createElement("div");
+      w.className = "rp-tablewrap";
+      const t = document.createElement("table");
+      t.className = "comp";
+      if (m.cg) t.appendChild(m.cg.cloneNode(true));
+      if (m.thead) t.appendChild(m.thead.cloneNode(true));
+      const tb = document.createElement("tbody");
+      t.appendChild(tb);
+      w.appendChild(t);
+      content.appendChild(w);
+      used += m.theadH;
+      return tb;
+    };
+
+    blocks.forEach((block) => {
+      const m = block.classList.contains("rp-tablewrap") ? meas.get(block) : null;
+      if (m) {
+        const first = m.rowH[0] || 30;
+        if (used > 0 && used + m.theadH + first > avail) addPage(false);
+        let tb = newFrag(m);
+        m.rows.forEach((row, i) => {
+          const rh = m.rowH[i];
+          if (tb.childElementCount > 0 && used + rh > avail) { addPage(false); tb = newFrag(m); }
+          tb.appendChild(row);          // move the original row
+          used += rh;
+        });
+        used += m.wrapMB;
+      } else {
+        const h = outerH(block);
+        if (used > 0 && used + h > avail) addPage(false);
+        content.appendChild(block);     // move the original block
+        used += h;
+      }
+    });
+
+    sheet.replaceWith(pages);
+    return true;
+  }
+
   function openReport(a) {
     const cols = compSetBuildings(a);
     const n = cols.filter((c) => !c.bench).length;
@@ -1034,6 +1133,7 @@
     document.getElementById("rp-close").onclick = closeReport;
     document.getElementById("rp-print").onclick = () => window.print();
     document.addEventListener("keydown", reportKey);
+    try { paginate(root); } catch (e) { /* measurement failed → keep single flowing sheet */ }
     root.scrollTop = 0;
   }
 
