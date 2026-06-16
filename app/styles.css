@@ -275,7 +275,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ============================================================== Comp Table */
 .comp-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
-table.comp { border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+table.comp { border-collapse: collapse; table-layout: fixed; font-size: 13px; margin: 0 auto; }
 /* fixed column widths → equal data columns; incentive/address text wraps instead of stretching one column */
 table.comp col.c-label { width: 160px; }
 table.comp col.c-data { width: 188px; }
@@ -303,8 +303,9 @@ table.comp thead th {
 .comp .prop-name.bench { color: var(--orange-600); }
 .comp .incentive-row td { background: var(--warning-soft); color: #7a4d0a; font-size: 12px; text-align: left; }
 .comp .incentive-row .rowlabel { background: var(--warning-soft); }
-.comp .metric { font-weight: 600; font-size: 14px; }
+.comp .metric { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .comp .metric.muted { color: var(--grey); font-weight: 400; }
+.comp td .sub.tnum { white-space: nowrap; }  /* keep "$/sf · sqft" on one line → uniform row heights */
 .comp .wavg td { font-weight: 600; border-top: 2px solid var(--navy); }
 /* clickable data cells → drill into individual listings */
 .comp-wrap td.td-click { cursor: pointer; }
