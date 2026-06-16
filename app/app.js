@@ -672,8 +672,27 @@
     const i = a.comps.findIndex((c) => c.building === id);
     if (i < 0) return;
     a.comps.splice(i, 1);
+    a.removed = a.removed || [];                 // keep a history of dropped comps
+    if (!a.removed.includes(id)) a.removed.push(id);
     a.edited = true;
     saveCustomAnalyses();
+  }
+  function readdComp(a, id) {
+    a.removed = (a.removed || []).filter((x) => x !== id);
+    addCompsToAnalysis(a, [id]);                  // adds back to comps + persists
+  }
+  // Dropped-comps bin (only rendered when there's removal history).
+  function removedBinHtml(a) {
+    const ids = (a.removed || []).filter((id) => bld(id) && !a.comps.some((c) => c.building === id));
+    if (!ids.length) return "";
+    const items = ids.map((id) => {
+      const b = bld(id);
+      return `<div class="dropbin__item"><span class="dropbin__name">${esc(b.name)}${b.city ? ` · ${esc(b.city)}` : ""}</span><button class="dropbin__readd" data-readd="${id}">${icon("plus")} Re-add</button></div>`;
+    }).join("");
+    return `<div class="dropbin">
+      <div class="dropbin__head">${icon("clock")} Removed from this set <span class="dropbin__count">${ids.length}</span></div>
+      <div class="dropbin__items">${items}</div>
+    </div>`;
   }
 
   function openAddCompModal(a) {
@@ -1025,7 +1044,7 @@
          </div>`
       : "";
     document.getElementById("tabbody").innerHTML =
-      picker + kpiStrip(a, cols, sel) + `<div class="comp-wrap">${compTableHtml(cols, undefined, sel, 160 + cols.length * 150)}</div>`;
+      picker + kpiStrip(a, cols, sel) + `<div class="comp-wrap">${compTableHtml(cols, undefined, sel, 160 + cols.length * 150)}</div>` + removedBinHtml(a);
 
     const btn = document.getElementById("snap-btn");
     const dd = document.getElementById("snap-menu");
@@ -1044,6 +1063,12 @@
       if (rm) { e.stopPropagation(); removeCompFromAnalysis(a, rm.dataset.rm); route(); return; }
       const td = e.target.closest("td[data-bid]");
       if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
+    };
+
+    const bin = document.querySelector("#tabbody .dropbin");
+    if (bin) bin.onclick = (e) => {
+      const btn = e.target.closest(".dropbin__readd");
+      if (btn) { readdComp(a, btn.dataset.readd); route(); }
     };
   }
 

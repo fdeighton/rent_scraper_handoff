@@ -325,6 +325,18 @@ table.comp thead th {
 .comp td .sub.tnum { white-space: nowrap; }  /* keep "$/sf · sqft" on one line → uniform row heights */
 .comp .wavg td { font-weight: 600; border-top: 2px solid var(--navy); }
 /* clickable data cells → drill into individual listings */
+/* Dropped-comps bin — appears under the table only when there's removal history */
+.dropbin { margin-top: 16px; border: 1px dashed var(--border); border-radius: var(--r-md); padding: 10px 14px; background: var(--surface); }
+.dropbin__head { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 600; color: var(--grey); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.dropbin__head .ic { width: 14px; height: 14px; }
+.dropbin__count { background: var(--navy); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: 11px; letter-spacing: 0; }
+.dropbin__items { display: flex; flex-direction: column; gap: 6px; }
+.dropbin__item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: var(--r-sm); background: #f7f8fa; }
+.dropbin__name { font-size: 13px; color: var(--navy); }
+.dropbin__readd { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--navy); cursor: pointer; transition: border-color .12s var(--ease), color .12s var(--ease); }
+.dropbin__readd:hover { border-color: var(--orange); color: var(--orange); }
+.dropbin__readd .ic { width: 13px; height: 13px; }
+
 .comp-wrap td.td-click { cursor: pointer; }
 .comp-wrap td.td-click:hover { outline: 2px solid var(--orange); outline-offset: -2px; }
 .units-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
