@@ -27,6 +27,8 @@
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>',
     "search": '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',
     "map": '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
+    "pin": '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
+    "layout": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
     "list": '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
     "download": '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-5l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5L3 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.3 2.5h5l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/>',
@@ -826,14 +828,14 @@
         </div>
         <div class="page-actions">
           <div class="segmented">
-            <button data-tab="summary" class="${tab === "summary" ? "active" : ""}">Summary</button>
-            <button data-tab="trends" class="${tab === "trends" ? "active" : ""}">Rent Trends</button>
+            <button data-tab="summary" class="${tab === "summary" ? "active" : ""}">${icon("layout")} Summary</button>
+            <button data-tab="trends" class="${tab === "trends" ? "active" : ""}">${icon("chart")} Rent Trends</button>
           </div>
+          <button class="btn" id="a-map">${icon("pin")} Map</button>
+          <button class="btn" id="a-xlsx">${icon("download")} Export Excel</button>
+          <button class="btn btn--accent" id="a-export">${icon("doc")} Export PDF</button>
           <button class="btn" id="a-addcomp">${icon("plus")} Add building</button>
-          <button class="btn" id="a-map">${icon("map")} Map</button>
-          <button class="btn" id="a-xlsx">${icon("download")} Excel</button>
           ${a.custom ? `<button class="btn" id="a-remove">Remove</button>` : ""}
-          <button class="btn btn--accent" id="a-export">${icon("download")} Export PDF</button>
         </div>
       </div>`;
 

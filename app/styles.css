@@ -141,7 +141,9 @@ button { font-family: inherit; cursor: pointer; }
 .segmented button {
   border: none; background: none; padding: 6px 14px; border-radius: var(--r-sm);
   font-size: 13px; font-weight: 500; color: var(--grey);
+  display: inline-flex; align-items: center; gap: 6px;
 }
+.segmented button .ic { width: 15px; height: 15px; }
 .segmented button.active { background: var(--surface); color: var(--navy); box-shadow: var(--shadow-xs); }
 
 /* Search */
