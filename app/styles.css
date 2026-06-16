@@ -530,7 +530,9 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 
 /* 4-up unit-type grid (dense, matches the reference). The PDF exports as a single
    continuous page (see printReport) so these never fragment across paper pages. */
-.rp-chartgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 4px; }
+.rp-chartgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 10px;
+  background: #f4f5f8; border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .rp-col { break-inside: avoid; }
 .rp-col-title { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--navy-600); font-weight: 600; margin-bottom: 5px; }
 .rp-empty { font-size: 11px; color: var(--grey); }
