@@ -850,27 +850,42 @@
   const fmtPsf = (v) => "$" + Number(v).toFixed(2);
   const fmtSigned = (d, psf) => (d > 0 ? "+" : d < 0 ? "−" : "") + "$" + (psf ? Math.abs(d).toFixed(2) : Math.abs(Math.round(d)).toLocaleString());
 
-  function reportHeader(a, cols, snapDate) {
+  // Page header. opts.variant "continued" (pages 2+) swaps the eyebrow, the title
+  // context (comp range), the sub line and the meta block for the page-of-N form.
+  function reportHeader(a, cols, snapDate, opts) {
+    opts = opts || {};
+    const cont = opts.variant === "continued";
     const b = bld(a.benchmark) || {};
     const n = cols.filter((c) => !c.bench).length;
     const scrapedDate = snapDate || (D.summary[a.benchmark] ? D.summary[a.benchmark].date : null);
     const loc = `${esc(a.city || b.city || "")}${(a.province || b.province) ? ", " + esc(a.province || b.province) : ""}`;
+    const scraped = esc(scrapedDate ? fmtDate(scrapedDate) : reportDate());
+    const asset = esc(ASSET_LONG[a.assetType] || a.assetType || "Comparable Set");
+
+    const eyebrow = cont ? "Export — Competitive Analysis · Continued" : "Export — Competitive Analysis · Summary";
+    const ctx = cont
+      ? `${opts.range ? `Comps ${opts.range} of ${opts.totalComps}` : "Detailed Comparables"} · Subject repeated for reference`
+      : `${esc(a.address || b.address || "")}${loc ? ", " + loc : ""}`;
+    const sub = cont
+      ? `${asset} · Class A Comparables${loc ? " · " + loc : ""}`
+      : `${asset} · Class A Comparables${loc ? " · " + loc : ""} · All ${n} Comps · Weighted Average Summary`;
+    const meta = cont
+      ? `<div>Scraped ${scraped} · Page ${opts.page} of ${opts.totalPages}</div>`
+      : `<div>Scraped ${scraped} · Subject ${esc(a.name)} · Fitzrovia</div>
+         <div>Comps ${n} total · Type ${esc(a.assetType || b.assetType || "—")} · Built ${a.yearBuilt || b.yearBuilt || "—"} · Units ${a.unitCount || b.unitCount || "—"}</div>
+         <div><span class="rp-confidential">Internal &amp; Confidential</span></div>`;
+
     return `<div class="rp-head">
       <div class="rp-head-top">
-        <div class="rp-eyebrow">Export — Competitive Analysis · Summary</div>
-        <div class="rp-brand">FITZROVIA</div>
+        <div class="rp-eyebrow">${eyebrow}</div>
+        <img class="rp-head-logo" src="fitzrovia-logo.png" alt="Fitzrovia" />
       </div>
       <div class="rp-head-row">
         <div class="rp-head-id">
-          <div class="rp-title">${esc(a.name)}</div>
-          <div class="rp-title-addr">${esc(a.address || b.address || "")}${loc ? ", " + loc : ""}</div>
-          <div class="rp-sub">${esc(ASSET_LONG[a.assetType] || a.assetType || "Comparable Set")} · Class A Comparables · All ${n} Comps · Weighted Average Summary</div>
+          <div class="rp-title">${esc(a.name)} <span class="rp-title-sep">/</span> <span class="rp-title-ctx">${ctx}</span></div>
+          <div class="rp-sub">${sub}</div>
         </div>
-        <div class="rp-head-meta">
-          <div>Scraped ${esc(scrapedDate ? fmtDate(scrapedDate) : reportDate())} · Subject ${esc(a.name)} · Fitzrovia</div>
-          <div>Comps ${n} total · Type ${esc(a.assetType || b.assetType || "—")} · Built ${a.yearBuilt || b.yearBuilt || "—"} · Units ${a.unitCount || b.unitCount || "—"}</div>
-          <div><span class="rp-confidential">Internal &amp; Confidential</span></div>
-        </div>
+        <div class="rp-head-meta">${meta}</div>
       </div>
     </div>`;
   }
@@ -975,7 +990,8 @@
     } else {
       for (let i = 0; i < compCols.length; i += CHUNK) {
         const pageCols = benchCol ? [benchCol, ...compCols.slice(i, i + CHUNK)] : compCols.slice(i, i + CHUNK);
-        out += `<div class="rp-tablewrap">${compTableHtml(pageCols, types, snapDate, undefined, true)}</div>`;
+        const start = i + 1, end = Math.min(i + CHUNK, compCols.length);
+        out += `<div class="rp-tablewrap" data-start="${start}" data-end="${end}" data-total="${compCols.length}">${compTableHtml(pageCols, types, snapDate, undefined, true)}</div>`;
       }
     }
     return out;
@@ -988,7 +1004,7 @@
   //               across a page); a table taller than a page is scaled to fit.
   // Heights are read from the live, rendered DOM. Returns false (keeping the
   // single flowing sheet) if nothing can be measured.
-  function paginate(root) {
+  function paginate(root, a, cols, snap) {
     const sheet = root.querySelector(".report-sheet");
     const head = sheet && sheet.querySelector(".rp-head");
     const body = sheet && sheet.querySelector(".rp-body");
@@ -1013,12 +1029,13 @@
     pages.className = "rp-pages";
     sheet.parentNode.insertBefore(pages, sheet); // live in the DOM so heights measure correctly
 
-    const newPage = (withHead) => {
+    // Every page reserves room for a header (added at the end with per-page
+    // context) and the footer; content is packed into the remaining height.
+    const newPage = () => {
       const pg = document.createElement("div"); pg.className = "rp-page";
-      if (withHead) pg.appendChild(head);
       const content = document.createElement("div"); content.className = "rp-page-body";
       pg.appendChild(content); pages.appendChild(pg);
-      return { content, avail: PAGE_H - (withHead ? headH : 0) - PAD_TOP - PAD_BOT - SAFE - FOOT_H };
+      return { content, avail: PAGE_H - headH - PAD_TOP - PAD_BOT - SAFE - FOOT_H };
     };
 
     // Shrink `inner` uniformly to fit a height (used for an oversized table).
@@ -1059,7 +1076,7 @@
 
     // ---- Page 1: the whole dashboard, scaled to FILL one page -------------
     {
-      const { content, avail } = newPage(true);
+      const { content, avail } = newPage();
       const outer = document.createElement("div"); outer.className = "rp-fit";
       const inner = document.createElement("div"); inner.className = "rp-fit-in";
       chartBlocks.forEach((b) => inner.appendChild(b));
@@ -1069,12 +1086,12 @@
 
     // ---- Pages 2+: whole comp tables, packed, never split -----------------
     if (detailTables.length) {
-      let pg = newPage(false);
+      let pg = newPage();
       if (detailBand) pg.content.appendChild(detailBand);
       let used = detailBand ? H(detailBand) : 0;
       detailTables.forEach((tw) => {
         const twH = H(tw);
-        if (used > 0 && used + twH > pg.avail) { pg = newPage(false); used = 0; }
+        if (used > 0 && used + twH > pg.avail) { pg = newPage(); used = 0; }
         pg.content.appendChild(tw);
         if (twH > pg.avail) { // a single table taller than a page → scale it down
           const outer = document.createElement("div"); outer.className = "rp-fit";
@@ -1088,14 +1105,31 @@
       });
     }
 
-    // Footer on every page: page X of N + section, and the confidential mark.
+    // Header (per-page context) + footer on every page.
     const pageEls = [...pages.children];
+    const total = pageEls.length;
     pageEls.forEach((pg, i) => {
+      let hd;
+      if (i === 0) {
+        hd = head; // the summary header built into the doc
+      } else {
+        const tws = [...pg.querySelectorAll(".rp-tablewrap[data-start]")];
+        let range = null, totalComps = null;
+        if (tws.length) {
+          range = `${Math.min(...tws.map((t) => +t.dataset.start))}–${Math.max(...tws.map((t) => +t.dataset.end))}`;
+          totalComps = tws[0].dataset.total;
+        }
+        const tmp = document.createElement("div");
+        tmp.innerHTML = reportHeader(a, cols, snap, { variant: "continued", page: i + 1, totalPages: total, range, totalComps });
+        hd = tmp.firstElementChild;
+      }
+      pg.insertBefore(hd, pg.firstChild);
+
       const label = i === 0 ? "Summary" : "Detailed Comparables";
       const foot = document.createElement("div");
       foot.className = "rp-foot";
       foot.innerHTML =
-        `<div class="rp-foot-l"><span class="rp-foot-mark"></span>Page ${i + 1} of ${pageEls.length} — ${label}</div>` +
+        `<div class="rp-foot-l"><span class="rp-foot-mark"></span>Page ${i + 1} of ${total} — ${label}</div>` +
         `<div class="rp-foot-r">Fitzrovia Real Estate · Confidential · Internal Use Only</div>`;
       pg.appendChild(foot);
     });
@@ -1159,7 +1193,7 @@
     document.getElementById("rp-close").onclick = closeReport;
     document.getElementById("rp-print").onclick = () => window.print();
     document.addEventListener("keydown", reportKey);
-    try { paginate(root); } catch (e) { /* measurement failed → keep single flowing sheet */ }
+    try { paginate(root, a, cols, snap); } catch (e) { /* measurement failed → keep single flowing sheet */ }
     root.scrollTop = 0;
   }
 
