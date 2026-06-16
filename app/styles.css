@@ -528,17 +528,15 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
   body.report-open .report-toolbar { display: none !important; }
   body.report-open #report-root { position: static; background: #fff; overflow: visible; }
   body.report-open .report-pages { padding: 0; }
-  body.report-open .report-sheet { width: 8.5in; margin: 0; box-shadow: none; }
-  /* Keep small units intact, but let the 2-row chart grid break between rows. */
-  body.report-open .rp-kpis, body.report-open .rp-col { break-inside: avoid; }
-  body.report-open .rp-chartgrid { break-inside: auto; }
-  /* ...but let big detailed tables FLOW across pages (no giant gaps); repeat the
-     header row and never split an individual row. */
+  body.report-open .report-sheet { width: auto; margin: 0; box-shadow: none; }
+  /* Each major section is kept whole and dynamically placed on a page where it
+     fits — no mid-section splits, no stranded headers, no half-page voids. */
+  body.report-open .rp-section { break-inside: avoid; }
+  /* ...except the long detailed-tables section, which flows across pages with a
+     repeating header row. */
+  body.report-open .rp-section--flow { break-inside: auto; }
   body.report-open .rp-tablewrap { break-inside: auto; border: none; overflow: visible; }
   body.report-open .rp-tablewrap table.comp thead { display: table-header-group; }
   body.report-open .rp-tablewrap tr { break-inside: avoid; }
-  /* Never strand a section header/label at the bottom of a page — keep it with
-     the content it introduces. */
-  body.report-open .rp-band, body.report-open .rp-subtitle, body.report-open .rp-legend { break-after: avoid; break-inside: avoid; }
   @page { size: letter portrait; margin: 0.4in; }
 }

@@ -859,19 +859,6 @@
   }
   function reportKey(e) { if (e.key === "Escape") closeReport(); }
 
-  // Export as ONE continuous page sized to the content, so the dense 4-up grids
-  // never fragment across Letter pages (which caused the mid-report gaps).
-  function printReport() {
-    const sheet = document.querySelector("#report-root .report-sheet");
-    let st = document.getElementById("rp-page-size");
-    if (!st) { st = document.createElement("style"); st.id = "rp-page-size"; document.head.appendChild(st); }
-    if (sheet) {
-      const hIn = Math.ceil(sheet.scrollHeight / 96) + 0.3; // px → in @96dpi + buffer
-      st.textContent = `@media print { @page { size: 8.5in ${hIn}in; margin: 0; } }`;
-    }
-    window.print();
-  }
-
   // Full benchmark-vs-comps data table, chunked to benchmark + <=4 comps so each
   // table fits the report width (mirrors the detailed table from the prior report).
   function reportTables(a, cols) {
@@ -897,26 +884,34 @@
     const doc = `<div class="report-sheet">
       ${reportHeader(a, cols)}
       <div class="rp-body">
-        ${reportKpis(a, cols)}
-        ${reportNarrative(a, cols)}
-        ${reportBand("All-Cohort Summary", `All ${n} Comps · By Unit Type`, "SUMMARY")}
-        <div class="rp-subtitle">Avg rent by unit type ($/mo) — all comps</div>
-        ${reportGrid(cols, rankedCol, "avgRent")}
-        <div class="rp-subtitle">Avg PSF by unit type ($/sf) — all comps</div>
-        ${reportGrid(cols, rankedCol, "avgPsf")}
-        ${reportBand("Week-over-Week Changes", "Rent &amp; PSF Δ vs previous scrape · By Unit Type", "WOW")}
-        <div class="rp-legend">
-          <span><span class="lg-sw inc"></span> Increase</span>
-          <span><span class="lg-sw dec"></span> Decrease</span>
-          <span><span class="lg-sw none"></span> No change</span>
-          <span><span class="lg-sw subj"></span> Subject ★</span>
+        <div class="rp-section">
+          ${reportKpis(a, cols)}
+          ${reportNarrative(a, cols)}
         </div>
-        <div class="rp-subtitle">Rent — week-over-week ($/mo)</div>
-        ${reportGrid(cols, wowCol, "avgRent")}
-        <div class="rp-subtitle">PSF — week-over-week ($/sf)</div>
-        ${reportGrid(cols, wowCol, "avgPsf")}
-        ${reportBand("Detailed Comparables", `Subject + ${n} comps · latest snapshot · weekly Δ`, "DETAIL")}
-        ${reportTables(a, cols)}
+        <div class="rp-section">
+          ${reportBand("All-Cohort Summary", `All ${n} Comps · By Unit Type`, "SUMMARY")}
+          <div class="rp-subtitle">Avg rent by unit type ($/mo) — all comps</div>
+          ${reportGrid(cols, rankedCol, "avgRent")}
+          <div class="rp-subtitle">Avg PSF by unit type ($/sf) — all comps</div>
+          ${reportGrid(cols, rankedCol, "avgPsf")}
+        </div>
+        <div class="rp-section">
+          ${reportBand("Week-over-Week Changes", "Rent &amp; PSF Δ vs previous scrape · By Unit Type", "WOW")}
+          <div class="rp-legend">
+            <span><span class="lg-sw inc"></span> Increase</span>
+            <span><span class="lg-sw dec"></span> Decrease</span>
+            <span><span class="lg-sw none"></span> No change</span>
+            <span><span class="lg-sw subj"></span> Subject ★</span>
+          </div>
+          <div class="rp-subtitle">Rent — week-over-week ($/mo)</div>
+          ${reportGrid(cols, wowCol, "avgRent")}
+          <div class="rp-subtitle">PSF — week-over-week ($/sf)</div>
+          ${reportGrid(cols, wowCol, "avgPsf")}
+        </div>
+        <div class="rp-section rp-section--flow">
+          ${reportBand("Detailed Comparables", `Subject + ${n} comps · latest snapshot · weekly Δ`, "DETAIL")}
+          ${reportTables(a, cols)}
+        </div>
       </div>
     </div>`;
 
@@ -935,7 +930,7 @@
     document.body.appendChild(root);
     document.body.classList.add("report-open");
     document.getElementById("rp-close").onclick = closeReport;
-    document.getElementById("rp-print").onclick = printReport;
+    document.getElementById("rp-print").onclick = () => window.print();
     document.addEventListener("keydown", reportKey);
     root.scrollTop = 0;
   }
