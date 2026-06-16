@@ -4,7 +4,7 @@
    orange #FF4E31 accent-only, Poppins, 4px spacing grid, navy-tinted shadows).
    Chrome (sidebar/header) is navy; the data area is forced light/white.
 ============================================================================= */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+/* Poppins is loaded via <link> in index.html (preconnected) for faster first paint. */
 
 :root {
   /* Brand */
@@ -383,7 +383,8 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .modal__x { margin-left: auto; background: none; border: none; color: var(--grey); font-size: 22px; line-height: 1; padding: 0 4px; }
 .modal__x:hover { color: var(--navy); }
 .modal__body { padding: var(--sp-5); overflow-y: auto; }
-.modal__foot { padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: var(--sp-2); }
+.modal__foot { padding: var(--sp-4) var(--sp-5); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); }
+.modal-note { margin-right: auto; font-size: 11px; color: var(--grey); }
 .field { margin-bottom: var(--sp-4); }
 .field:last-child { margin-bottom: 0; }
 .field > label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
@@ -458,7 +459,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 
 /* KPI strip */
 .rp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--border); margin: 0 0 16px; }
-.rp-kpi { padding: 16px 16px 16px 0; border-left: 1px solid var(--border); padding-left: 16px; }
+.rp-kpi { padding: 16px; border-left: 1px solid var(--border); }
 .rp-kpi:first-child { border-left: none; padding-left: 0; }
 .rp-kpi-l { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--grey); }
 .rp-kpi-v { font-size: 24px; font-weight: 600; margin-top: 4px; }

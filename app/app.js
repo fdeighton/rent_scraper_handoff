@@ -142,6 +142,7 @@
         </div>
       </div>
       <div class="modal__foot">
+        <span class="modal-note">Saved in this browser only — not shared</span>
         <button class="btn" data-close>Cancel</button>
         <button class="btn btn--primary" id="na-create">Create analysis</button>
       </div>
@@ -289,6 +290,7 @@
         </div>
       </div>
       <div class="modal__foot">
+        <span class="modal-note">Saved in this browser only — not shared</span>
         <button class="btn" data-close>Cancel</button>
         <button class="btn btn--primary" id="ab-create">Add building</button>
       </div>
