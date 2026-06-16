@@ -756,8 +756,22 @@
     // Fitzrovia palette (design-system.md): navy header, orange subject, light-
     // blue subject-row tint, green/red deltas, hairline borders.
     const NAVY = "#061031", ORANGE = "#FF4E31", TINT = "#EEF2FE", GREY = "#7F7F7F",
-      BORDER = "#E6E6E1", GREEN = "#1F8A5B", RED = "#C0392B";
+      BORDER = "#E6E6E1", GREEN = "#1F8A5B", LBLUE = "#D6DFFA";
     const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
+
+    // Headline KPIs (same computation as the on-screen summary strip).
+    const benchCol = cols.find((c) => c.bench);
+    const benchSum = benchCol ? colSnap(benchCol.b.id, snap).cur : null;
+    const compSums = cols.filter((c) => !c.bench).map((c) => colSnap(c.b.id, snap).cur).filter(Boolean);
+    const avgOf = (fn) => compSums.length ? compSums.reduce((s, x) => s + (fn(x) || 0), 0) / compSums.length : null;
+    const bRent = benchSum && benchSum.weighted ? benchSum.weighted.avgRent : null;
+    const bPsf = benchSum && benchSum.weighted ? benchSum.weighted.avgPsf : null;
+    const mktRent = compSums.length ? Math.round(avgOf((x) => x.weighted && x.weighted.avgRent)) : null;
+    const mktPsf = avgOf((x) => x.weighted && x.weighted.avgPsf);
+    const posn = bRent != null && mktRent != null ? Math.round(((bRent - mktRent) / mktRent) * 100) : null;
+    const kpiCard = (val, label, color, span) =>
+      `<td colspan="${span}" style="${F}background:#fff;border:1px solid ${BORDER};padding:10px 12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:${color};">${val}</div><div style="font-size:10px;color:${GREY};margin-top:3px;">${label}</div></td>`;
+    const sBand = `background:${LBLUE};color:${NAVY};${F}font-weight:600;font-size:10px;letter-spacing:0.04em;padding:6px 8px;border:1px solid ${BORDER};text-align:left;`;
     const headers = ["Building", "Role", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)",
       "Avg PSF ($/sf)", "Avg size (sf)", "Year built", "Units", "Owner / manager", "Asset type",
       "Address", "City", "Distance (m)", "Incentives", "Snapshot"];
@@ -812,6 +826,14 @@
     body += `<tr><td colspan="${NCOL}" style="${sTitle}">Competitive Analysis — ${esc(a.name)}</td></tr>`;
     body += `<tr><td colspan="${NCOL}" style="${sMeta}">Benchmark: ${esc(bench ? bench.name : "—")} &nbsp;·&nbsp; Snapshot: ${esc(snap ? fmtDate(snap) : "Latest")} &nbsp;·&nbsp; ${ncomp} comparables &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
     body += `<tr><td colspan="${NCOL}" style="height:6px;border:none"></td></tr>`;
+    body += `<tr>` +
+      kpiCard(money(bRent), "Benchmark avg gross rent", ORANGE, 4) +
+      kpiCard(money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY, 4) +
+      kpiCard(bPsf != null ? psf(bPsf) + "/sf" : "—", `Benchmark avg PSF · mkt ${psf(mktPsf)}`, NAVY, 4) +
+      kpiCard(posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Benchmark vs market", posn != null && posn >= 0 ? GREEN : NAVY, NCOL - 12) +
+      `</tr>`;
+    body += `<tr><td colspan="${NCOL}" style="height:10px;border:none"></td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sBand}">DETAILED COMPARABLES — by building &amp; unit type</td></tr>`;
     body += `<tr>${headers.map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
     body += rowsHtml;
 
