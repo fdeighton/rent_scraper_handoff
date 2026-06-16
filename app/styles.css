@@ -477,9 +477,17 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
    header is full-bleed on page 1; .rp-page-body holds the packed content. */
 .rp-pages { display: flex; flex-direction: column; align-items: center; gap: 22px;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-.rp-page { box-sizing: border-box; width: 816px; height: 1056px; background: #fff; overflow: hidden;
+.rp-page { box-sizing: border-box; position: relative; width: 816px; height: 1056px; background: #fff; overflow: hidden;
   box-shadow: var(--shadow-lg); border-radius: 2px; }
 .rp-page-body { padding: 18px 32px 28px; }
+/* Per-page footer pinned to the bottom of each sheet. */
+.rp-foot { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; background: var(--navy);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 32px; font-size: 8.5px;
+  letter-spacing: .04em; border-top: 2px solid var(--orange);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.rp-foot-l { display: flex; align-items: center; gap: 8px; color: #e8eaf2; font-weight: 500; }
+.rp-foot-r { color: #8d95b5; }
+.rp-foot-mark { display: inline-block; width: 18px; height: 3px; background: var(--orange); border-radius: 1px; }
 .rp-fit-in { width: 100%; }   /* scaled uniformly by the paginator to fit a page */
 
 /* Report typography: Inter for the dense data (much larger x-height than Poppins,
@@ -589,7 +597,9 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
      sheet; height:auto + break-after keeps one sheet per physical page. margin:0
      so the print content width matches the measured on-screen width (WYSIWYG). */
   body.report-open .rp-pages { display: block; gap: 0; }
-  body.report-open .rp-page { width: auto; height: auto; min-height: 0; overflow: visible;
+  /* Keep full page height in print so the footer pins to the physical page
+     bottom; content is packed to fit, so overflow:hidden never clips real data. */
+  body.report-open .rp-page { width: auto; height: 1056px; overflow: hidden;
     box-shadow: none; border-radius: 0; break-after: page; }
   body.report-open .rp-page:last-child { break-after: auto; }
   body.report-open .rp-tablewrap { border: none; overflow: visible; margin-bottom: 0; }

@@ -992,7 +992,7 @@
     const head = sheet && sheet.querySelector(".rp-head");
     const body = sheet && sheet.querySelector(".rp-body");
     if (!sheet || !head || !body || typeof head.getBoundingClientRect !== "function") return false;
-    const PAGE_H = 1056, PAD_TOP = 18, PAD_BOT = 28, SAFE = 6;
+    const PAGE_H = 1056, PAD_TOP = 18, PAD_BOT = 28, SAFE = 6, FOOT_H = 30;
     const H = (el) => el.getBoundingClientRect().height;
     const headH = H(head);
     if (!headH) return false;
@@ -1017,7 +1017,7 @@
       if (withHead) pg.appendChild(head);
       const content = document.createElement("div"); content.className = "rp-page-body";
       pg.appendChild(content); pages.appendChild(pg);
-      return { content, avail: PAGE_H - (withHead ? headH : 0) - PAD_TOP - PAD_BOT - SAFE };
+      return { content, avail: PAGE_H - (withHead ? headH : 0) - PAD_TOP - PAD_BOT - SAFE - FOOT_H };
     };
 
     // Shrink `inner` uniformly to fit a height (used for an oversized table).
@@ -1047,11 +1047,12 @@
         w *= Math.pow(W / dispW, 0.7);          // damped step toward filling W
       }
       inner.style.width = w + "px";
-      const scale = sc();
+      const h0 = H(inner);                      // measure BEFORE transform (getBoundingClientRect
+      const scale = Math.min(MAXUP, availH / h0); // returns the scaled box once transform is set)
       inner.style.transformOrigin = "top left";
       inner.style.transform = `scale(${scale.toFixed(4)})`;
       outer.style.width = W + "px";
-      outer.style.height = H(inner) * scale + "px";
+      outer.style.height = h0 * scale + "px";   // displayed height = unscaled height × scale
       outer.style.overflow = "hidden";
     };
 
@@ -1085,6 +1086,18 @@
         }
       });
     }
+
+    // Footer on every page: page X of N + section, and the confidential mark.
+    const pageEls = [...pages.children];
+    pageEls.forEach((pg, i) => {
+      const label = i === 0 ? "Summary" : "Detailed Comparables";
+      const foot = document.createElement("div");
+      foot.className = "rp-foot";
+      foot.innerHTML =
+        `<div class="rp-foot-l"><span class="rp-foot-mark"></span>Page ${i + 1} of ${pageEls.length} — ${label}</div>` +
+        `<div class="rp-foot-r">Fitzrovia Real Estate · Confidential · Internal Use Only</div>`;
+      pg.appendChild(foot);
+    });
 
     sheet.remove();
     return true;
