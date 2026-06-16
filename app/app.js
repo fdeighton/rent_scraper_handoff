@@ -226,7 +226,7 @@
     const id = "cb-" + Date.now().toString(36);
     D.buildings[id] = {
       id, name: b.name, address: b.address || null, city: b.city || null, province: b.province || null,
-      lat: b.lat != null ? +b.lat : null, lng: b.lng != null ? +b.lng : null, photo: null,
+      lat: b.lat != null ? +b.lat : null, lng: b.lng != null ? +b.lng : null, photo: b.photo || null,
       yearBuilt: b.yearBuilt || null, unitCount: b.unitCount || null, owner: b.owner || null,
       assetType: b.assetType || null, scrapeUrl: b.scrapeUrl || null,
       strategy: b.scrapeUrl ? (b.strategy || "playwright_render") : null,
@@ -291,6 +291,7 @@
           <div class="field"><label for="ab-units">Units</label><input type="text" id="ab-units" inputmode="numeric"/></div>
         </div>
         <div class="field"><label for="ab-owner">Owner / manager</label><input type="text" id="ab-owner"/></div>
+        <div class="field"><label for="ab-photo">Photo URL <span class="sub">(optional — paste an image link, e.g. the listing's hero photo)</span></label><input type="text" id="ab-photo" placeholder="https://…/building.jpg"/></div>
         <hr class="modal-sep"/>
         <div class="field"><label for="ab-surl">Scrape URL <span class="sub">(the page that lists available units)</span></label><input type="text" id="ab-surl" placeholder="https://…/floorplans"/></div>
         <div class="field"><label for="ab-strat">Scrape strategy</label>
@@ -351,7 +352,7 @@
         name, address: $("#ab-addr").value.trim(), city: $("#ab-city").value.trim(), province: $("#ab-prov").value.trim(),
         assetType: $("#ab-asset").value, yearBuilt: toNum($("#ab-year").value), unitCount: toNum($("#ab-units").value),
         owner: $("#ab-owner").value.trim(), scrapeUrl: $("#ab-surl").value.trim(), strategy: $("#ab-strat").value,
-        lat: $("#ab-name")._lat, lng: $("#ab-name")._lng,
+        photo: $("#ab-photo").value.trim(), lat: $("#ab-name")._lat, lng: $("#ab-name")._lng,
       });
     };
     setTimeout(() => $("#ab-q").focus(), 0);
