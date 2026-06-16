@@ -306,8 +306,8 @@ table.comp thead th {
 .comp .prop-photo { width: 56px; height: 56px; border-radius: var(--r-md); object-fit: cover; background: var(--navy-800); }
 .comp .prop-name { font-weight: 600; font-size: 14px; }
 .comp .prop-name.bench { color: var(--orange-600); }
-.comp .incentive-row td { background: var(--warning-soft); color: #7a4d0a; font-size: 12px; text-align: left; }
-.comp .incentive-row .rowlabel { background: var(--warning-soft); }
+.comp .incentive-row td { background: var(--warning-soft); color: #7a4d0a; font-size: 12px; text-align: center; vertical-align: middle; line-height: 1.45; }
+.comp .incentive-row .rowlabel { background: var(--warning-soft); text-align: left; }
 .comp .metric { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .comp .metric.muted { color: var(--grey); font-weight: 400; }
 .comp td .sub.tnum { white-space: nowrap; }  /* keep "$/sf · sqft" on one line → uniform row heights */
