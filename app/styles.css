@@ -306,6 +306,16 @@ table.comp thead th {
 .comp .metric { font-weight: 600; font-size: 14px; }
 .comp .metric.muted { color: var(--grey); font-weight: 400; }
 .comp .wavg td { font-weight: 600; border-top: 2px solid var(--navy); }
+/* clickable data cells → drill into individual listings */
+.comp-wrap td.td-click { cursor: pointer; }
+.comp-wrap td.td-click:hover { outline: 2px solid var(--orange); outline-offset: -2px; }
+.units-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.units-tbl th, .units-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: center; }
+.units-tbl th:first-child, .units-tbl td:first-child { text-align: left; }
+.units-tbl thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+.units-tbl tbody tr:hover { background: var(--row-hover); }
+.modal--wide { width: 680px; }
+
 .delta { font-size: 10px; font-weight: 600; margin-left: 6px; }
 .delta.up { color: var(--success); }
 .delta.down { color: var(--orange-600); }

@@ -148,7 +148,10 @@ def main():
         if rent is not None and rent > MAX_RENT:  # sale-price guard
             rent = None
             psf = None
-        units_by_snap[snap].append({"type": utype, "sqft": sqft, "rent": rent, "psf": psf})
+        note = row[8] if len(row) > 8 else ""
+        if note == "NULL":
+            note = ""
+        units_by_snap[snap].append({"type": utype, "sqft": sqft, "rent": rent, "psf": psf, "note": note[:48]})
 
     def aggregate(units):
         """building_summary-style aggregate. rent NOT NULL only."""
@@ -237,15 +240,23 @@ def main():
         # last up-to-8 successful snapshots (newest first) for the historical picker
         sfull = []
         for s in succ[-8:]:
-            by, w = aggregate(units_by_snap.get(s["id"], []))
+            us = units_by_snap.get(s["id"], [])
+            by, w = aggregate(us)
             if not w:
                 continue
+            # the individual priced listings that roll up into the cell averages
+            listings = [
+                {"type": u["type"], "rent": round(u["rent"]), "sqft": u["sqft"],
+                 "psf": u["psf"], "note": u["note"]}
+                for u in us if u["rent"] is not None
+            ]
             sfull.append({
                 "date": s["date"],
                 "incentives": s["incentives"],
                 "byType": {t: {"avgRent": by[t]["avgRent"], "avgPsf": by[t]["avgPsf"],
                                "avgSqft": by[t]["avgSqft"], "count": by[t]["count"]} for t in by},
                 "weighted": w,
+                "units": listings,
             })
         sfull.reverse()
         if sfull:

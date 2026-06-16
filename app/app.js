@@ -729,33 +729,67 @@
 
     // snapshot group (selected run)
     const labelDate = snapDate || cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
-    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">as of ${fmtDate(labelDate)} · gross rent, $/sf, avg size, vs prior scrape Δ</td></tr>`;
+    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">as of ${fmtDate(labelDate)} · gross rent, $/sf, avg size, vs prior scrape Δ · click a cell to see its listings</td></tr>`;
 
-    for (const t of types) {
-      rows += `<tr><td class="rowlabel">${TYPE_LABEL[t]}</td>${cols.map((c) => {
-        const cur = sm[c.b.id].cur && sm[c.b.id].cur.byType[t] ? sm[c.b.id].cur.byType[t] : null;
-        const prev = sm[c.b.id].prev && sm[c.b.id].prev.byType[t] ? sm[c.b.id].prev.byType[t] : null;
-        if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
-        return `<td class="${c.bench ? "col-bench" : ""}">
-          <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
-          <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf · n=${cur.count}</div>
-        </td>`;
-      }).join("")}</tr>`;
-    }
-
-    // weighted average
-    rows += `<tr class="wavg"><td class="rowlabel">Weighted average</td>${cols.map((c) => {
-      const cur = sm[c.b.id].cur && sm[c.b.id].cur.weighted ? sm[c.b.id].cur.weighted : null;
-      const prev = sm[c.b.id].prev && sm[c.b.id].prev.weighted ? sm[c.b.id].prev.weighted : null;
+    // one metric cell — clickable to drill into the individual listings behind the average
+    const metricCell = (c, cur, prev, type) => {
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
-      return `<td class="${c.bench ? "col-bench" : ""}">
+      return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
         <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
         <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf · n=${cur.count}</div>
       </td>`;
-    }).join("")}</tr>`;
+    };
+
+    for (const t of types) {
+      rows += `<tr><td class="rowlabel">${TYPE_LABEL[t]}</td>${cols.map((c) =>
+        metricCell(c, sm[c.b.id].cur && sm[c.b.id].cur.byType[t], sm[c.b.id].prev && sm[c.b.id].prev.byType[t], t)
+      ).join("")}</tr>`;
+    }
+
+    // weighted average
+    rows += `<tr class="wavg"><td class="rowlabel">Weighted average</td>${cols.map((c) =>
+      metricCell(c, sm[c.b.id].cur && sm[c.b.id].cur.weighted, sm[c.b.id].prev && sm[c.b.id].prev.weighted, "__all")
+    ).join("")}</tr>`;
 
     const colGroup = `<colgroup><col class="c-label"/>${cols.map(() => '<col class="c-data"/>').join("")}</colgroup>`;
     return `<table class="comp">${colGroup}<thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  // Drill-down: the individual listings that rolled up into a clicked cell.
+  function openUnitsModal(bid, type, snapDate) {
+    const b = bld(bid); if (!b) return;
+    const snap = snapshotAt(bid, snapDate).cur;
+    const units = ((snap && snap.units) ? snap.units : [])
+      .filter((u) => type === "__all" || u.type === type)
+      .slice().sort((x, y) => y.rent - x.rent);
+    const n = units.length;
+    const avgRent = n ? Math.round(units.reduce((s, u) => s + u.rent, 0) / n) : null;
+    const ps = units.filter((u) => u.psf != null);
+    const avgPsf = ps.length ? ps.reduce((s, u) => s + u.psf, 0) / ps.length : null;
+    const label = type === "__all" ? "All units (weighted)" : (TYPE_LABEL[type] || type);
+    const body = n
+      ? `<table class="units-tbl"><thead><tr><th>Unit / notes</th><th>Type</th><th>Sq ft</th><th>Rent</th><th>$/sf</th></tr></thead><tbody>${
+          units.map((u) => `<tr><td>${esc(u.note || "—")}</td><td>${TYPE_LABEL[u.type] || u.type}</td><td class="tnum">${u.sqft || "—"}</td><td class="tnum">${money(u.rent)}</td><td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td></tr>`).join("")
+        }</tbody></table>`
+      : '<div class="empty">No individual listings recorded for this cell.</div>';
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal modal--wide" role="dialog" aria-modal="true">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("building")}</div>
+        <div><div class="modal__title">${esc(b.name)} — ${label}</div>
+          <div class="sub">Snapshot ${fmtDate(snapDate)} · ${n} listing${n === 1 ? "" : "s"} · avg ${money(avgRent)}${avgPsf != null ? " · " + psf(avgPsf) + "/sf" : ""}</div></div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">${body}</div>
+      <div class="modal__foot"><span class="modal-note">Individual listings behind the cell average</span><button class="btn btn--primary" data-close>Close</button></div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const close = () => { overlay.remove(); document.removeEventListener("keydown", k); };
+    const k = (e) => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", k);
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
   }
 
   function renderSummary(a, cols) {
@@ -784,6 +818,12 @@
         renderSummary(a, cols);
       }));
     }
+
+    const wrap = document.querySelector("#tabbody .comp-wrap");
+    if (wrap) wrap.onclick = (e) => {
+      const td = e.target.closest("td[data-bid]");
+      if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
+    };
   }
 
   // ====================================================== PDF Report =========
