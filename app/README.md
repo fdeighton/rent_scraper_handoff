@@ -27,6 +27,14 @@ Just open `app/index.html` in a browser. Data is inlined as `data.js`
     analysis's **benchmark + its comp set**, drawing dashed connector lines from the
     Fitzrovia benchmark to each building it's compared against, and auto-framing the
     bucket. "All buildings" restores the full universe.
+- **Add Building** — the Building Universe button opens a modal to add a building:
+  **search by name/address** (keyless OpenStreetMap geocoding identifies it and fills
+  address + lat/lng so it drops a real map pin), then metadata (asset type, year,
+  units, owner) plus a **scrape URL + strategy** picker. Added buildings persist in
+  `localStorage`, show in the universe/map, are selectable when composing analyses,
+  and are removable from their detail page. Automated website/strategy *detection*
+  is intentionally deferred to the scraper onboarding (`debug_url.py` + new-site
+  skill) — it can't run in the browser (no Playwright, CORS) and needs the API keys.
 - **New Analysis** — the sidebar button opens a modal to compose a comp set: name
   it, pick the benchmark building (★ = Fitzrovia property), and select comparable
   buildings. On create it computes distances (same Haversine as `schema.sql`), adds

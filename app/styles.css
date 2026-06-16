@@ -247,8 +247,16 @@ button { font-family: inherit; cursor: pointer; }
 .leaflet-popup.mk-pop .leaflet-popup-content-wrapper { border-radius: var(--r-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--border); padding: 0; }
 .leaflet-popup.mk-pop .leaflet-popup-content { margin: 0; }
 .leaflet-popup.mk-pop .leaflet-popup-tip { background: var(--surface); box-shadow: var(--shadow-md); }
-.leaflet-popup.mk-pop a.leaflet-popup-close-button { color: var(--grey); padding: 6px 8px 0 0; }
-.pop { padding: var(--sp-3) var(--sp-4) var(--sp-4); width: 232px; color: var(--navy); }
+/* Floating white close chip so it reads cleanly over the header photo */
+.leaflet-popup.mk-pop a.leaflet-popup-close-button {
+  top: 8px; right: 8px; width: 22px; height: 22px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.92); color: var(--navy);
+  border-radius: 50%; box-shadow: var(--shadow-sm);
+  font: 400 16px/1 'Poppins', sans-serif;
+}
+.leaflet-popup.mk-pop a.leaflet-popup-close-button:hover { background: #fff; color: var(--orange-600); }
+.pop { padding: var(--sp-3) var(--sp-4) var(--sp-4); width: 232px; color: var(--navy); font-family: 'Poppins', sans-serif; }
 .pop-photo { width: 100%; height: 96px; object-fit: cover; border-radius: var(--r-md); display: block; margin-bottom: 8px; background: var(--navy-800); }
 .pop-name { font-weight: 600; font-size: 14px; }
 .pop-addr { font-size: 12px; color: var(--grey); margin-bottom: 8px; }
@@ -259,8 +267,10 @@ button { font-family: inherit; cursor: pointer; }
 .pop-stats span { font-size: 10px; color: var(--grey); }
 .pop-inc { font-size: 11px; color: #7a4d0a; background: var(--warning-soft); border-radius: var(--r-sm); padding: 5px 8px; margin: 8px 0 0; }
 .pop-date { font-size: 11px; color: var(--grey); margin-top: 8px; }
-.pop-btn { display: block; text-align: center; margin-top: 10px; background: var(--navy); color: #fff; padding: 8px; border-radius: var(--r-md); font-size: 13px; font-weight: 500; transition: background .12s var(--ease); }
-.pop-btn:hover { background: var(--navy-800); }
+/* Scoped under .mk-pop so it beats Leaflet's default `.leaflet-container a` colour */
+.mk-pop .pop-btn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; background: var(--navy); color: #fff; padding: 9px 12px; border-radius: var(--r-md); font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: .02em; transition: background .12s var(--ease); }
+.mk-pop .pop-btn:hover { background: var(--navy-800); color: #fff; }
+.mk-pop .pop-btn, .mk-pop .pop-btn:visited { color: #fff; }
 
 /* ============================================================== Comp Table */
 .comp-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
@@ -276,6 +286,7 @@ table.comp thead th {
 }
 .comp thead .rowlabel { background: var(--navy); z-index: 3; }
 .comp td.col-bench, .comp th.col-bench { background: var(--orange-100); }
+.comp thead th.col-bench { color: var(--orange-600); }
 .comp .group-row td {
   background: #f3f4f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--navy-600); font-weight: 600;
@@ -381,6 +392,24 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .checklist .ci input { accent-color: var(--orange); }
 .checklist .ci .city { color: var(--grey); font-size: 11px; margin-left: auto; }
 .selcount { font-size: 12px; color: var(--grey); margin-top: 6px; }
+
+/* Add Building modal */
+.modal-sep { border: none; border-top: 1px solid var(--border); margin: var(--sp-4) 0; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.field-row:has(.field:nth-child(3)) { grid-template-columns: 1fr 1fr 1fr; }
+.ab-searchrow { display: flex; gap: var(--sp-2); }
+.ab-searchrow input { flex: 1; font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--navy); }
+.ab-searchrow input:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(255,78,49,.18); }
+.ab-searchrow .btn { white-space: nowrap; }
+.geo-results { margin-top: 8px; border: 1px solid var(--border); border-radius: var(--r-md); max-height: 200px; overflow-y: auto; }
+.geo-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border); padding: 8px 10px; cursor: pointer; }
+.geo-item:last-child { border-bottom: none; }
+.geo-item:hover { background: var(--row-hover); }
+.geo-item.sel { background: var(--orange-100); }
+.geo-item b { font-size: 13px; color: var(--navy); }
+.geo-item span { font-size: 11px; color: var(--grey); }
+.geo-loading, .geo-empty { padding: 10px; font-size: 12px; color: var(--grey); }
+.geo-note { font-size: 11px; color: var(--grey); margin-top: 6px; }
 
 .empty { color: var(--grey); font-size: 13px; padding: var(--sp-5); text-align: center; }
 .ic { width: 18px; height: 18px; display: inline-block; vertical-align: middle; }

@@ -194,6 +194,158 @@
     setTimeout(() => $("#na-name").focus(), 0);
   }
 
+  // ========================================== Add Building (create flow) =====
+  const CUSTOM_B_KEY = "comp_custom_buildings_v1";
+  const PROV_MAP = {
+    "Ontario": "ON", "Quebec": "QC", "Québec": "QC", "British Columbia": "BC",
+    "Alberta": "AB", "Manitoba": "MB", "Saskatchewan": "SK", "Nova Scotia": "NS",
+    "New Brunswick": "NB", "Newfoundland and Labrador": "NL", "Prince Edward Island": "PE",
+  };
+  const STRATEGIES = ["playwright_render", "static_html", "tricon_api", "modal_iterate", "iframe_extract", "filter_iterate", "akamai_stealth"];
+
+  function loadCustomBuildings() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(CUSTOM_B_KEY) || "[]");
+      arr.forEach((b) => { if (!D.buildings[b.id]) D.buildings[b.id] = b; });
+    } catch (e) {}
+  }
+  function saveCustomBuildings() {
+    try { localStorage.setItem(CUSTOM_B_KEY, JSON.stringify(Object.values(D.buildings).filter((b) => b.custom))); } catch (e) {}
+  }
+  function createBuilding(b) {
+    const id = "cb-" + Date.now().toString(36);
+    D.buildings[id] = {
+      id, name: b.name, address: b.address || null, city: b.city || null, province: b.province || null,
+      lat: b.lat != null ? +b.lat : null, lng: b.lng != null ? +b.lng : null, photo: null,
+      yearBuilt: b.yearBuilt || null, unitCount: b.unitCount || null, owner: b.owner || null,
+      assetType: b.assetType || null, scrapeUrl: b.scrapeUrl || null,
+      strategy: b.scrapeUrl ? (b.strategy || "playwright_render") : null,
+      initialWaitMs: null, scroll: null, isActive: true, lastScrape: null, custom: true,
+    };
+    saveCustomBuildings();
+    location.hash = "#/building/" + id;
+  }
+  function deleteBuilding(id) {
+    if (!D.buildings[id]) return;
+    delete D.buildings[id];
+    saveCustomBuildings();
+    location.hash = "#/universe";
+  }
+
+  async function geocodeSearch(q) {
+    const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=ca&q=" + encodeURIComponent(q);
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }
+  function geoToCandidate(g) {
+    const a = g.address || {};
+    const city = a.city || a.town || a.village || a.municipality || a.county || "";
+    const prov = PROV_MAP[a.state] || a.state || "";
+    const street = [a.house_number, a.road].filter(Boolean).join(" ");
+    const nameGuess = a.building || a.amenity || (g.display_name || "").split(",")[0];
+    return { name: nameGuess, address: street || (g.display_name || "").split(",").slice(0, 1).join(""), city, province: prov, lat: g.lat, lng: g.lon, display: g.display_name };
+  }
+
+  function openAddBuildingModal() {
+    const stratOpts = STRATEGIES.map((s) => `<option value="${s}">${s}</option>`).join("");
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Add Building">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("building")}</div>
+        <div class="modal__title">Add Building</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="field">
+          <label for="ab-q">Find the building <span class="sub">(search by name + address, e.g. “500 Wellington West Toronto”)</span></label>
+          <div class="ab-searchrow">
+            <input type="text" id="ab-q" placeholder="Search name or address…"/>
+            <button class="btn btn--primary" id="ab-search" type="button">${icon("search")} Search</button>
+          </div>
+          <div class="geo-results" id="ab-results" style="display:none"></div>
+          <div class="geo-note" id="ab-note"></div>
+        </div>
+        <hr class="modal-sep"/>
+        <div class="field" id="f-bname"><label for="ab-name">Building name *</label><input type="text" id="ab-name" placeholder="The Selby"/><div class="err"></div></div>
+        <div class="field"><label for="ab-addr">Address</label><input type="text" id="ab-addr" placeholder="592 Sherbourne St"/></div>
+        <div class="field-row">
+          <div class="field"><label for="ab-city">City</label><input type="text" id="ab-city"/></div>
+          <div class="field"><label for="ab-prov">Province</label><input type="text" id="ab-prov" placeholder="ON"/></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ab-asset">Asset type</label>
+            <select id="ab-asset"><option value="">—</option><option>PBR</option><option>Condo</option><option>Other</option></select></div>
+          <div class="field"><label for="ab-year">Year built</label><input type="text" id="ab-year" inputmode="numeric"/></div>
+          <div class="field"><label for="ab-units">Units</label><input type="text" id="ab-units" inputmode="numeric"/></div>
+        </div>
+        <div class="field"><label for="ab-owner">Owner / manager</label><input type="text" id="ab-owner"/></div>
+        <hr class="modal-sep"/>
+        <div class="field"><label for="ab-surl">Scrape URL <span class="sub">(the page that lists available units)</span></label><input type="text" id="ab-surl" placeholder="https://…/floorplans"/></div>
+        <div class="field"><label for="ab-strat">Scrape strategy</label>
+          <select id="ab-strat">${stratOpts}</select>
+          <div class="geo-note">Pick a best guess now; the scraper's onboarding (debug_url.py + new-site skill) confirms/auto-tunes this once API keys are configured. Auto-detection can't run in the browser.</div>
+        </div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--primary" id="ab-create">Add building</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+
+    function fill(c) {
+      if (c.name && !$("#ab-name").value) $("#ab-name").value = c.name;
+      $("#ab-addr").value = c.address || "";
+      $("#ab-city").value = c.city || "";
+      $("#ab-prov").value = c.province || "";
+      $("#ab-name")._lat = c.lat; $("#ab-name")._lng = c.lng;
+      $("#ab-note").textContent = c.lat ? `Location set: ${(+c.lat).toFixed(5)}, ${(+c.lng).toFixed(5)} — will appear on the map.` : "";
+    }
+    $("#ab-search").onclick = async () => {
+      const q = $("#ab-q").value.trim();
+      if (!q) return;
+      const res = $("#ab-results"), note = $("#ab-note");
+      res.style.display = "block"; res.innerHTML = '<div class="geo-loading">Searching OpenStreetMap…</div>'; note.textContent = "";
+      try {
+        const data = await geocodeSearch(q);
+        if (!data.length) { res.innerHTML = '<div class="geo-empty">No matches — enter details manually below.</div>'; return; }
+        const cands = data.map(geoToCandidate);
+        res.innerHTML = cands.map((c, i) => `<button type="button" class="geo-item" data-i="${i}"><b>${esc(c.name || "(unnamed)")}</b><span>${esc(c.display)}</span></button>`).join("");
+        res.querySelectorAll(".geo-item").forEach((el) => (el.onclick = () => {
+          fill(cands[+el.dataset.i]);
+          res.querySelectorAll(".geo-item").forEach((x) => x.classList.toggle("sel", x === el));
+        }));
+      } catch (e) {
+        res.innerHTML = `<div class="geo-empty">Search unavailable (${esc(e.message)}). You can still enter details manually below.</div>`;
+      }
+    };
+    $("#ab-q").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); $("#ab-search").onclick(); } };
+
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((b) => (b.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+    $("#ab-create").onclick = () => {
+      const name = $("#ab-name").value.trim();
+      const f = $("#f-bname"), err = f.querySelector(".err");
+      if (!name) { f.classList.add("invalid"); err.textContent = "Enter the building name."; err.style.display = "block"; return; }
+      const toNum = (v) => { const n = parseInt(String(v).replace(/[^\d]/g, ""), 10); return isNaN(n) ? null : n; };
+      close();
+      createBuilding({
+        name, address: $("#ab-addr").value.trim(), city: $("#ab-city").value.trim(), province: $("#ab-prov").value.trim(),
+        assetType: $("#ab-asset").value, yearBuilt: toNum($("#ab-year").value), unitCount: toNum($("#ab-units").value),
+        owner: $("#ab-owner").value.trim(), scrapeUrl: $("#ab-surl").value.trim(), strategy: $("#ab-strat").value,
+        lat: $("#ab-name")._lat, lng: $("#ab-name")._lng,
+      });
+    };
+    setTimeout(() => $("#ab-q").focus(), 0);
+  }
+
   // ============================================================== Sidebar ===
   function renderNav() {
     const route = location.hash || "#/universe";
@@ -270,7 +422,7 @@
             <button data-v="list" class="${buState.view === "list" ? "active" : ""}">List</button>
             <button data-v="map" class="${buState.view === "map" ? "active" : ""}">Map</button>
           </div>
-          <button class="btn btn--accent">${icon("plus")} Add Building</button>
+          <button class="btn btn--accent" id="bu-add">${icon("plus")} Add Building</button>
         </div>
       </div>
       ${body}`;
@@ -282,6 +434,8 @@
       else { const g = $view.querySelector(".bu-grid"); if (g) g.innerHTML = idsToCards(s.value); }
     };
     $view.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { buState.view = b.dataset.v; renderUniverse(); }));
+    const addBtn = document.getElementById("bu-add");
+    if (addBtn) addBtn.onclick = openAddBuildingModal;
 
     if (buState.view === "map" && hasLeaflet) wireMap(filtered);
   }
@@ -952,13 +1106,16 @@
       </div></div>`;
 
     $view.innerHTML = `
-      <div class="page-head"><div class="page-head__main">
-        <div class="eyebrow"><a href="#/universe" style="color:var(--info)">${icon("chevron-left")} Building Universe</a></div>
-      </div></div>
+      <div class="page-head">
+        <div class="page-head__main">
+          <div class="eyebrow"><a href="#/universe" style="color:var(--info)">${icon("chevron-left")} Building Universe</a></div>
+        </div>
+        ${b.custom ? `<div class="page-actions"><button class="btn" id="b-remove">Remove building</button></div>` : ""}
+      </div>
       <div class="detail-head">
         ${ph}
         <div>
-          <h1 class="page-title">${esc(b.name)}</h1>
+          <h1 class="page-title">${esc(b.name)}${b.custom ? ' <span class="nav-tag" style="margin-left:6px">added</span>' : ""}</h1>
           <div class="page-sub">${esc(b.address || "")}${b.city ? ", " + esc(b.city) + ", " + esc(b.province || "") : ""}</div>
           <div class="bcard__badges" style="margin-top:10px">
             ${b.assetType ? `<span class="badge badge--blue">${esc(b.assetType)}</span>` : ""}
@@ -972,6 +1129,9 @@
       ${histTable}
       <div style="height:24px"></div>
       ${scrapeHist}`;
+
+    const brm = document.getElementById("b-remove");
+    if (brm) brm.onclick = () => { if (confirm(`Remove the added building "${b.name}"? This only deletes the building you added in this app.`)) deleteBuilding(id); };
 
     $view.querySelectorAll("tr.qtotal").forEach((tr) => (tr.onclick = () => {
       tr.classList.toggle("open");
@@ -993,6 +1153,7 @@
   }
   window.addEventListener("hashchange", route);
   window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); });
+  loadCustomBuildings();
   loadCustomAnalyses();
   route();
 })();
