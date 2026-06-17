@@ -133,8 +133,9 @@
       </div>
       <div class="modal__body">
         <div class="field" id="f-name">
-          <label for="na-name">Analysis name</label>
-          <input type="text" id="na-name" placeholder="e.g. Collection - Yorkville"/>
+          <label for="na-name">Analysis name <span class="sub">(uses the benchmark name)</span></label>
+          <input type="text" id="na-name" placeholder="Select a benchmark…" readonly/>
+          <label class="na-custom"><input type="checkbox" id="na-custom"/> Use a custom name</label>
           <div class="err"></div>
         </div>
         <div class="field" id="f-bench">
@@ -175,13 +176,17 @@
     }
     renderList();
     $("#na-search").oninput = renderList;
-    let lastAuto = "";  // last benchmark-derived name we filled, so we don't clobber a user-typed name
+    const nameEl = $("#na-name"), customEl = $("#na-custom");
+    const syncName = () => { const b = bld(benchSel.value); if (!customEl.checked) nameEl.value = b ? b.name : ""; };
     benchSel.onchange = () => {
       selected.delete(benchSel.value);
       $("#na-count").textContent = selected.size + " selected";
-      const b = bld(benchSel.value), nm = $("#na-name");
-      if (b && (!nm.value.trim() || nm.value === lastAuto)) { nm.value = b.name; lastAuto = b.name; }
+      syncName();  // name tracks the benchmark unless the user opted into a custom name
       renderList();
+    };
+    customEl.onchange = () => {
+      nameEl.readOnly = !customEl.checked;
+      if (customEl.checked) { nameEl.focus(); nameEl.select(); } else syncName();  // revert to benchmark name
     };
 
     function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
@@ -191,8 +196,10 @@
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
 
     $("#na-create").onclick = () => {
-      const name = $("#na-name").value.trim();
       const benchmark = benchSel.value;
+      const bb = bld(benchmark);
+      const custom = $("#na-custom").checked;
+      const name = custom ? $("#na-name").value.trim() : (bb ? bb.name : "");
       const compIds = [...selected];
       let bad = false;
       const setErr = (fid, msg) => {
@@ -201,14 +208,14 @@
         else { f.classList.remove("invalid"); e.style.display = "none"; }
       };
       // error contract: validate on submit, say what to do, never lose input
-      setErr("#f-name", name ? "" : "Add a name for this analysis.");
+      setErr("#f-name", (custom && !name) ? "Enter a custom name, or uncheck to use the benchmark." : "");
       setErr("#f-bench", benchmark ? "" : "Pick the benchmark building.");
       setErr("#f-comps", compIds.length ? "" : "Select at least one comparable building.");
       if (bad) return;
       close();
       createAnalysis({ name, benchmark, compIds });
     };
-    setTimeout(() => $("#na-name").focus(), 0);
+    setTimeout(() => benchSel.focus(), 0);
   }
 
   // ========================================== Add Building (create flow) =====

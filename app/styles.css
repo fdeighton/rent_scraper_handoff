@@ -511,6 +511,9 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .field > label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
 .field input[type=text], .field select { width: 100%; font-family: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); color: var(--navy); background: var(--surface); }
 .field input[type=text]:focus, .field select:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(255,78,49,.18); }
+.field input[type=text][readonly] { background: #f3f4f8; color: var(--navy-600); cursor: default; }
+.na-custom { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--grey); margin-top: 7px; cursor: pointer; }
+.na-custom input { accent-color: var(--orange); cursor: pointer; }
 .field .err { color: var(--orange-600); font-size: 12px; margin-top: 5px; display: none; }
 .field.invalid input, .field.invalid select { border-color: var(--orange); }
 .checklist { border: 1px solid var(--border); border-radius: var(--r-md); max-height: 240px; overflow-y: auto; }
