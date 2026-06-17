@@ -714,6 +714,11 @@
     a.removed = (a.removed || []).filter((x) => x !== id);
     addCompsToAnalysis(a, [id]);                  // adds back to comps + persists
   }
+  function readdAllComps(a) {
+    const ids = (a.removed || []).filter((id) => bld(id) && !a.comps.some((c) => c.building === id));
+    a.removed = [];
+    addCompsToAnalysis(a, ids);                   // adds all back + persists (also clears the bin)
+  }
   // Dropped-comps bin (only rendered when there's removal history).
   function removedBinHtml(a) {
     const ids = (a.removed || []).filter((id) => bld(id) && !a.comps.some((c) => c.building === id));
@@ -723,7 +728,8 @@
       return `<div class="dropbin__item"><span class="dropbin__name">${esc(b.name)}${b.city ? ` · ${esc(b.city)}` : ""}</span><button class="dropbin__readd" data-readd="${id}">${icon("plus")} Re-add</button></div>`;
     }).join("");
     return `<div class="dropbin">
-      <div class="dropbin__head">${icon("clock")} Removed from this set <span class="dropbin__count">${ids.length}</span></div>
+      <div class="dropbin__head">${icon("clock")} Removed from this set <span class="dropbin__count">${ids.length}</span>
+        ${ids.length > 1 ? `<button class="dropbin__readall">${icon("plus")} Re-add all</button>` : ""}</div>
       <div class="dropbin__items">${items}</div>
     </div>`;
   }
@@ -1218,6 +1224,7 @@
 
     const bin = document.querySelector("#tabbody .dropbin");
     if (bin) bin.onclick = (e) => {
+      if (e.target.closest(".dropbin__readall")) { readdAllComps(a); route(); return; }
       const btn = e.target.closest(".dropbin__readd");
       if (btn) { readdComp(a, btn.dataset.readd); route(); }
     };

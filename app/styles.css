@@ -339,6 +339,9 @@ table.comp thead th {
 .dropbin__readd { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); color: var(--navy); cursor: pointer; transition: border-color .12s var(--ease), color .12s var(--ease); }
 .dropbin__readd:hover { border-color: var(--orange); color: var(--orange); }
 .dropbin__readd .ic { width: 13px; height: 13px; }
+.dropbin__readall { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 12px; font-weight: 600; border: 1px solid var(--orange); border-radius: var(--r-sm); background: var(--surface); color: var(--orange); cursor: pointer; text-transform: none; letter-spacing: 0; }
+.dropbin__readall:hover { background: var(--orange); color: #fff; }
+.dropbin__readall .ic { width: 13px; height: 13px; }
 
 .comp-wrap td.td-click { cursor: pointer; }
 .comp-wrap td.td-click:hover { outline: 2px solid var(--orange); outline-offset: -2px; }
