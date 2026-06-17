@@ -1574,6 +1574,7 @@
 
   // ============================================================== Trends =====
   let trendState = {};
+  let trendDocClose = false;  // one-time document listeners that close the filter dropdowns
   function renderTrends(a, cols) {
     const key = a.id;
     if (!trendState[key]) trendState[key] = { metric: "avgPsf", types: null, bsel: null, from: null, to: null };
@@ -1604,6 +1605,27 @@
     const buildChecks = cols.map((c) =>
       `<label class="tcheck"><input type="checkbox" data-b="${c.b.id}" ${st.bsel.has(c.b.id) ? "checked" : ""}/> ${esc(c.b.name)}${c.bench ? " ★" : ""}</label>`).join("");
 
+    // Concise closed-state summaries for the dropdowns.
+    const typesSummary = () => {
+      const n = st.types.length, tot = availTypes.length;
+      if (!n) return "No unit types";
+      if (n === tot) return "All unit types";
+      if (n === 1) return esc(TYPE_LABEL[st.types[0]] || st.types[0]);
+      return `${n} unit types`;
+    };
+    const buildsSummary = () => {
+      const sel = cols.filter((c) => st.bsel.has(c.b.id));
+      const n = sel.length, tot = cols.length;
+      if (!n) return "No buildings";
+      if (n === 1) return esc(sel[0].b.name) + (sel[0].bench ? " ★" : "");
+      if (n === tot) {
+        const bench = cols.find((c) => c.bench);
+        const comps = tot - (bench ? 1 : 0);
+        return bench ? `${esc(bench.b.name)} ★ + ${comps} comps` : `${tot} buildings`;
+      }
+      return `${n} buildings selected`;
+    };
+
     document.getElementById("tabbody").innerHTML = `
       <div class="filters">
         <label>Metric</label>
@@ -1613,15 +1635,21 @@
         </select>
         <label>From</label><input type="date" id="f-from" value="${st.from}" min="${minD}" max="${maxD}"/>
         <label>To</label><input type="date" id="f-to" value="${st.to}" min="${minD}" max="${maxD}"/>
-      </div>
-      <div class="trend-controls">
-        <div class="trend-group">
-          <div class="trend-group__h"><span>Unit types</span><button class="trend-link" data-grp="t" data-on="1">All</button><button class="trend-link" data-grp="t" data-on="0">None</button></div>
-          <div class="trend-checks" id="tc-types">${typeChecks}</div>
+        <label>Unit types</label>
+        <div class="msel" id="msel-t">
+          <button type="button" class="msel__btn" id="mt-btn" aria-haspopup="true" aria-expanded="false"><span class="msel__sum" id="mt-sum">${typesSummary()}</span>${icon("chevron-down")}</button>
+          <div class="msel__menu" id="mt-menu" hidden role="group" aria-label="Unit types">
+            <div class="msel__bar"><button type="button" class="trend-link" data-grp="t" data-on="1">All</button><button type="button" class="trend-link" data-grp="t" data-on="0">None</button></div>
+            <div class="msel__list" id="tc-types">${typeChecks}</div>
+          </div>
         </div>
-        <div class="trend-group">
-          <div class="trend-group__h"><span>Buildings</span><button class="trend-link" data-grp="b" data-on="1">All</button><button class="trend-link" data-grp="b" data-on="0">None</button></div>
-          <div class="trend-checks" id="tc-builds">${buildChecks}</div>
+        <label>Buildings</label>
+        <div class="msel" id="msel-b">
+          <button type="button" class="msel__btn" id="mb-btn" aria-haspopup="true" aria-expanded="false"><span class="msel__sum" id="mb-sum">${buildsSummary()}</span>${icon("chevron-down")}</button>
+          <div class="msel__menu" id="mb-menu" hidden role="group" aria-label="Buildings">
+            <div class="msel__bar"><button type="button" class="trend-link" data-grp="b" data-on="1">All</button><button type="button" class="trend-link" data-grp="b" data-on="0">None</button></div>
+            <div class="msel__list" id="tc-builds">${buildChecks}</div>
+          </div>
         </div>
       </div>
       <div class="card chart-card">
@@ -1631,6 +1659,7 @@
       </div>`;
 
     const draw = () => drawChart(a, cols, st);
+    const upSums = () => { document.getElementById("mt-sum").innerHTML = typesSummary(); document.getElementById("mb-sum").innerHTML = buildsSummary(); };
     document.getElementById("f-metric").onchange = (e) => { st.metric = e.target.value; renderTrends(a, cols); };
     document.getElementById("f-from").onchange = (e) => { st.from = e.target.value; draw(); };
     document.getElementById("f-to").onchange = (e) => { st.to = e.target.value; draw(); };
@@ -1638,13 +1667,14 @@
       const t = cb.dataset.t;
       if (cb.checked) { if (!st.types.includes(t)) st.types.push(t); }
       else st.types = st.types.filter((x) => x !== t);
-      draw();
+      upSums(); draw();
     }));
     document.querySelectorAll("#tc-builds input").forEach((cb) => (cb.onchange = () => {
       cb.checked ? st.bsel.add(cb.dataset.b) : st.bsel.delete(cb.dataset.b);
-      draw();
+      upSums(); draw();
     }));
-    document.querySelectorAll(".trend-link").forEach((bn) => (bn.onclick = () => {
+    document.querySelectorAll(".trend-link").forEach((bn) => (bn.onclick = (ev) => {
+      ev.stopPropagation();
       const on = bn.dataset.on === "1";
       if (bn.dataset.grp === "t") {
         st.types = on ? availTypes.slice() : [];
@@ -1653,8 +1683,31 @@
         st.bsel = on ? new Set(cols.map((c) => c.b.id)) : new Set();
         document.querySelectorAll("#tc-builds input").forEach((cb) => { cb.checked = st.bsel.has(cb.dataset.b); });
       }
-      draw();  // morph in place — no remount, no legend reset
+      upSums(); draw();  // morph in place — no remount, no legend reset
     }));
+
+    // dropdown open/close — one open at a time, closes on outside click / Escape
+    const menus = [["mt-btn", "mt-menu"], ["mb-btn", "mb-menu"]].map(([b, m]) => ({ btn: document.getElementById(b), menu: document.getElementById(m) }));
+    menus.forEach((o) => {
+      o.btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const willOpen = o.menu.hidden;
+        menus.forEach((x) => { x.menu.hidden = true; x.btn.setAttribute("aria-expanded", "false"); });
+        o.menu.hidden = !willOpen;
+        o.btn.setAttribute("aria-expanded", String(willOpen));
+      };
+      o.menu.onclick = (ev) => ev.stopPropagation();  // stay open while choosing
+    });
+    if (!trendDocClose) {
+      trendDocClose = true;
+      const closeAll = () => document.querySelectorAll(".msel__menu").forEach((m) => {
+        m.hidden = true;
+        const b = m.parentNode.querySelector(".msel__btn");
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+      document.addEventListener("click", closeAll);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+    }
     draw();
   }
 

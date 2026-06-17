@@ -377,13 +377,23 @@ table.comp thead th {
 .um-wavg td { font-weight: 700; color: var(--navy); border-top: 2px solid var(--navy); }
 
 /* Rent Trends — building + unit-type checkbox selectors */
-.trend-controls { display: flex; gap: 28px; flex-wrap: wrap; margin: 4px 0 16px; }
-.trend-group { flex: 1; min-width: 260px; }
-.trend-group__h { display: flex; align-items: center; gap: 12px; font-size: 11px; font-weight: 600; color: var(--navy-600); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
-.trend-group__h span { margin-right: auto; }
+/* Rent Trends — compact multiselect dropdowns (unit types + buildings) */
+.msel { position: relative; display: inline-flex; }
+.msel__btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 190px; max-width: 240px;
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--navy);
+  font-family: inherit; font-size: 13px; cursor: pointer; transition: border-color .12s var(--ease), box-shadow .12s var(--ease); }
+.msel__btn:hover { border-color: var(--navy-600); }
+.msel__btn[aria-expanded="true"] { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,78,49,.12); }
+.msel__btn .ic { width: 14px; height: 14px; color: var(--grey); flex: 0 0 auto; }
+.msel__sum { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msel__menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 240px; max-height: 320px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-md); padding: 8px; }
+.msel__bar { display: flex; gap: 14px; padding: 2px 6px 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.msel__list { display: flex; flex-direction: column; gap: 2px; }
+.msel__list .tcheck { padding: 5px 6px; border-radius: var(--r-sm); white-space: nowrap; }
+.msel__list .tcheck:hover { background: var(--row-hover); }
 .trend-link { border: none; background: none; color: var(--orange); font-size: 11px; font-weight: 500; cursor: pointer; padding: 0; }
 .trend-link:hover { text-decoration: underline; }
-.trend-checks { display: flex; flex-wrap: wrap; gap: 7px 16px; }
 .tcheck { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--navy); cursor: pointer; }
 .tcheck input { accent-color: var(--orange); cursor: pointer; }
 
