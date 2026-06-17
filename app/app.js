@@ -809,56 +809,63 @@
     const bench = bld(a.benchmark);
     const ncomp = cols.filter((c) => !c.bench).length;
 
-    // Tidy long format — one row per building × unit type, every metric in its
-    // own NUMERIC cell so Excel can sort / filter / pivot / compute on it.
-    // Fitzrovia palette (design-system.md): navy header, orange subject, light-
-    // blue subject-row tint, green/red deltas, hairline borders.
+    // Institutional comp worksheet: a narrow COMPETITIVE POSITIONING table (the
+    // scannable hero) over a secondary BUILDING DETAILS reference section. Metadata
+    // (owner, asset, address, city, incentives) is demoted out of the primary view;
+    // weighted-average rows are the visual focal point; positioning is made explicit
+    // with a "vs Subject" premium/discount column and a rank. No calcs change.
     const NAVY = "#061031", ORANGE = "#FF4E31", TINT = "#EEF2FE", GREY = "#7F7F7F",
-      BORDER = "#E6E6E1", GREEN = "#1F8A5B", RED = "#C0392B", LBLUE = "#D6DFFA";
+      BORDER = "#E6E6E1", GREEN = "#1F8A5B", RED = "#C0392B", LBLUE = "#D6DFFA",
+      WARM = "#FAFAF7", SEP = "#C9CEDD";
     const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
 
-    // Headline KPIs (same computation as the on-screen summary strip).
+    // ---- snapshot helpers + headline figures
+    const snapOf = (id) => colSnap(id, snap).cur;
     const benchCol = cols.find((c) => c.bench);
-    const benchSum = benchCol ? colSnap(benchCol.b.id, snap).cur : null;
-    const compSums = cols.filter((c) => !c.bench).map((c) => colSnap(c.b.id, snap).cur).filter(Boolean);
-    const avgOf = (fn) => compSums.length ? compSums.reduce((s, x) => s + (fn(x) || 0), 0) / compSums.length : null;
+    const benchSum = benchCol ? snapOf(benchCol.b.id) : null;
     const bRent = benchSum && benchSum.weighted ? benchSum.weighted.avgRent : null;
     const bPsf = benchSum && benchSum.weighted ? benchSum.weighted.avgPsf : null;
+    const compSums = cols.filter((c) => !c.bench).map((c) => snapOf(c.b.id)).filter(Boolean);
+    const avgOf = (fn) => compSums.length ? compSums.reduce((s, x) => s + (fn(x) || 0), 0) / compSums.length : null;
     const mktRent = compSums.length ? Math.round(avgOf((x) => x.weighted && x.weighted.avgRent)) : null;
     const mktPsf = avgOf((x) => x.weighted && x.weighted.avgPsf);
     const posn = bRent != null && mktRent != null ? Math.round(((bRent - mktRent) / mktRent) * 100) : null;
+
+    // ---- ranking by weighted avg rent (1 = highest, subject included)
+    const rankable = cols.map((c) => { const s = snapOf(c.b.id); return { id: c.b.id, rent: s && s.weighted ? s.weighted.avgRent : null }; })
+      .filter((x) => x.rent != null).sort((x, y) => y.rent - x.rent);
+    const rankMap = {}; rankable.forEach((x, i) => (rankMap[x.id] = i + 1));
+    const rankN = rankable.length;
+    const subjRank = benchCol ? rankMap[benchCol.b.id] : null;
+    const vsSubject = (rent) => (bRent && rent != null) ? Math.round(((rent - bRent) / bRent) * 100) : null;
+    const pct = (v) => v == null ? "" : (v > 0 ? "+" : "") + v + "%";
+
+    // ---- primary table geometry (narrow, positioning-focused)
+    const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "Distance (m)", "vs Subject"];
+    const PW = [160, 50, 92, 80, 60, 60, 76, 68, 72, 84];     // ~802px → one landscape page
+    const NCOL = PCOLS.length;
+    const colgroup = `<colgroup>${PW.map((w) => `<col style="width:${w}px"/>`).join("")}</colgroup>`;
+
+    // ---- styles (minimal borders, intentional whitespace)
+    const cst = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:6px 8px;text-align:${align};vertical-align:middle;background:${bg};${extra || ""}`;
+    const sTitle = `${F}font-weight:600;font-size:15px;color:#fff;background:${NAVY};padding:12px 14px;`;
+    const sMeta = `${F}font-size:11px;color:${GREY};background:${WARM};padding:7px 14px;`;
+    const sHead = `${F}font-weight:600;font-size:10px;letter-spacing:0.02em;color:#fff;background:${NAVY};padding:8px;vertical-align:middle;`;
+    const sBand = `${F}font-weight:600;font-size:10px;letter-spacing:0.06em;color:${NAVY};background:${LBLUE};padding:8px 10px;text-align:left;`;
+    const sFoot = `${F}font-size:9px;color:${GREY};font-style:italic;padding:6px 10px;`;
     const kpiCard = (val, label, color, span) =>
-      `<td colspan="${span}" style="${F}background:#fff;border:1px solid ${BORDER};padding:10px 12px;text-align:center;"><div style="font-size:18px;font-weight:700;color:${color};">${val}</div><div style="font-size:10px;color:${GREY};margin-top:3px;">${label}</div></td>`;
-    const sBand = `background:${LBLUE};color:${NAVY};${F}font-weight:600;font-size:10px;letter-spacing:0.04em;padding:6px 8px;border:1px solid ${BORDER};text-align:left;`;
-    const headers = ["Building", "Role", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)",
-      "Avg PSF ($/sf)", "Avg size (sf)", "Year built", "Units", "Owner / manager", "Asset type",
-      "Address", "City", "Distance (m)", "Incentives", "Snapshot"];
-    const NCOL = headers.length;
+      `<td colspan="${span}" style="${F}background:#fff;border:1px solid ${BORDER};padding:12px 8px;text-align:center;"><div style="font-size:17px;font-weight:700;color:${color};">${val}</div><div style="font-size:9px;color:${GREY};margin-top:4px;text-transform:uppercase;letter-spacing:0.04em;">${label}</div></td>`;
 
-    // Explicit column widths so nothing clips; text columns wrap (rows auto-grow).
-    const widths = [150, 52, 94, 78, 64, 64, 72, 70, 60, 50, 112, 72, 130, 74, 78, 240, 76];
-    const colgroup = `<colgroup>${widths.map((w) => `<col style="width:${w}px"/>`).join("")}</colgroup>`;
-    const sTitle = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:15px;padding:11px 12px;`;
-    const sMeta = `background:#FAFAF7;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
-    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};border-bottom:2px solid #ffffff;text-align:center;vertical-align:middle;`;
-    const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};vertical-align:middle;white-space:normal;background:${bg};${extra || ""}`;
-
-    // Each building renders as ONE cohesive block: building-level columns (name,
-    // role, year, units, owner, asset, address, city, distance, incentives, snap)
-    // merge vertically across the block's rows (rowspan) so they appear once; only
-    // the unit-varying numbers (type, rent, Δ, PSF, size) repeat per row. Blocks are
-    // separated by a thin rule + zebra banding instead of big blank gaps.
-    const SEP = "border-top:2px solid #C9CEDD;";          // block separator rule
+    // ---- PRIMARY rows: building blocks (merged name/rank/distance), weighted = focal
     let rowsHtml = "";
     let zeb = 0;
     cols.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
       if (!cur) return;
       const subj = c.bench;
-      const sdate = cur.date ? fmtDate(cur.date) : (snap ? fmtDate(snap) : "Latest");
       const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
+      const rank = rankMap[c.b.id];
 
-      // collect the rows this building will actually render
       const rws = [];
       types.forEach((t) => {
         const m = cur.byType && cur.byType[t];
@@ -870,67 +877,98 @@
       const span = rws.length;
 
       const zebra = !subj && (zeb++ % 2 === 1);
-      const base = subj ? TINT : (zebra ? "#F5F7FD" : "#ffffff");
-      // merged building-level cell (emitted once, on the first row)
-      const mc = (v, align, extra) =>
-        `<td rowspan="${span}" style="${cs(align || "center", base, SEP + (extra || ""))}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+      const blockBg = subj ? TINT : (zebra ? "#F6F8FD" : "#ffffff");
+      const wBg = subj ? "#CFDAF2" : "#E7ECF7";        // weighted-row fill (pops while scrolling)
+      const blkTop = `border-top:2px solid ${SEP};`;
+      const wTop = `border-top:2px solid ${NAVY};`;
+      const mc = (v, align, extra) => `<td rowspan="${span}" style="${cst(align || "center", blockBg, blkTop + (extra || ""))}">${v === "" || v == null ? "" : v}</td>`;
 
       rws.forEach((r, i) => {
         const m = r.m, p = r.p;
         const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
         const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
         const dCol = d > 0 ? GREEN : d < 0 ? RED : GREY;
-        const wbg = r.wavg ? (subj ? "#DCE3F5" : (zebra ? "#EAEFF9" : "#F1F5FC")) : base;
-        const vb = r.wavg ? `font-weight:700;border-top:1px solid ${GREY};` : (i === 0 ? SEP : "");
-        const vc = (v, align, extra) =>
-          `<td style="${cs(align || "center", wbg, vb + (extra || ""))}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+        const isW = r.wavg;
+        const rbg = isW ? wBg : blockBg;
+        // weighted rows: bold + larger + navy top rule; unit rows recede (smaller/grey)
+        const rowStyle = isW ? `font-weight:700;font-size:11.5px;${wTop}` : "font-size:10px;color:#3a4256;";
+        const topSep = (i === 0 && !isW) ? blkTop : "";
+        const vc = (v, align, extra) => `<td style="${cst(align || "center", rbg, rowStyle + topSep + (extra || ""))}">${v === "" || v == null ? "" : v}</td>`;
 
         let tr = "<tr>";
         if (i === 0) {
-          tr += `<td rowspan="${span}" style="${cs("left", base, SEP + (subj ? `color:${ORANGE};` : `color:${NAVY};`) + "font-weight:600;font-size:12px;")}">${esc(c.b.name)}${subj ? " ★" : ""}</td>`;
-          tr += mc(subj ? "Subject" : "Comp");
+          tr += `<td rowspan="${span}" style="${cst("left", blockBg, blkTop + (subj ? `color:${ORANGE};` : `color:${NAVY};`) + "font-weight:600;font-size:12px;")}">${esc(c.b.name)}${subj ? " ★" : ""}</td>`;
+          tr += `<td rowspan="${span}" style="${cst("center", blockBg, blkTop + "font-weight:700;font-size:13px;" + (subj ? `color:${ORANGE};` : `color:${NAVY};`))}">${rank || ""}</td>`;
         }
-        tr += vc(r.label, "left", r.wavg ? "font-weight:700;" : "");
+        tr += vc(r.label, "left", isW ? "font-weight:700;" : "");
         tr += vc(Math.round(m.avgRent));
         tr += vc(d == null ? "" : Math.round(d), "center", `color:${dCol};`);
         tr += vc(dPct == null ? "" : dPct, "center", `color:${dCol};`);
         tr += vc(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "");
         tr += vc(m.avgSqft != null ? m.avgSqft : "");
-        if (i === 0) {
-          tr += mc(c.b.yearBuilt || "");
-          tr += mc(c.b.unitCount || "");
-          tr += mc(esc(c.b.owner || ""), "left");
-          tr += mc(esc(c.b.assetType || ""));
-          tr += mc(esc(c.b.address || ""), "left");
-          tr += mc(esc(c.b.city || ""), "left");
-          tr += mc(dist);
-          tr += `<td rowspan="${span}" style="${cs("left", base, SEP + "font-size:9px;color:#7a4d0a;white-space:normal;")}">${cur.incentives ? esc(cur.incentives) : ""}</td>`;
-          tr += mc(sdate);
+        if (i === 0) tr += mc(dist);
+        if (isW) {                                    // vs Subject only on the focal row
+          const vs = subj ? null : vsSubject(m.avgRent);
+          const vsCol = vs == null ? GREY : (vs > 0 ? GREEN : vs < 0 ? RED : GREY);
+          tr += `<td style="${cst("center", wBg, `font-weight:700;font-size:11.5px;${wTop}color:${vsCol};`)}">${subj ? "—" : pct(vs)}</td>`;
+        } else {
+          tr += `<td style="${cst("center", rbg, rowStyle + topSep)}"></td>`;
         }
         tr += "</tr>";
         rowsHtml += tr;
       });
     });
 
+    // ---- SECONDARY details (demoted metadata; incentives narrow + wrapped)
+    const dHead = (txt, span, align) => `<td colspan="${span}" style="${F}font-weight:600;font-size:9px;letter-spacing:0.03em;color:${GREY};background:${WARM};padding:6px 8px;text-align:${align || "left"};text-transform:uppercase;border-bottom:1px solid ${BORDER};">${txt}</td>`;
+    let detailHtml = "";
+    let dz = 0;
+    cols.forEach((c) => {
+      const cur = snapOf(c.b.id);
+      if (!cur) return;
+      const subj = c.bench;
+      const dbg = subj ? TINT : (dz++ % 2 === 1 ? "#F6F8FD" : "#ffffff");
+      const dc = (v, span, align, extra) => `<td colspan="${span}" style="${F}font-size:10px;color:#3a4256;padding:6px 8px;text-align:${align || "left"};vertical-align:middle;background:${dbg};white-space:normal;${extra || ""}">${v === "" || v == null ? "" : v}</td>`;
+      const addr = [c.b.address, c.b.city].filter(Boolean).map(esc).join(" · ");
+      detailHtml += "<tr>" +
+        dc(`${esc(c.b.name)}${subj ? " ★" : ""}`, 1, "left", subj ? `color:${ORANGE};font-weight:600;` : `font-weight:600;color:${NAVY};`) +
+        dc(subj ? "Subject" : "Comp", 1) +
+        dc(esc(c.b.owner || "—"), 2) +
+        dc(esc(c.b.assetType || "—"), 1) +
+        dc(c.b.yearBuilt || "—", 1, "center") +
+        dc(c.b.unitCount || "—", 1, "center") +
+        dc(addr || "—", 2) +
+        dc(cur.incentives ? esc(cur.incentives) : "—", 1, "left", "font-size:9px;color:#7a4d0a;") +
+        "</tr>";
+    });
+
+    // ---- assemble
     let body = "";
     body += `<tr><td colspan="${NCOL}" style="${sTitle}">Competitive Analysis — ${esc(a.name)}</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sMeta}">Benchmark: ${esc(bench ? bench.name : "—")} &nbsp;·&nbsp; Snapshot: ${esc(snap ? fmtDate(snap) : "Latest")} &nbsp;·&nbsp; ${ncomp} comparables &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="height:6px;border:none"></td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sMeta}">Benchmark: ${esc(bench ? bench.name : "—")} &nbsp;·&nbsp; Snapshot: ${esc(snap ? fmtDate(snap) : "Latest")} &nbsp;·&nbsp; ${ncomp} comparables${subjRank ? ` &nbsp;·&nbsp; Subject ranks #${subjRank} of ${rankN} by weighted rent` : ""} &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="height:10px"></td></tr>`;
     body += `<tr>` +
-      kpiCard(money(bRent), "Benchmark avg gross rent", ORANGE, 4) +
-      kpiCard(money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY, 4) +
-      kpiCard(bPsf != null ? psf(bPsf) + "/sf" : "—", `Benchmark avg PSF · mkt ${psf(mktPsf)}`, NAVY, 4) +
-      kpiCard(posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Benchmark vs market", posn != null && posn >= 0 ? GREEN : NAVY, NCOL - 12) +
+      kpiCard(money(bRent), "Benchmark gross rent", ORANGE, 2) +
+      kpiCard(money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY, 2) +
+      kpiCard(bPsf != null ? psf(bPsf) + "/sf" : "—", `Benchmark PSF · mkt ${psf(mktPsf)}`, NAVY, 2) +
+      kpiCard(posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED, 2) +
+      kpiCard(subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY, 2) +
       `</tr>`;
-    body += `<tr><td colspan="${NCOL}" style="height:10px;border:none"></td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sBand}">DETAILED COMPARABLES — by building &amp; unit type</td></tr>`;
-    body += `<tr>${headers.map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
+    body += `<tr><td colspan="${NCOL}" style="height:14px"></td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sBand}">COMPETITIVE POSITIONING &nbsp;·&nbsp; weighted averages in bold</td></tr>`;
+    body += `<tr>${PCOLS.map((h, i) => `<td style="${sHead}text-align:${i === 0 || i === 2 ? "left" : "center"};">${h}</td>`).join("")}</tr>`;
     body += rowsHtml;
+    body += `<tr><td colspan="${NCOL}" style="${sFoot}">vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Δ vs prior scrape</td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="height:18px"></td></tr>`;
+    body += `<tr><td colspan="${NCOL}" style="${sBand}">BUILDING DETAILS</td></tr>`;
+    body += `<tr>${dHead("Building", 1) + dHead("Role", 1) + dHead("Owner / manager", 2) + dHead("Asset", 1) + dHead("Year", 1, "center") + dHead("Units", 1, "center") + dHead("Address", 2) + dHead("Incentives", 1)}</tr>`;
+    body += detailHtml;
 
+    const wsOpts = `<x:WorksheetOptions><x:DoNotDisplayGridlines/><x:Print><x:ValidPrinterInfo/><x:PaperSizeIndex>1</x:PaperSizeIndex><x:Orientation>Landscape</x:Orientation><x:HorizontalResolution>600</x:HorizontalResolution><x:VerticalResolution>600</x:VerticalResolution><x:FitWidth>1</x:FitWidth><x:FitHeight>0</x:FitHeight></x:Print><x:FitToPage/></x:WorksheetOptions>`;
     const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">` +
       `<head><meta charset="utf-8"/>` +
-      `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Comp Analysis</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
-      `</head><body style="margin:0;background:#FAFAF7"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#FAFAF7">${colgroup}${body}</table></body></html>`;
+      `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Comp Analysis</x:Name>${wsOpts}</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
+      `</head><body style="margin:0;background:${WARM}"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:${WARM}">${colgroup}${body}</table></body></html>`;
     const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
     downloadFile(`${safe} — comp analysis.xls`, html, "application/vnd.ms-excel");
   }
