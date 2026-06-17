@@ -16,11 +16,14 @@ function build() {
   const wb = XlsxLite.createWorkbook();
   const title = wb.style({ font: { sz: 13, bold: true, color: "#FFFFFF" }, fill: "#061031", align: { h: "left", v: "center" } });
   const num = wb.style({ font: { sz: 11, color: "#061031" }, fill: "#EEF2FE", align: { h: "center", v: "center" }, numFmt: "#,##0", border: { top: { style: "medium", color: "#061031" } } });
-  [160, 80, 80].forEach((w, i) => wb.setCol(i, w));
-  wb.row(26); wb.cell("Competitive Analysis — Test", { colspan: 3, s: title });
-  wb.row(); wb.cell("Sloane ★", { rowspan: 2, s: num }); wb.cell(3995, { t: "n", s: num }); wb.cell(5.15, { t: "n", s: num });
-  wb.row(); wb.cell(4200, { t: "n", s: num }); wb.cell(4.95, { t: "n", s: num });
-  return wb.bytes("Comp Analysis");
+  const s1 = wb.addSheet("Comp Analysis");
+  [160, 80, 80].forEach((w, i) => s1.setCol(i, w));
+  s1.row(26); s1.cell("Competitive Analysis — Test", { colspan: 3, s: title });
+  s1.row(); s1.cell("Sloane ★", { rowspan: 2, s: num }); s1.cell(3995, { t: "n", s: num }); s1.cell(5.15, { t: "n", s: num });
+  s1.row(); s1.cell(4200, { t: "n", s: num }); s1.cell(4.95, { t: "n", s: num });
+  const s2 = wb.addSheet("Building Details");
+  s2.row(); s2.cell("Sloane", { s: num }); s2.cell("PBR", { s: num });
+  return wb.bytes();
 }
 
 function sig(bytes) {
@@ -46,8 +49,10 @@ ok(!(bytes[0] === 0xd0 && bytes[1] === 0xcf), "not a legacy OLE2 .xls (D0 CF 11 
 try {
   const list = cp.execSync(`unzip -Z1 "${out}"`, { encoding: "utf-8" });
   cp.execSync(`unzip -t "${out}"`, { stdio: "ignore" }); // CRC / structure check
-  ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/styles.xml", "xl/worksheets/sheet1.xml"]
+  ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/styles.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml"]
     .forEach((p) => ok(list.includes(p), "contains part: " + p));
+  const book = cp.execSync(`unzip -p "${out}" xl/workbook.xml`, { encoding: "utf-8" });
+  ok(/name="Comp Analysis"/.test(book) && /name="Building Details"/.test(book), "workbook declares both sheet tabs");
   const sheet = cp.execSync(`unzip -p "${out}" xl/worksheets/sheet1.xml`, { encoding: "utf-8" });
   ok(/<mergeCells/.test(sheet), "worksheet declares merged cells");
   ok(/t="inlineStr"/.test(sheet), "worksheet has inline string cells");

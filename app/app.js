@@ -841,15 +841,11 @@
     const vsSubject = (rent) => (bRent && rent != null) ? Math.round(((rent - bRent) / bRent) * 100) : null;
 
     // ---- build a REAL .xlsx (Open XML / PK-zip) so Excel opens it with no
-    // format/extension warning. Fills, fonts, borders, merges all preserved.
+    // format/extension warning. Two tabs: Comp Analysis + Building Details.
     const wb = XlsxLite.createWorkbook();
-    const reg = wb.style;
+    const reg = wb.style;                        // styles shared across both sheets
     const WHITE = "#FFFFFF";
     const NF_INT = "#,##0", NF_DEC = "0.00", NF_YEAR = "0", NF_PCT1 = "0.0", NF_VS = '+0"%";-0"%";0"%"';
-    const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "Distance (m)", "vs Subject"];
-    const PW = [168, 50, 94, 88, 64, 64, 80, 72, 78, 88];     // → one landscape page
-    const NCOL = PCOLS.length;
-    PW.forEach((w, i) => wb.setCol(i, w));
 
     // style helper: cell with optional fill / font / numFmt / top border
     const cs = (o) => reg({
@@ -867,16 +863,24 @@
     const sHeadC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
     const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
     const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
+    const metaLine = `Benchmark: ${bench ? bench.name : "—"}  ·  Snapshot: ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comparables` +
+      (subjRank ? `  ·  Subject ranks #${subjRank} of ${rankN} by weighted rent` : "") + `  ·  Fitzrovia — Internal & Confidential`;
 
-    // title + meta
-    wb.row(28); wb.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
-    wb.row(20); wb.cell(
-      `Benchmark: ${bench ? bench.name : "—"}  ·  Snapshot: ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comparables` +
-      (subjRank ? `  ·  Subject ranks #${subjRank} of ${rankN} by weighted rent` : "") +
-      `  ·  Fitzrovia — Internal & Confidential`, { colspan: NCOL, s: sMeta });
-    wb.row(8);
+    // buildings pre-sorted by rank (highest weighted rent first); unranked last
+    const ordered = cols.slice().sort((x, y) => (rankMap[x.b.id] || 9999) - (rankMap[y.b.id] || 9999));
 
-    // KPI cards (value row + label row; each card spans two columns)
+    // ======================= SHEET 1 — COMP ANALYSIS =======================
+    const s1 = wb.addSheet("Comp Analysis");
+    // Distance lives at the far right, formatted like the vs-Subject column.
+    const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "vs Subject", "Distance (m)"];
+    const PW = [168, 50, 94, 88, 64, 64, 80, 72, 88, 80];
+    const NCOL = PCOLS.length;
+    PW.forEach((w, i) => s1.setCol(i, w));
+
+    s1.row(28); s1.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
+    s1.row(20); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
+    s1.row(8);
+
     const kpis = [
       [money(bRent), "Benchmark gross rent", ORANGE],
       [money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY],
@@ -884,16 +888,15 @@
       [posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED],
       [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY],
     ];
-    wb.row(26); kpis.forEach((k) => wb.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
-    wb.row(16); kpis.forEach((k) => wb.cell(k[1], { colspan: 2, s: kpiLab }));
-    wb.row(12);
+    s1.row(26); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
+    s1.row(16); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
+    s1.row(12);
 
-    // positioning table
-    wb.row(20); wb.cell("COMPETITIVE POSITIONING  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
-    wb.row(24); PCOLS.forEach((h, i) => wb.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
+    s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
+    s1.row(24); PCOLS.forEach((h, i) => s1.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
 
     let zeb = 0;
-    cols.forEach((c) => {
+    ordered.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
       if (!cur) return;
       const subj = c.bench;
@@ -913,7 +916,7 @@
       const wBg = subj ? "#CFDAF2" : "#E7ECF7";
 
       rws.forEach((r, i) => {
-        wb.row();
+        s1.row();
         const m = r.m, p = r.p;
         const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
         const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
@@ -926,57 +929,65 @@
           { sz, bold, fill: rbg, color: col },
           isW ? { top: true, topW: "medium", topC: NAVY } : (i === 0 ? { top: true, topC: SEP } : {}),
           extra || {}));
+        // shared style for the two far-right summary columns (vs Subject + Distance)
+        const farStyle = (extra) => cs(Object.assign({ sz: 11, bold: true, fill: wBg, top: true, topW: "medium", topC: NAVY }, extra || {}));
         if (i === 0) {
-          wb.cell(c.b.name + (subj ? " ★" : ""), { rowspan: span, s: cs({ h: "left", sz: 12, bold: true, color: subj ? ORANGE : NAVY, fill: blockBg, top: true, topW: "medium", topC: SEP }) });
-          wb.cell(rank || "", { rowspan: span, t: rank ? "n" : "s", s: cs({ sz: 13, bold: true, color: subj ? ORANGE : NAVY, fill: blockBg, top: true, topW: "medium", topC: SEP }) });
+          s1.cell(c.b.name + (subj ? " ★" : ""), { rowspan: span, s: cs({ h: "left", sz: 12, bold: true, color: subj ? ORANGE : NAVY, fill: blockBg, top: true, topW: "medium", topC: SEP }) });
+          s1.cell(rank || "", { rowspan: span, t: rank ? "n" : "s", s: cs({ sz: 13, bold: true, color: subj ? ORANGE : NAVY, fill: blockBg, top: true, topW: "medium", topC: SEP }) });
         }
-        wb.cell(r.label, { s: cellStyle({ h: "left" }) });
-        wb.cell(Math.round(m.avgRent), { t: "n", s: cellStyle({ nf: NF_INT }) });
-        wb.cell(d == null ? "" : Math.round(d), { t: d == null ? "s" : "n", s: cellStyle({ nf: NF_INT, color: d == null ? col : dCol }) });
-        wb.cell(dPct == null ? "" : dPct, { t: dPct == null ? "s" : "n", s: cellStyle({ nf: NF_PCT1, color: dPct == null ? col : dCol }) });
-        wb.cell(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "", { t: m.avgPsf != null ? "n" : "s", s: cellStyle({ nf: NF_DEC }) });
-        wb.cell(m.avgSqft != null ? m.avgSqft : "", { t: m.avgSqft != null ? "n" : "s", s: cellStyle({ nf: NF_INT }) });
-        if (i === 0) wb.cell(dist, { rowspan: span, t: typeof dist === "number" ? "n" : "s", s: cs({ sz: 11, color: NAVY, fill: blockBg, top: true, topC: SEP }) });
-        if (isW) {                                   // vs Subject only on the focal weighted row
+        s1.cell(r.label, { s: cellStyle({ h: "left" }) });
+        s1.cell(Math.round(m.avgRent), { t: "n", s: cellStyle({ nf: NF_INT }) });
+        s1.cell(d == null ? "" : Math.round(d), { t: d == null ? "s" : "n", s: cellStyle({ nf: NF_INT, color: d == null ? col : dCol }) });
+        s1.cell(dPct == null ? "" : dPct, { t: dPct == null ? "s" : "n", s: cellStyle({ nf: NF_PCT1, color: dPct == null ? col : dCol }) });
+        s1.cell(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "", { t: m.avgPsf != null ? "n" : "s", s: cellStyle({ nf: NF_DEC }) });
+        s1.cell(m.avgSqft != null ? m.avgSqft : "", { t: m.avgSqft != null ? "n" : "s", s: cellStyle({ nf: NF_INT }) });
+        if (isW) {                                   // vs Subject + Distance: focal weighted row only
           const vs = subj ? null : vsSubject(m.avgRent);
           const vsCol = vs == null ? GREY : (vs > 0 ? GREEN : vs < 0 ? RED : GREY);
-          wb.cell(subj || vs == null ? "—" : vs, { t: (subj || vs == null) ? "s" : "n", s: cs({ sz: 11, bold: true, color: vsCol, fill: wBg, nf: (subj || vs == null) ? null : NF_VS, top: true, topW: "medium", topC: NAVY }) });
+          s1.cell(subj || vs == null ? "—" : vs, { t: (subj || vs == null) ? "s" : "n", s: farStyle({ color: vsCol, nf: (subj || vs == null) ? null : NF_VS }) });
+          s1.cell(dist, { t: typeof dist === "number" ? "n" : "s", s: farStyle({ color: NAVY, nf: typeof dist === "number" ? NF_INT : null }) });
         } else {
-          wb.cell("", { s: cellStyle({}) });
+          s1.cell("", { s: cellStyle({}) });
+          s1.cell("", { s: cellStyle({}) });
         }
       });
     });
 
-    wb.row(); wb.cell("vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
-    wb.row(18);
+    s1.row(); s1.cell("vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Distance to subject (m) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
 
-    // building details (demoted metadata; incentives narrow + wrapped)
-    wb.row(20); wb.cell("BUILDING DETAILS", { colspan: NCOL, s: sBand });
-    const dh = (left) => reg({ font: { sz: 9, bold: true, color: GREY }, fill: WARM, align: { h: left ? "left" : "center", v: "center" }, border: { bottom: { color: BORDER } } });
-    wb.row(20);
-    [["Building", 1, 1], ["Role", 1, 1], ["Owner / manager", 2, 1], ["Asset", 1, 1], ["Year", 1, 0], ["Units", 1, 0], ["Address", 2, 1], ["Incentives", 1, 1]]
-      .forEach((h) => wb.cell(h[0], { colspan: h[1], s: dh(h[2]) }));
+    // ===================== SHEET 2 — BUILDING DETAILS ======================
+    const s2 = wb.addSheet("Building Details");
+    const DCOLS = ["Building", "Role", "Owner / manager", "Asset", "Year", "Units", "Address", "City", "Incentives"];
+    const DW = [180, 70, 200, 92, 56, 56, 210, 110, 260];
+    const NCOL2 = DCOLS.length;
+    DW.forEach((w, i) => s2.setCol(i, w));
+
+    s2.row(28); s2.cell("Building Details — " + a.name, { colspan: NCOL2, s: sTitle });
+    s2.row(20); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
+    s2.row(8);
+    s2.row(22); DCOLS.forEach((h, i) => s2.cell(h, { s: (i === 4 || i === 5) ? sHeadC : sHeadL }));
+
     let dz = 0;
-    cols.forEach((c) => {
+    ordered.forEach((c) => {
       const cur = snapOf(c.b.id);
       if (!cur) return;
       const subj = c.bench;
       const dbg = subj ? TINT : (dz++ % 2 === 1 ? "#F6F8FD" : WHITE);
       const dcs = (o) => cs(Object.assign({ sz: 10, color: "#3A4256", fill: dbg, wrap: true, h: "left" }, o));
-      const addr = [c.b.address, c.b.city].filter(Boolean).join(" · ");
-      wb.row();
-      wb.cell(c.b.name + (subj ? " ★" : ""), { s: dcs({ bold: true, color: subj ? ORANGE : NAVY }) });
-      wb.cell(subj ? "Subject" : "Comp", { s: dcs({}) });
-      wb.cell(c.b.owner || "—", { colspan: 2, s: dcs({}) });
-      wb.cell(c.b.assetType || "—", { s: dcs({}) });
-      wb.cell(c.b.yearBuilt || "—", { t: c.b.yearBuilt ? "n" : "s", s: dcs({ h: "center", nf: c.b.yearBuilt ? NF_YEAR : null }) });
-      wb.cell(c.b.unitCount || "—", { t: c.b.unitCount ? "n" : "s", s: dcs({ h: "center", nf: c.b.unitCount ? NF_INT : null }) });
-      wb.cell(addr || "—", { colspan: 2, s: dcs({}) });
-      wb.cell(cur.incentives || "—", { s: dcs({ sz: 9, color: "#7A4D0A" }) });
+      s2.row();
+      s2.cell(c.b.name + (subj ? " ★" : ""), { s: dcs({ bold: true, color: subj ? ORANGE : NAVY }) });
+      s2.cell(subj ? "Subject" : "Comp", { s: dcs({}) });
+      s2.cell(c.b.owner || "—", { s: dcs({}) });
+      s2.cell(c.b.assetType || "—", { s: dcs({}) });
+      s2.cell(c.b.yearBuilt || "—", { t: c.b.yearBuilt ? "n" : "s", s: dcs({ h: "center", nf: c.b.yearBuilt ? NF_YEAR : null }) });
+      s2.cell(c.b.unitCount || "—", { t: c.b.unitCount ? "n" : "s", s: dcs({ h: "center", nf: c.b.unitCount ? NF_INT : null }) });
+      s2.cell(c.b.address || "—", { s: dcs({}) });
+      s2.cell(c.b.city || "—", { s: dcs({}) });
+      s2.cell(cur.incentives || "—", { s: dcs({ sz: 9, color: "#7A4D0A" }) });
     });
 
     const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
-    downloadBlob(`${safe} — comp analysis.xlsx`, wb.blob("Comp Analysis"));
+    downloadBlob(`${safe} — comp analysis.xlsx`, wb.blob());
   }
 
   function renderAnalysis(id, tab) {
@@ -1224,8 +1235,9 @@
 
     const wb = XlsxLite.createWorkbook();
     const reg = wb.style;
+    const sh = wb.addSheet("Unit Backup");
     const NCOL = 6;
-    [200, 70, 70, 96, 96, 220].forEach((w, i) => wb.setCol(i, w));
+    [200, 70, 70, 96, 96, 220].forEach((w, i) => sh.setCol(i, w));
     const sTitle = reg({ font: { sz: 13, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center" } });
     const sMeta = reg({ font: { sz: 10, color: GREY }, fill: WARM, align: { h: "left", v: "center", wrap: true } });
     const sBand = reg({ font: { sz: 9, bold: true, color: NAVY }, fill: LBLUE, align: { h: "left", v: "center" } });
@@ -1233,42 +1245,42 @@
     const hC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
     const tc = (o) => reg({ font: { sz: 10, bold: o.bold, color: o.color || NAVY }, align: { h: o.h || "center", v: "center", wrap: o.wrap }, numFmt: o.nf || null });
 
-    wb.row(26); wb.cell(b.name + " — Unit Backup", { colspan: NCOL, s: sTitle });
-    wb.row(20); wb.cell(`Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"}  ·  ${units.length} individual units  ·  Fitzrovia — Internal & Confidential`, { colspan: NCOL, s: sMeta });
-    wb.row(8);
+    sh.row(26); sh.cell(b.name + " — Unit Backup", { colspan: NCOL, s: sTitle });
+    sh.row(20); sh.cell(`Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"}  ·  ${units.length} individual units  ·  Fitzrovia — Internal & Confidential`, { colspan: NCOL, s: sMeta });
+    sh.row(8);
 
-    wb.row(20); wb.cell("INDIVIDUAL UNITS", { colspan: NCOL, s: sBand });
-    wb.row(22); ["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"].forEach((h, i) => wb.cell(h, { s: i === 0 || i === 5 ? hL : hC }));
+    sh.row(20); sh.cell("INDIVIDUAL UNITS", { colspan: NCOL, s: sBand });
+    sh.row(22); ["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"].forEach((h, i) => sh.cell(h, { s: i === 0 || i === 5 ? hL : hC }));
     units.forEach((u) => {
-      wb.row();
-      wb.cell(TYPE_LABEL[u.type] || u.type, { s: tc({ h: "left" }) });
-      wb.cell(u.bath != null ? u.bath : "", { t: u.bath != null ? "n" : "s", s: tc({}) });
-      wb.cell(u.sqft != null ? u.sqft : "", { t: u.sqft != null ? "n" : "s", s: tc({ nf: NF_INT }) });
-      wb.cell(u.rent != null ? Math.round(u.rent) : "", { t: u.rent != null ? "n" : "s", s: tc({ nf: NF_INT }) });
-      wb.cell(u.psf != null ? +Number(u.psf).toFixed(2) : "", { t: u.psf != null ? "n" : "s", s: tc({ nf: NF_DEC }) });
-      wb.cell(u.note || "", { s: tc({ h: "left", color: GREY, wrap: true }) });
+      sh.row();
+      sh.cell(TYPE_LABEL[u.type] || u.type, { s: tc({ h: "left" }) });
+      sh.cell(u.bath != null ? u.bath : "", { t: u.bath != null ? "n" : "s", s: tc({}) });
+      sh.cell(u.sqft != null ? u.sqft : "", { t: u.sqft != null ? "n" : "s", s: tc({ nf: NF_INT }) });
+      sh.cell(u.rent != null ? Math.round(u.rent) : "", { t: u.rent != null ? "n" : "s", s: tc({ nf: NF_INT }) });
+      sh.cell(u.psf != null ? +Number(u.psf).toFixed(2) : "", { t: u.psf != null ? "n" : "s", s: tc({ nf: NF_DEC }) });
+      sh.cell(u.note || "", { s: tc({ h: "left", color: GREY, wrap: true }) });
     });
 
-    wb.row(10);
-    wb.row(20); wb.cell("SUMMARY BY UNIT TYPE", { colspan: NCOL, s: sBand });
-    wb.row(22); ["Unit Type", "# Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)", ""].forEach((h, i) => wb.cell(h, { s: i === 0 ? hL : hC }));
+    sh.row(10);
+    sh.row(20); sh.cell("SUMMARY BY UNIT TYPE", { colspan: NCOL, s: sBand });
+    sh.row(22); ["Unit Type", "# Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)", ""].forEach((h, i) => sh.cell(h, { s: i === 0 ? hL : hC }));
     const sumRow = (label, us, bold) => {
       const sf = avg(us.filter((u) => u.sqft != null).map((u) => +u.sqft));
       const r = avg(us.map((u) => u.rent));
       const p = avg(us.filter((u) => u.psf != null).map((u) => +u.psf));
-      wb.row();
-      wb.cell(label, { s: tc({ h: "left", bold }) });
-      wb.cell(us.length, { t: "n", s: tc({ bold, nf: NF_INT }) });
-      wb.cell(sf != null ? Math.round(sf) : "", { t: sf != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
-      wb.cell(r != null ? Math.round(r) : "", { t: r != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
-      wb.cell(p != null ? +p.toFixed(2) : "", { t: p != null ? "n" : "s", s: tc({ bold, nf: NF_DEC }) });
-      wb.cell("", { s: tc({}) });
+      sh.row();
+      sh.cell(label, { s: tc({ h: "left", bold }) });
+      sh.cell(us.length, { t: "n", s: tc({ bold, nf: NF_INT }) });
+      sh.cell(sf != null ? Math.round(sf) : "", { t: sf != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
+      sh.cell(r != null ? Math.round(r) : "", { t: r != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
+      sh.cell(p != null ? +p.toFixed(2) : "", { t: p != null ? "n" : "s", s: tc({ bold, nf: NF_DEC }) });
+      sh.cell("", { s: tc({}) });
     };
     types.forEach((t) => sumRow(TYPE_LABEL[t] || t, units.filter((u) => u.type === t), false));
     sumRow("Weighted Average", units, true);
 
     const safe = (b.name || "building").replace(/[^\w\- ]+/g, "").trim() || "building";
-    downloadBlob(`${safe} — unit backup.xlsx`, wb.blob("Unit Backup"));
+    downloadBlob(`${safe} — unit backup.xlsx`, wb.blob());
   }
 
   function renderSummary(a, cols) {

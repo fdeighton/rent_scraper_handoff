@@ -213,34 +213,42 @@
     return { setCol, row, cell, skip, xml };
   }
 
-  // --- package parts --------------------------------------------------------
-  function parts(sheetName, styles, sh) {
-    const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+  // --- package parts (one or more worksheets, shared style table) -----------
+  function parts(styles, sheets) {
+    if (!sheets.length) sheets = [{ name: "Sheet1", sh: sheet() }];
+    const sheetOverrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
+    const ct = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheetOverrides}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
     const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
-    const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlAttr((sheetName || "Sheet1").slice(0, 31))}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
-    const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
-    return [
+    const sheetTags = sheets.map((s, i) => `<sheet name="${xmlAttr((s.name || ("Sheet" + (i + 1))).slice(0, 31))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("");
+    const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetTags}</sheets></workbook>`;
+    const wsRels = sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("");
+    const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${wsRels}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+    const files = [
       { name: "[Content_Types].xml", data: enc(ct) },
       { name: "_rels/.rels", data: enc(rootRels) },
       { name: "xl/workbook.xml", data: enc(wb) },
       { name: "xl/_rels/workbook.xml.rels", data: enc(wbRels) },
       { name: "xl/styles.xml", data: enc(styles.xml()) },
-      { name: "xl/worksheets/sheet1.xml", data: enc(sh.xml()) },
     ];
+    sheets.forEach((s, i) => files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc(s.sh.xml()) }));
+    return files;
   }
 
   const MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  // Multi-sheet workbook with a shared style table. addSheet(name) returns a
+  // sheet-scoped api ({style, setCol, row, cell, skip}). Single-sheet callers
+  // can use addSheet once. bytes()/blob() package every sheet added.
   function createWorkbook() {
-    const styles = styleKit(), sh = sheet();
+    const styles = styleKit(), sheets = [];
+    function addSheet(name) {
+      const sh = sheet();
+      sheets.push({ name: name || ("Sheet" + (sheets.length + 1)), sh });
+      return { style: styles.register, setCol: sh.setCol, row: sh.row, cell: sh.cell, skip: sh.skip };
+    }
     return {
-      MIME,
-      style: styles.register,   // (spec) -> style index
-      setCol: sh.setCol,        // (colIndex, px)
-      row: sh.row,              // (heightPx?)
-      cell: sh.cell,            // (value, {s, t, colspan, rowspan})
-      skip: sh.skip,            // (n)
-      bytes(name) { return zipStore(parts(name, styles, sh)); },
-      blob(name) { return new Blob([this.bytes(name)], { type: MIME }); },
+      MIME, style: styles.register, addSheet,
+      bytes() { return zipStore(parts(styles, sheets)); },
+      blob() { return new Blob([this.bytes()], { type: MIME }); },
     };
   }
 
