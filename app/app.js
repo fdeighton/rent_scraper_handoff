@@ -1723,6 +1723,33 @@
     return den ? num / den : null;
   }
 
+  // Monotone cubic (Fritsch-Carlson) -> cubic Bézier. Smooth, but shape-preserving:
+  // the curve passes exactly through every point and cannot overshoot between them
+  // (X must be strictly increasing — true here, points are sorted scrape dates).
+  function smoothPath(p) {
+    const n = p.length;
+    if (!n) return "";
+    if (n === 1) return `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)}`;
+    if (n === 2) return `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)} L ${p[1].X.toFixed(1)} ${p[1].Y.toFixed(1)}`;
+    const dx = [], slope = [];
+    for (let i = 0; i < n - 1; i++) { dx[i] = p[i + 1].X - p[i].X; slope[i] = dx[i] !== 0 ? (p[i + 1].Y - p[i].Y) / dx[i] : 0; }
+    const m = new Array(n);
+    m[0] = slope[0]; m[n - 1] = slope[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {                       // limiter → guarantees no overshoot
+      if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / slope[i], b = m[i + 1] / slope[i], h = Math.hypot(a, b);
+      if (h > 3) { const t = 3 / h; m[i] = t * a * slope[i]; m[i + 1] = t * b * slope[i]; }
+    }
+    let d = `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const c1x = p[i].X + dx[i] / 3, c1y = p[i].Y + m[i] * dx[i] / 3;
+      const c2x = p[i + 1].X - dx[i] / 3, c2y = p[i + 1].Y - m[i + 1] * dx[i] / 3;
+      d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p[i + 1].X.toFixed(1)} ${p[i + 1].Y.toFixed(1)}`;
+    }
+    return d;
+  }
+
   let chartCache = {};  // persistent SVG scaffold + per-building series elements (object constancy)
   let chartRaf = {};    // in-flight requestAnimationFrame id per analysis
 
@@ -1868,9 +1895,8 @@
 
       active.forEach((rec) => {
         const s = rec.s, vmapNow = {};
-        let dpath = "";
-        s.pts.forEach((p, i) => { const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; dpath += (i ? " L " : "M ") + x(p.d).toFixed(1) + " " + y(v).toFixed(1); });
-        rec.path.setAttribute("d", dpath);
+        const coords = s.pts.map((p) => { const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return { X: x(p.d), Y: y(v) }; });
+        rec.path.setAttribute("d", smoothPath(coords));  // monotone — passes through every marker, no overshoot
         rec.path.setAttribute("stroke", s.color);
         rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.6);
         rec.path.setAttribute("stroke-linecap", "round");
