@@ -1895,8 +1895,19 @@
 
       active.forEach((rec) => {
         const s = rec.s, vmapNow = {};
-        const coords = s.pts.map((p) => { const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return { X: x(p.d), Y: y(v) }; });
-        rec.path.setAttribute("d", smoothPath(coords));  // monotone — passes through every marker, no overshoot
+        // Split into runs of points that are ADJACENT on the shared scrape-date
+        // axis. Where a building has no observation for a scrape date, the next
+        // point isn't adjacent → break the line (no segment spanning the gap).
+        // Each run is drawn with monotone smoothing; markers stay on every point.
+        let dpath = "", run = [];
+        const flush = () => { if (run.length) dpath += smoothPath(run) + " "; run = []; };
+        s.pts.forEach((p, i) => {
+          if (i && xIdx.get(p.d) - xIdx.get(s.pts[i - 1].d) > 1) flush();  // missing scrape date(s) between → gap
+          const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v;
+          vmapNow[p.d] = v; run.push({ X: x(p.d), Y: y(v) });
+        });
+        flush();
+        rec.path.setAttribute("d", dpath.trim());
         rec.path.setAttribute("stroke", s.color);
         rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.6);
         rec.path.setAttribute("stroke-linecap", "round");
