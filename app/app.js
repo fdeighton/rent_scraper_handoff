@@ -1670,20 +1670,30 @@
     return den ? num / den : null;
   }
 
-  // Smooth (Catmull-Rom -> cubic Bézier) path through pixel points for clean curves.
+  // Monotone cubic (Fritsch-Carlson) -> cubic Bézier. Smooth like a spline but
+  // can't overshoot, so no loops/bumps on sharp changes (X must be increasing).
   function smoothPath(p) {
     const n = p.length;
     if (!n) return "";
     if (n === 1) return `M ${p[0].X} ${p[0].Y}`;
     if (n === 2) return `M ${p[0].X} ${p[0].Y} L ${p[1].X} ${p[1].Y}`;
-    let d = `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)}`;
-    for (let i = 0; i < n - 1; i++) {
-      const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
-      const c1x = p1.X + (p2.X - p0.X) / 6, c1y = p1.Y + (p2.Y - p0.Y) / 6;
-      const c2x = p2.X - (p3.X - p1.X) / 6, c2y = p2.Y - (p3.Y - p1.Y) / 6;
-      d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.X.toFixed(1)} ${p2.Y.toFixed(1)}`;
+    const dx = [], d = [];
+    for (let i = 0; i < n - 1; i++) { dx[i] = p[i + 1].X - p[i].X; d[i] = dx[i] !== 0 ? (p[i + 1].Y - p[i].Y) / dx[i] : 0; }
+    const m = new Array(n);
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (let i = 0; i < n - 1; i++) {                         // limit tangents → monotone, no overshoot
+      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], h = Math.hypot(a, b);
+      if (h > 3) { const t = 3 / h; m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
     }
-    return d;
+    let path = `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const c1x = p[i].X + dx[i] / 3, c1y = p[i].Y + m[i] * dx[i] / 3;
+      const c2x = p[i + 1].X - dx[i] / 3, c2y = p[i + 1].Y - m[i + 1] * dx[i] / 3;
+      path += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p[i + 1].X.toFixed(1)} ${p[i + 1].Y.toFixed(1)}`;
+    }
+    return path;
   }
 
   let chartCache = {};  // persistent SVG scaffold + per-building series elements (object constancy)
@@ -1730,11 +1740,8 @@
       tt.textContent = `${mName} · ${scope}`;
     }
 
-    // target axis bounds
     const allV = []; target.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
-    let tYMin = Math.min(...allV), tYMax = Math.max(...allV);
-    const padY = (tYMax - tYMin) * 0.12 || tYMax * 0.1;
-    tYMin = Math.max(0, tYMin - padY); tYMax = tYMax + padY;
+    const dMin = Math.min(...allV), dMax = Math.max(...allV);
 
     // reuse the SVG scaffold across changes (no remount) when the x-axis is unchanged
     const datesKey = dates.join("|");
@@ -1748,8 +1755,20 @@
       svg.appendChild(gridG); svg.appendChild(linesG);
       chartEl.replaceChildren(svg);
       legendEl.replaceChildren();
-      cache = chartCache[key] = { svg, gridG, linesG, series: {}, legend: {}, yMin: tYMin, yMax: tYMax, datesKey };
+      cache = chartCache[key] = { svg, gridG, linesG, series: {}, legend: {}, yMin: null, yMax: null, fitMin: null, fitMax: null, datesKey };
     }
+
+    // Axis bounds — keep the current fit while the data still fits inside it, so a
+    // toggle that doesn't change a line leaves it exactly in place (no rescale).
+    let tYMin, tYMax;
+    if (reuse && cache.fitMin != null && dMin >= cache.fitMin && dMax <= cache.fitMax) {
+      tYMin = cache.fitMin; tYMax = cache.fitMax;
+    } else {
+      const padY = (dMax - dMin) * 0.12 || dMax * 0.1;
+      tYMin = Math.max(0, dMin - padY); tYMax = dMax + padY;
+    }
+    cache.fitMin = tYMin; cache.fitMax = tYMax;
+    if (cache.yMin == null) { cache.yMin = tYMin; cache.yMax = tYMax; }  // first paint: no axis morph
 
     const want = new Set(target.map((s) => s.bid));
 
