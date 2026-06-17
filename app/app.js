@@ -1665,8 +1665,14 @@
     return den ? num / den : null;
   }
 
+  let trendAnim = {};  // last-rendered frame per analysis (so morphs continue smoothly)
+  let trendRaf = {};   // in-flight requestAnimationFrame id per analysis
+
   function drawChart(a, cols, st) {
     const chartEl = document.getElementById("chart");
+    const legendEl = document.getElementById("legend");
+    if (!chartEl) return;
+    const key = a.id;
     const W = Math.max(720, (chartEl.clientWidth || 900));
     const H = 420, padL = 64, padR = 24, padT = 16, padB = 56;
     const dates = (() => {
@@ -1674,12 +1680,12 @@
       cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => { if (p.date >= st.from && p.date <= st.to) s.add(p.date); }));
       return [...s].sort();
     })();
-    if (!dates.length) { chartEl.innerHTML = `<div class="empty">No data in selected range.</div>`; document.getElementById("legend").innerHTML = ""; return; }
+    if (trendRaf[key]) cancelAnimationFrame(trendRaf[key]);
+    if (!dates.length) { chartEl.innerHTML = `<div class="empty">No data in selected range.</div>`; legendEl.innerHTML = ""; trendAnim[key] = null; return; }
     const xIdx = new Map(dates.map((d, i) => [d, i]));
     const x = (d) => padL + (dates.length === 1 ? (W - padL - padR) / 2 : (xIdx.get(d) / (dates.length - 1)) * (W - padL - padR));
 
-    // One line per selected building; its value is the count-weighted average
-    // across the selected unit types (re-blends live as type boxes are toggled).
+    // target series — one line per building, weighted across the selected types
     const series = [];
     cols.forEach((c, i) => {
       if (!st.bsel.has(c.b.id)) return;
@@ -1689,56 +1695,84 @@
         .map((p) => ({ d: p.date, v: weightedAt(p, st.metric, st.types) }))
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
-      series.push({ name: c.b.name, label: c.b.name, bench: c.bench, color, dash: c.bench ? "" : "5 4", pts });
+      series.push({ id: c.b.id, name: c.b.name, label: c.b.name, bench: c.bench, color, dash: c.bench ? "" : "5 4", pts });
     });
-    if (!series.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; document.getElementById("legend").innerHTML = ""; return; }
-    // dynamic title reflects the unit-type weighting scope
+    if (!series.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; trendAnim[key] = null; return; }
+
+    // dynamic title + legend (set once; not part of the per-frame morph)
     const tt = document.getElementById("chart-title");
     if (tt) {
       const mName = st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent";
       const scope = !st.types.length ? "—" : (st.avail && st.types.length === st.avail.length) ? "all units (weighted)" : st.types.map((t) => TYPE_LABEL[t] || t).join(" + ") + " (weighted)";
       tt.textContent = `${mName} · ${scope}`;
     }
+    legendEl.innerHTML = series.map((s) => `<span class="lg"><span class="dot" style="background:${s.color}"></span>${esc(s.label)}${s.bench ? " ★" : ""}</span>`).join("");
 
-    const vals = [];
-    series.forEach((s) => s.pts.forEach((p) => vals.push(p.v)));
-    let yMin = Math.min(...vals), yMax = Math.max(...vals);
-    const pad = (yMax - yMin) * 0.12 || yMax * 0.1;
-    yMin = Math.max(0, yMin - pad); yMax = yMax + pad;
-    const y = (v) => padT + (1 - (v - yMin) / (yMax - yMin)) * (H - padT - padB);
+    // target axis bounds
+    const allV = []; series.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
+    let tYMin = Math.min(...allV), tYMax = Math.max(...allV);
+    const padY = (tYMax - tYMin) * 0.12 || tYMax * 0.1;
+    tYMin = Math.max(0, tYMin - padY); tYMax = tYMax + padY;
 
+    const datesKey = dates.join("|");
+    const prev = trendAnim[key];
+    const morph = !!prev && prev.datesKey === datesKey;  // only morph when the x-axis is unchanged
     const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
-    const ticks = 5;
-    let grid = "";
-    for (let i = 0; i <= ticks; i++) {
-      const v = yMin + (i / ticks) * (yMax - yMin);
-      const yy = y(v);
-      grid += `<g class="grid"><line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/></g>
-               <text class="axis-label" x="${padL - 10}" y="${yy + 4}" text-anchor="end">${fmtY(v)}</text>`;
-    }
-    const step = Math.ceil(dates.length / 14);
-    let xlab = "";
-    dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) xlab += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
+    const lerp = (p, q, e) => p + (q - p) * e;
+    const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const DUR = 420;
 
-    let lines = "";
-    const ordered = series.slice().sort((s1, s2) => (s1.bench === s2.bench ? 0 : s1.bench ? 1 : -1));
-    ordered.forEach((s) => {
-      const pathD = s.pts.map((p, i) => (i ? "L" : "M") + x(p.d) + " " + y(p.v)).join(" ");
-      const sw = s.bench ? 3 : 1.5;
-      const dash = s.dash ? `stroke-dasharray="${s.dash}"` : "";
-      lines += `<path d="${pathD}" fill="none" stroke="${s.color}" stroke-width="${sw}" ${dash} stroke-linecap="round" stroke-linejoin="round"/>`;
-      s.pts.forEach((p) => {
-        lines += s.bench
-          ? `<circle cx="${x(p.d)}" cy="${y(p.v)}" r="3.5" fill="${s.color}"/>`
-          : `<circle cx="${x(p.d)}" cy="${y(p.v)}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`;
+    const renderFrame = (e) => {
+      const yMin = morph ? lerp(prev.yMin, tYMin, e) : tYMin;
+      const yMax = morph ? lerp(prev.yMax, tYMax, e) : tYMax;
+      const span = (yMax - yMin) || 1;
+      const y = (v) => padT + (1 - (v - yMin) / span) * (H - padT - padB);
+
+      let grid = "";
+      const ticks = 5;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMin + (i / ticks) * (yMax - yMin), yy = y(v);
+        grid += `<g class="grid"><line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/></g><text class="axis-label" x="${padL - 10}" y="${yy + 4}" text-anchor="end">${fmtY(v)}</text>`;
+      }
+      const step = Math.ceil(dates.length / 14);
+      let xlab = "";
+      dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) xlab += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
+
+      const snap = {};
+      let lines = "";
+      const ordered = series.slice().sort((s1, s2) => (s1.bench === s2.bench ? 0 : s1.bench ? 1 : -1));
+      ordered.forEach((s) => {
+        const pv = morph && prev.vals[s.id] ? prev.vals[s.id] : null;
+        const vmap = {};
+        const dpath = s.pts.map((p, i) => {
+          let v = p.v;
+          if (pv && pv[p.d] != null) v = lerp(pv[p.d], p.v, e);
+          vmap[p.d] = v;
+          return (i ? "L" : "M") + x(p.d) + " " + y(v);
+        }).join(" ");
+        snap[s.id] = vmap;
+        const sw = s.bench ? 3 : 1.5;
+        const dash = s.dash ? `stroke-dasharray="${s.dash}"` : "";
+        let dots = "";
+        s.pts.forEach((p) => {
+          const cy = y(vmap[p.d]);
+          dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`;
+        });
+        lines += `<path d="${dpath}" fill="none" stroke="${s.color}" stroke-width="${sw}" ${dash} stroke-linecap="round" stroke-linejoin="round"/>${dots}`;
       });
-    });
 
-    chartEl.innerHTML =
-      `<svg class="linechart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-        ${grid}${xlab}<g class="axis">${lines}</g></svg>`;
-    document.getElementById("legend").innerHTML = series.map((s) =>
-      `<span class="lg"><span class="dot" style="background:${s.color}"></span>${esc(s.label)}${s.bench ? " ★" : ""}</span>`).join("");
+      chartEl.innerHTML = `<svg class="linechart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${xlab}<g class="axis">${lines}</g></svg>`;
+      trendAnim[key] = { vals: snap, yMin, yMax, datesKey };  // remember the displayed frame
+    };
+
+    if (!morph) { renderFrame(1); return; }   // first paint / x-axis changed → snap
+    const t0 = performance.now();
+    const tick = (now) => {
+      const e = ease(Math.min(1, (now - t0) / DUR));
+      renderFrame(e);
+      if (e < 1) trendRaf[key] = requestAnimationFrame(tick);
+    };
+    trendRaf[key] = requestAnimationFrame(tick);
   }
 
   // ========================================================= Building Detail =
