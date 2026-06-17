@@ -1765,7 +1765,7 @@
   let trendDocClose = false;  // one-time document listeners that close the filter dropdowns
   function renderTrends(a, cols) {
     const key = a.id;
-    if (!trendState[key]) trendState[key] = { metric: "avgPsf", types: null, bsel: null, from: null, to: null };
+    if (!trendState[key]) trendState[key] = { metric: "avgRent", types: null, bsel: null, from: null, to: null };
     const st = trendState[key];
     if (!st.bsel) st.bsel = new Set(cols.map((c) => c.b.id));
 
