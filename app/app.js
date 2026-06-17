@@ -1719,8 +1719,8 @@
     const morph = !!prev && prev.datesKey === datesKey;  // only morph when the x-axis is unchanged
     const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
     const lerp = (p, q, e) => p + (q - p) * e;
-    const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-    const DUR = 420;
+    const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOutCubic: moves off the current position immediately, settles gently
+    const DUR = 520;
 
     const renderFrame = (e) => {
       const yMin = morph ? lerp(prev.yMin, tYMin, e) : tYMin;
