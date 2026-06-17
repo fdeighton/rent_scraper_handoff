@@ -793,9 +793,11 @@
     };
   }
 
-  // ---- Excel export of the comp set (styled .xls, Fitzrovia palette) -------
+  // ---- file download helpers (exports build real .xlsx via XlsxLite) -------
   function downloadFile(name, content, mime) {
-    const blob = new Blob([content], { type: mime + ";charset=utf-8" });
+    downloadBlob(name, new Blob([content], { type: mime + ";charset=utf-8" }));
+  }
+  function downloadBlob(name, blob) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url; link.download = name;
@@ -817,7 +819,6 @@
     const NAVY = "#061031", ORANGE = "#FF4E31", TINT = "#EEF2FE", GREY = "#7F7F7F",
       BORDER = "#E6E6E1", GREEN = "#1F8A5B", RED = "#C0392B", LBLUE = "#D6DFFA",
       WARM = "#FAFAF7", SEP = "#C9CEDD";
-    const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
 
     // ---- snapshot helpers + headline figures
     const snapOf = (id) => colSnap(id, snap).cur;
@@ -838,26 +839,59 @@
     const rankN = rankable.length;
     const subjRank = benchCol ? rankMap[benchCol.b.id] : null;
     const vsSubject = (rent) => (bRent && rent != null) ? Math.round(((rent - bRent) / bRent) * 100) : null;
-    const pct = (v) => v == null ? "" : (v > 0 ? "+" : "") + v + "%";
 
-    // ---- primary table geometry (narrow, positioning-focused)
+    // ---- build a REAL .xlsx (Open XML / PK-zip) so Excel opens it with no
+    // format/extension warning. Fills, fonts, borders, merges all preserved.
+    const wb = XlsxLite.createWorkbook();
+    const reg = wb.style;
+    const WHITE = "#FFFFFF";
+    const NF_INT = "#,##0", NF_DEC = "0.00", NF_YEAR = "0", NF_PCT1 = "0.0", NF_VS = '+0"%";-0"%";0"%"';
     const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "Distance (m)", "vs Subject"];
-    const PW = [160, 50, 92, 80, 60, 60, 76, 68, 72, 84];     // ~802px → one landscape page
+    const PW = [168, 50, 94, 88, 64, 64, 80, 72, 78, 88];     // → one landscape page
     const NCOL = PCOLS.length;
-    const colgroup = `<colgroup>${PW.map((w) => `<col style="width:${w}px"/>`).join("")}</colgroup>`;
+    PW.forEach((w, i) => wb.setCol(i, w));
 
-    // ---- styles (minimal borders, intentional whitespace)
-    const cst = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:6px 8px;text-align:${align};vertical-align:middle;background:${bg};${extra || ""}`;
-    const sTitle = `${F}font-weight:600;font-size:15px;color:#fff;background:${NAVY};padding:12px 14px;`;
-    const sMeta = `${F}font-size:11px;color:${GREY};background:${WARM};padding:7px 14px;`;
-    const sHead = `${F}font-weight:600;font-size:10px;letter-spacing:0.02em;color:#fff;background:${NAVY};padding:8px;vertical-align:middle;`;
-    const sBand = `${F}font-weight:600;font-size:10px;letter-spacing:0.06em;color:${NAVY};background:${LBLUE};padding:8px 10px;text-align:left;`;
-    const sFoot = `${F}font-size:9px;color:${GREY};font-style:italic;padding:6px 10px;`;
-    const kpiCard = (val, label, color, span) =>
-      `<td colspan="${span}" style="${F}background:#fff;border:1px solid ${BORDER};padding:12px 8px;text-align:center;"><div style="font-size:17px;font-weight:700;color:${color};">${val}</div><div style="font-size:9px;color:${GREY};margin-top:4px;text-transform:uppercase;letter-spacing:0.04em;">${label}</div></td>`;
+    // style helper: cell with optional fill / font / numFmt / top border
+    const cs = (o) => reg({
+      font: { sz: o.sz || 11, bold: o.bold, italic: o.italic, color: o.color || NAVY },
+      fill: o.fill || null,
+      align: { h: o.h || "center", v: "center", wrap: o.wrap },
+      numFmt: o.nf || null,
+      border: o.top ? { top: { style: o.topW || "thin", color: o.topC || SEP } } : null,
+    });
+    const sTitle = cs({ sz: 13, bold: true, color: WHITE, fill: NAVY, h: "left" });
+    const sMeta = cs({ sz: 10, color: GREY, fill: WARM, h: "left", wrap: true });
+    const sBand = cs({ sz: 9, bold: true, color: NAVY, fill: LBLUE, h: "left" });
+    const sFoot = cs({ sz: 8, italic: true, color: GREY, h: "left", wrap: true });
+    const sHeadL = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center", wrap: true } });
+    const sHeadC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
+    const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
+    const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
 
-    // ---- PRIMARY rows: building blocks (merged name/rank/distance), weighted = focal
-    let rowsHtml = "";
+    // title + meta
+    wb.row(28); wb.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
+    wb.row(20); wb.cell(
+      `Benchmark: ${bench ? bench.name : "—"}  ·  Snapshot: ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comparables` +
+      (subjRank ? `  ·  Subject ranks #${subjRank} of ${rankN} by weighted rent` : "") +
+      `  ·  Fitzrovia — Internal & Confidential`, { colspan: NCOL, s: sMeta });
+    wb.row(8);
+
+    // KPI cards (value row + label row; each card spans two columns)
+    const kpis = [
+      [money(bRent), "Benchmark gross rent", ORANGE],
+      [money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY],
+      [bPsf != null ? psf(bPsf) + "/sf" : "—", `Benchmark PSF · mkt ${psf(mktPsf)}`, NAVY],
+      [posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED],
+      [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY],
+    ];
+    wb.row(26); kpis.forEach((k) => wb.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
+    wb.row(16); kpis.forEach((k) => wb.cell(k[1], { colspan: 2, s: kpiLab }));
+    wb.row(12);
+
+    // positioning table
+    wb.row(20); wb.cell("COMPETITIVE POSITIONING  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
+    wb.row(24); PCOLS.forEach((h, i) => wb.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
+
     let zeb = 0;
     cols.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
@@ -865,7 +899,6 @@
       const subj = c.bench;
       const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
       const rank = rankMap[c.b.id];
-
       const rws = [];
       types.forEach((t) => {
         const m = cur.byType && cur.byType[t];
@@ -875,102 +908,75 @@
         rws.push({ label: "Weighted average", m: cur.weighted, p: prev && prev.weighted, wavg: true });
       if (!rws.length) return;
       const span = rws.length;
-
       const zebra = !subj && (zeb++ % 2 === 1);
-      const blockBg = subj ? TINT : (zebra ? "#F6F8FD" : "#ffffff");
-      const wBg = subj ? "#CFDAF2" : "#E7ECF7";        // weighted-row fill (pops while scrolling)
-      const blkTop = `border-top:2px solid ${SEP};`;
-      const wTop = `border-top:2px solid ${NAVY};`;
-      const mc = (v, align, extra) => `<td rowspan="${span}" style="${cst(align || "center", blockBg, blkTop + (extra || ""))}">${v === "" || v == null ? "" : v}</td>`;
+      const blockBg = subj ? TINT : (zebra ? "#F6F8FD" : WHITE);
+      const wBg = subj ? "#CFDAF2" : "#E7ECF7";
 
       rws.forEach((r, i) => {
+        wb.row();
         const m = r.m, p = r.p;
         const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
         const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
         const dCol = d > 0 ? GREEN : d < 0 ? RED : GREY;
         const isW = r.wavg;
         const rbg = isW ? wBg : blockBg;
-        // weighted rows: bold + larger + navy top rule; unit rows recede (smaller/grey)
-        const rowStyle = isW ? `font-weight:700;font-size:11.5px;${wTop}` : "font-size:10px;color:#3a4256;";
-        const topSep = (i === 0 && !isW) ? blkTop : "";
-        const vc = (v, align, extra) => `<td style="${cst(align || "center", rbg, rowStyle + topSep + (extra || ""))}">${v === "" || v == null ? "" : v}</td>`;
-
-        let tr = "<tr>";
+        const sz = isW ? 11 : 10, col = isW ? NAVY : "#3A4256", bold = !!isW;
+        // weighted rows: bold, navy top rule; first unit row of a block: thin sep rule
+        const cellStyle = (extra) => cs(Object.assign(
+          { sz, bold, fill: rbg, color: col },
+          isW ? { top: true, topW: "medium", topC: NAVY } : (i === 0 ? { top: true, topC: SEP } : {}),
+          extra || {}));
         if (i === 0) {
-          tr += `<td rowspan="${span}" style="${cst("left", blockBg, blkTop + (subj ? `color:${ORANGE};` : `color:${NAVY};`) + "font-weight:600;font-size:12px;")}">${esc(c.b.name)}${subj ? " ★" : ""}</td>`;
-          tr += `<td rowspan="${span}" style="${cst("center", blockBg, blkTop + "font-weight:700;font-size:13px;" + (subj ? `color:${ORANGE};` : `color:${NAVY};`))}">${rank || ""}</td>`;
+          wb.cell(c.b.name + (subj ? " ★" : ""), { rowspan: span, s: cs({ h: "left", sz: 12, bold: true, color: subj ? ORANGE : NAVY, fill: blockBg, top: true, topW: "medium", topC: SEP }) });
+          wb.cell(rank || "", { rowspan: span, t: rank ? "n" : "s", s: cs({ sz: 13, bold: true, color: subj ? ORANGE : NAVY, fill: blockBg, top: true, topW: "medium", topC: SEP }) });
         }
-        tr += vc(r.label, "left", isW ? "font-weight:700;" : "");
-        tr += vc(Math.round(m.avgRent));
-        tr += vc(d == null ? "" : Math.round(d), "center", `color:${dCol};`);
-        tr += vc(dPct == null ? "" : dPct, "center", `color:${dCol};`);
-        tr += vc(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "");
-        tr += vc(m.avgSqft != null ? m.avgSqft : "");
-        if (i === 0) tr += mc(dist);
-        if (isW) {                                    // vs Subject only on the focal row
+        wb.cell(r.label, { s: cellStyle({ h: "left" }) });
+        wb.cell(Math.round(m.avgRent), { t: "n", s: cellStyle({ nf: NF_INT }) });
+        wb.cell(d == null ? "" : Math.round(d), { t: d == null ? "s" : "n", s: cellStyle({ nf: NF_INT, color: d == null ? col : dCol }) });
+        wb.cell(dPct == null ? "" : dPct, { t: dPct == null ? "s" : "n", s: cellStyle({ nf: NF_PCT1, color: dPct == null ? col : dCol }) });
+        wb.cell(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "", { t: m.avgPsf != null ? "n" : "s", s: cellStyle({ nf: NF_DEC }) });
+        wb.cell(m.avgSqft != null ? m.avgSqft : "", { t: m.avgSqft != null ? "n" : "s", s: cellStyle({ nf: NF_INT }) });
+        if (i === 0) wb.cell(dist, { rowspan: span, t: typeof dist === "number" ? "n" : "s", s: cs({ sz: 11, color: NAVY, fill: blockBg, top: true, topC: SEP }) });
+        if (isW) {                                   // vs Subject only on the focal weighted row
           const vs = subj ? null : vsSubject(m.avgRent);
           const vsCol = vs == null ? GREY : (vs > 0 ? GREEN : vs < 0 ? RED : GREY);
-          tr += `<td style="${cst("center", wBg, `font-weight:700;font-size:11.5px;${wTop}color:${vsCol};`)}">${subj ? "—" : pct(vs)}</td>`;
+          wb.cell(subj || vs == null ? "—" : vs, { t: (subj || vs == null) ? "s" : "n", s: cs({ sz: 11, bold: true, color: vsCol, fill: wBg, nf: (subj || vs == null) ? null : NF_VS, top: true, topW: "medium", topC: NAVY }) });
         } else {
-          tr += `<td style="${cst("center", rbg, rowStyle + topSep)}"></td>`;
+          wb.cell("", { s: cellStyle({}) });
         }
-        tr += "</tr>";
-        rowsHtml += tr;
       });
     });
 
-    // ---- SECONDARY details (demoted metadata; incentives narrow + wrapped)
-    const dHead = (txt, span, align) => `<td colspan="${span}" style="${F}font-weight:600;font-size:9px;letter-spacing:0.03em;color:${GREY};background:${WARM};padding:6px 8px;text-align:${align || "left"};text-transform:uppercase;border-bottom:1px solid ${BORDER};">${txt}</td>`;
-    let detailHtml = "";
+    wb.row(); wb.cell("vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
+    wb.row(18);
+
+    // building details (demoted metadata; incentives narrow + wrapped)
+    wb.row(20); wb.cell("BUILDING DETAILS", { colspan: NCOL, s: sBand });
+    const dh = (left) => reg({ font: { sz: 9, bold: true, color: GREY }, fill: WARM, align: { h: left ? "left" : "center", v: "center" }, border: { bottom: { color: BORDER } } });
+    wb.row(20);
+    [["Building", 1, 1], ["Role", 1, 1], ["Owner / manager", 2, 1], ["Asset", 1, 1], ["Year", 1, 0], ["Units", 1, 0], ["Address", 2, 1], ["Incentives", 1, 1]]
+      .forEach((h) => wb.cell(h[0], { colspan: h[1], s: dh(h[2]) }));
     let dz = 0;
     cols.forEach((c) => {
       const cur = snapOf(c.b.id);
       if (!cur) return;
       const subj = c.bench;
-      const dbg = subj ? TINT : (dz++ % 2 === 1 ? "#F6F8FD" : "#ffffff");
-      const dc = (v, span, align, extra) => `<td colspan="${span}" style="${F}font-size:10px;color:#3a4256;padding:6px 8px;text-align:${align || "left"};vertical-align:middle;background:${dbg};white-space:normal;${extra || ""}">${v === "" || v == null ? "" : v}</td>`;
-      const addr = [c.b.address, c.b.city].filter(Boolean).map(esc).join(" · ");
-      detailHtml += "<tr>" +
-        dc(`${esc(c.b.name)}${subj ? " ★" : ""}`, 1, "left", subj ? `color:${ORANGE};font-weight:600;` : `font-weight:600;color:${NAVY};`) +
-        dc(subj ? "Subject" : "Comp", 1) +
-        dc(esc(c.b.owner || "—"), 2) +
-        dc(esc(c.b.assetType || "—"), 1) +
-        dc(c.b.yearBuilt || "—", 1, "center") +
-        dc(c.b.unitCount || "—", 1, "center") +
-        dc(addr || "—", 2) +
-        dc(cur.incentives ? esc(cur.incentives) : "—", 1, "left", "font-size:9px;color:#7a4d0a;") +
-        "</tr>";
+      const dbg = subj ? TINT : (dz++ % 2 === 1 ? "#F6F8FD" : WHITE);
+      const dcs = (o) => cs(Object.assign({ sz: 10, color: "#3A4256", fill: dbg, wrap: true, h: "left" }, o));
+      const addr = [c.b.address, c.b.city].filter(Boolean).join(" · ");
+      wb.row();
+      wb.cell(c.b.name + (subj ? " ★" : ""), { s: dcs({ bold: true, color: subj ? ORANGE : NAVY }) });
+      wb.cell(subj ? "Subject" : "Comp", { s: dcs({}) });
+      wb.cell(c.b.owner || "—", { colspan: 2, s: dcs({}) });
+      wb.cell(c.b.assetType || "—", { s: dcs({}) });
+      wb.cell(c.b.yearBuilt || "—", { t: c.b.yearBuilt ? "n" : "s", s: dcs({ h: "center", nf: c.b.yearBuilt ? NF_YEAR : null }) });
+      wb.cell(c.b.unitCount || "—", { t: c.b.unitCount ? "n" : "s", s: dcs({ h: "center", nf: c.b.unitCount ? NF_INT : null }) });
+      wb.cell(addr || "—", { colspan: 2, s: dcs({}) });
+      wb.cell(cur.incentives || "—", { s: dcs({ sz: 9, color: "#7A4D0A" }) });
     });
 
-    // ---- assemble
-    let body = "";
-    body += `<tr><td colspan="${NCOL}" style="${sTitle}">Competitive Analysis — ${esc(a.name)}</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sMeta}">Benchmark: ${esc(bench ? bench.name : "—")} &nbsp;·&nbsp; Snapshot: ${esc(snap ? fmtDate(snap) : "Latest")} &nbsp;·&nbsp; ${ncomp} comparables${subjRank ? ` &nbsp;·&nbsp; Subject ranks #${subjRank} of ${rankN} by weighted rent` : ""} &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="height:10px"></td></tr>`;
-    body += `<tr>` +
-      kpiCard(money(bRent), "Benchmark gross rent", ORANGE, 2) +
-      kpiCard(money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY, 2) +
-      kpiCard(bPsf != null ? psf(bPsf) + "/sf" : "—", `Benchmark PSF · mkt ${psf(mktPsf)}`, NAVY, 2) +
-      kpiCard(posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED, 2) +
-      kpiCard(subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY, 2) +
-      `</tr>`;
-    body += `<tr><td colspan="${NCOL}" style="height:14px"></td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sBand}">COMPETITIVE POSITIONING &nbsp;·&nbsp; weighted averages in bold</td></tr>`;
-    body += `<tr>${PCOLS.map((h, i) => `<td style="${sHead}text-align:${i === 0 || i === 2 ? "left" : "center"};">${h}</td>`).join("")}</tr>`;
-    body += rowsHtml;
-    body += `<tr><td colspan="${NCOL}" style="${sFoot}">vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Δ vs prior scrape</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="height:18px"></td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sBand}">BUILDING DETAILS</td></tr>`;
-    body += `<tr>${dHead("Building", 1) + dHead("Role", 1) + dHead("Owner / manager", 2) + dHead("Asset", 1) + dHead("Year", 1, "center") + dHead("Units", 1, "center") + dHead("Address", 2) + dHead("Incentives", 1)}</tr>`;
-    body += detailHtml;
-
-    const wsOpts = `<x:WorksheetOptions><x:DoNotDisplayGridlines/><x:Print><x:ValidPrinterInfo/><x:PaperSizeIndex>1</x:PaperSizeIndex><x:Orientation>Landscape</x:Orientation><x:HorizontalResolution>600</x:HorizontalResolution><x:VerticalResolution>600</x:VerticalResolution><x:FitWidth>1</x:FitWidth><x:FitHeight>0</x:FitHeight></x:Print><x:FitToPage/></x:WorksheetOptions>`;
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">` +
-      `<head><meta charset="utf-8"/>` +
-      `<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Comp Analysis</x:Name>${wsOpts}</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->` +
-      `</head><body style="margin:0;background:${WARM}"><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:${WARM}">${colgroup}${body}</table></body></html>`;
     const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
-    downloadFile(`${safe} — comp analysis.xls`, html, "application/vnd.ms-excel");
+    downloadBlob(`${safe} — comp analysis.xlsx`, wb.blob("Comp Analysis"));
   }
 
   function renderAnalysis(id, tab) {
@@ -1208,45 +1214,61 @@
   }
 
   // Excel export for the unit-backup modal (individual units + summary by type).
+  // Emits a real .xlsx (Open XML) so Excel opens it without a format warning.
   function exportUnitsExcel(b, snap, units) {
-    const NAVY = "#061031", GREY = "#7F7F7F", BORDER = "#E6E6E1", LBLUE = "#D6DFFA";
-    const F = "font-family:Poppins,Calibri,Arial,sans-serif;";
-    const NCOL = 6;
-    const sTitle = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:14px;padding:10px 12px;`;
-    const sMeta = `background:#FAFAF7;color:${GREY};${F}font-size:11px;padding:6px 12px;border-bottom:1px solid ${BORDER};`;
-    const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 8px;border:1px solid ${BORDER};text-align:center;`;
-    const sBand = `background:${LBLUE};color:${NAVY};${F}font-weight:600;font-size:10px;letter-spacing:.04em;padding:6px 8px;border:1px solid ${BORDER};`;
-    const cell = (v, align, extra) => `<td style="${F}font-size:11px;color:${NAVY};padding:5px 8px;border:1px solid ${BORDER};text-align:${align || "center"};${extra || ""}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+    const NAVY = "#061031", GREY = "#7F7F7F", BORDER = "#E6E6E1", LBLUE = "#D6DFFA",
+      WARM = "#FAFAF7", WHITE = "#FFFFFF";
+    const NF_INT = "#,##0", NF_DEC = "0.00";
     const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
     const types = UNIT_TYPES.filter((t) => units.some((u) => u.type === t));
 
-    let body = `<tr><td colspan="${NCOL}" style="${sTitle}">${esc(b.name)} — Unit Backup</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sMeta}">Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"} &nbsp;·&nbsp; ${units.length} individual units &nbsp;·&nbsp; Fitzrovia — Internal &amp; Confidential</td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="height:6px;border:none"></td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sBand}">INDIVIDUAL UNITS</td></tr>`;
-    body += `<tr>${["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"].map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
+    const wb = XlsxLite.createWorkbook();
+    const reg = wb.style;
+    const NCOL = 6;
+    [200, 70, 70, 96, 96, 220].forEach((w, i) => wb.setCol(i, w));
+    const sTitle = reg({ font: { sz: 13, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center" } });
+    const sMeta = reg({ font: { sz: 10, color: GREY }, fill: WARM, align: { h: "left", v: "center", wrap: true } });
+    const sBand = reg({ font: { sz: 9, bold: true, color: NAVY }, fill: LBLUE, align: { h: "left", v: "center" } });
+    const hL = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center", wrap: true } });
+    const hC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
+    const tc = (o) => reg({ font: { sz: 10, bold: o.bold, color: o.color || NAVY }, align: { h: o.h || "center", v: "center", wrap: o.wrap }, numFmt: o.nf || null });
+
+    wb.row(26); wb.cell(b.name + " — Unit Backup", { colspan: NCOL, s: sTitle });
+    wb.row(20); wb.cell(`Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"}  ·  ${units.length} individual units  ·  Fitzrovia — Internal & Confidential`, { colspan: NCOL, s: sMeta });
+    wb.row(8);
+
+    wb.row(20); wb.cell("INDIVIDUAL UNITS", { colspan: NCOL, s: sBand });
+    wb.row(22); ["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"].forEach((h, i) => wb.cell(h, { s: i === 0 || i === 5 ? hL : hC }));
     units.forEach((u) => {
-      body += "<tr>" + cell(TYPE_LABEL[u.type] || u.type, "left") + cell(u.bath || "") + cell(u.sqft != null ? u.sqft : "") +
-        cell(u.rent != null ? Math.round(u.rent) : "") + cell(u.psf != null ? +Number(u.psf).toFixed(2) : "") +
-        cell(esc(u.note || ""), "left", `font-size:10px;color:${GREY};white-space:normal;`) + "</tr>";
+      wb.row();
+      wb.cell(TYPE_LABEL[u.type] || u.type, { s: tc({ h: "left" }) });
+      wb.cell(u.bath != null ? u.bath : "", { t: u.bath != null ? "n" : "s", s: tc({}) });
+      wb.cell(u.sqft != null ? u.sqft : "", { t: u.sqft != null ? "n" : "s", s: tc({ nf: NF_INT }) });
+      wb.cell(u.rent != null ? Math.round(u.rent) : "", { t: u.rent != null ? "n" : "s", s: tc({ nf: NF_INT }) });
+      wb.cell(u.psf != null ? +Number(u.psf).toFixed(2) : "", { t: u.psf != null ? "n" : "s", s: tc({ nf: NF_DEC }) });
+      wb.cell(u.note || "", { s: tc({ h: "left", color: GREY, wrap: true }) });
     });
-    body += `<tr><td colspan="${NCOL}" style="height:10px;border:none"></td></tr>`;
-    body += `<tr><td colspan="${NCOL}" style="${sBand}">SUMMARY BY UNIT TYPE</td></tr>`;
-    body += `<tr>${["Unit Type", "# Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)", ""].map((h) => `<td style="${sHead}">${h}</td>`).join("")}</tr>`;
+
+    wb.row(10);
+    wb.row(20); wb.cell("SUMMARY BY UNIT TYPE", { colspan: NCOL, s: sBand });
+    wb.row(22); ["Unit Type", "# Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)", ""].forEach((h, i) => wb.cell(h, { s: i === 0 ? hL : hC }));
     const sumRow = (label, us, bold) => {
       const sf = avg(us.filter((u) => u.sqft != null).map((u) => +u.sqft));
       const r = avg(us.map((u) => u.rent));
       const p = avg(us.filter((u) => u.psf != null).map((u) => +u.psf));
-      const bw = bold ? "font-weight:700;" : "";
-      return `<tr>${cell(label, "left", bw)}${cell(us.length, "center", bw)}${cell(sf != null ? Math.round(sf) : "", "center", bw)}${cell(r != null ? Math.round(r) : "", "center", bw)}${cell(p != null ? +p.toFixed(2) : "", "center", bw)}${cell("")}</tr>`;
+      wb.row();
+      wb.cell(label, { s: tc({ h: "left", bold }) });
+      wb.cell(us.length, { t: "n", s: tc({ bold, nf: NF_INT }) });
+      wb.cell(sf != null ? Math.round(sf) : "", { t: sf != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
+      wb.cell(r != null ? Math.round(r) : "", { t: r != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
+      wb.cell(p != null ? +p.toFixed(2) : "", { t: p != null ? "n" : "s", s: tc({ bold, nf: NF_DEC }) });
+      wb.cell("", { s: tc({}) });
     };
-    types.forEach((t) => { body += sumRow(TYPE_LABEL[t] || t, units.filter((u) => u.type === t), false); });
-    body += sumRow("Weighted Average", units, true);
+    types.forEach((t) => sumRow(TYPE_LABEL[t] || t, units.filter((u) => u.type === t), false));
+    sumRow("Weighted Average", units, true);
 
-    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"/></head>` +
-      `<body><table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse">${body}</table></body></html>`;
     const safe = (b.name || "building").replace(/[^\w\- ]+/g, "").trim() || "building";
-    downloadFile(`${safe} — unit backup.xls`, html, "application/vnd.ms-excel");
+    downloadBlob(`${safe} — unit backup.xlsx`, wb.blob("Unit Backup"));
   }
 
   function renderSummary(a, cols) {
