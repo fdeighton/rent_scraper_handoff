@@ -843,49 +843,73 @@
     const sHead = `background:${NAVY};color:#fff;${F}font-weight:600;font-size:10.5px;padding:7px 6px;border:1px solid ${BORDER};border-bottom:2px solid #ffffff;text-align:center;vertical-align:middle;`;
     const cs = (align, bg, extra) => `${F}font-size:11px;color:${NAVY};padding:5px 7px;border:1px solid ${BORDER};text-align:${align};vertical-align:middle;white-space:normal;background:${bg};${extra || ""}`;
 
+    // Each building renders as ONE cohesive block: building-level columns (name,
+    // role, year, units, owner, asset, address, city, distance, incentives, snap)
+    // merge vertically across the block's rows (rowspan) so they appear once; only
+    // the unit-varying numbers (type, rent, Δ, PSF, size) repeat per row. Blocks are
+    // separated by a thin rule + zebra banding instead of big blank gaps.
+    const SEP = "border-top:2px solid #C9CEDD;";          // block separator rule
     let rowsHtml = "";
-    const spacer = `<tr style="height:24px">${Array(NCOL).fill(`<td style="border:none;background:#FAFAF7;height:24px">&nbsp;</td>`).join("")}</tr>`;
-    let firstBlock = true;
+    let zeb = 0;
     cols.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
       if (!cur) return;
-      if (!firstBlock) rowsHtml += spacer; // breathing room between properties
-      firstBlock = false;
       const subj = c.bench;
       const sdate = cur.date ? fmtDate(cur.date) : (snap ? fmtDate(snap) : "Latest");
       const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
 
-      const emit = (unitLabel, m, p, incVal, wavg) => {
-        if (!m || m.avgRent == null) return;
-        // weighted row closes each building block: tinted band + navy top rule
-        const bg = wavg ? (subj ? "#D7DEF2" : "#EEF1F8") : (subj ? TINT : "#fff");
-        const b = wavg ? `font-weight:700;border-top:2px solid ${NAVY};` : "";
+      // collect the rows this building will actually render
+      const rws = [];
+      types.forEach((t) => {
+        const m = cur.byType && cur.byType[t];
+        if (m && m.avgRent != null) rws.push({ label: TYPE_LABEL[t], m, p: prev && prev.byType && prev.byType[t] });
+      });
+      if (cur.weighted && cur.weighted.avgRent != null)
+        rws.push({ label: "Weighted average", m: cur.weighted, p: prev && prev.weighted, wavg: true });
+      if (!rws.length) return;
+      const span = rws.length;
+
+      const zebra = !subj && (zeb++ % 2 === 1);
+      const base = subj ? TINT : (zebra ? "#F5F7FD" : "#ffffff");
+      // merged building-level cell (emitted once, on the first row)
+      const mc = (v, align, extra) =>
+        `<td rowspan="${span}" style="${cs(align || "center", base, SEP + (extra || ""))}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+
+      rws.forEach((r, i) => {
+        const m = r.m, p = r.p;
         const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
         const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
         const dCol = d > 0 ? GREEN : d < 0 ? RED : GREY;
-        const cell = (v, align, extra) => `<td style="${cs(align || "center", bg, b + (extra || ""))}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
-        rowsHtml += "<tr>" +
-          `<td style="${cs("left", bg, (subj ? `color:${ORANGE};` : "") + "font-weight:600;" + b)}">${esc(c.b.name)}${subj ? " ★" : ""}</td>` +
-          cell(subj ? "Subject" : "Comp") +
-          cell(unitLabel, "left") +
-          cell(Math.round(m.avgRent)) +
-          cell(d == null ? "" : Math.round(d), "center", `color:${dCol};`) +
-          cell(dPct == null ? "" : dPct, "center", `color:${dCol};`) +
-          cell(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "") +
-          cell(m.avgSqft != null ? m.avgSqft : "") +
-          cell(c.b.yearBuilt || "") +
-          cell(c.b.unitCount || "") +
-          cell(esc(c.b.owner || ""), "left") +
-          cell(esc(c.b.assetType || "")) +
-          cell(esc(c.b.address || ""), "left") +
-          cell(esc(c.b.city || ""), "left") +
-          cell(dist) +
-          `<td style="${cs("left", bg, b + "font-size:9px;color:#7a4d0a;")}">${incVal ? esc(incVal) : ""}</td>` +
-          cell(sdate) +
-          "</tr>";
-      };
-      types.forEach((t) => emit(TYPE_LABEL[t], cur.byType && cur.byType[t], prev && prev.byType && prev.byType[t], "", false));
-      emit("Weighted average", cur.weighted, prev && prev.weighted, cur.incentives || "", true);
+        const wbg = r.wavg ? (subj ? "#DCE3F5" : (zebra ? "#EAEFF9" : "#F1F5FC")) : base;
+        const vb = r.wavg ? `font-weight:700;border-top:1px solid ${GREY};` : (i === 0 ? SEP : "");
+        const vc = (v, align, extra) =>
+          `<td style="${cs(align || "center", wbg, vb + (extra || ""))}">${v === null || v === undefined || v === "" ? "" : v}</td>`;
+
+        let tr = "<tr>";
+        if (i === 0) {
+          tr += `<td rowspan="${span}" style="${cs("left", base, SEP + (subj ? `color:${ORANGE};` : `color:${NAVY};`) + "font-weight:600;font-size:12px;")}">${esc(c.b.name)}${subj ? " ★" : ""}</td>`;
+          tr += mc(subj ? "Subject" : "Comp");
+        }
+        tr += vc(r.label, "left", r.wavg ? "font-weight:700;" : "");
+        tr += vc(Math.round(m.avgRent));
+        tr += vc(d == null ? "" : Math.round(d), "center", `color:${dCol};`);
+        tr += vc(dPct == null ? "" : dPct, "center", `color:${dCol};`);
+        tr += vc(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "");
+        tr += vc(m.avgSqft != null ? m.avgSqft : "");
+        if (i === 0) {
+          tr += mc(c.b.yearBuilt || "");
+          tr += mc(c.b.unitCount || "");
+          tr += mc(esc(c.b.owner || ""), "left");
+          tr += mc(esc(c.b.assetType || ""));
+          tr += mc(esc(c.b.address || ""), "left");
+          tr += mc(esc(c.b.city || ""), "left");
+          tr += mc(dist);
+          tr += `<td rowspan="${span}" style="${cs("left", base, SEP + "font-size:9px;color:#7a4d0a;white-space:normal;")}">${cur.incentives ? esc(cur.incentives) : ""}</td>`;
+          tr += mc(sdate);
+        }
+        tr += "</tr>";
+        rowsHtml += tr;
+      });
     });
 
     let body = "";
