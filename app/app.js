@@ -1227,60 +1227,110 @@
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
   }
 
-  // Excel export for the unit-backup modal (individual units + summary by type).
-  // Emits a real .xlsx (Open XML) so Excel opens it without a format warning.
+  // Excel export for the unit-backup modal — same framework as the comp export:
+  // a real .xlsx with two tabs (Summary: KPI strip + by-type aggregate; All Units:
+  // individual backup), navy headers, light-blue bands, weighted-row emphasis,
+  // zebra banding, gridlines off, balanced cards and an even row-height rhythm.
   function exportUnitsExcel(b, snap, units) {
-    const NAVY = "#061031", GREY = "#7F7F7F", BORDER = "#E6E6E1", LBLUE = "#D6DFFA",
-      WARM = "#FAFAF7", WHITE = "#FFFFFF";
+    const NAVY = "#061031", ORANGE = "#FF4E31", GREY = "#7F7F7F", BORDER = "#E6E6E1",
+      LBLUE = "#D6DFFA", WARM = "#FAFAF7", WHITE = "#FFFFFF", SEP = "#C9CEDD";
     const NF_INT = "#,##0", NF_DEC = "0.00";
     const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
     const types = UNIT_TYPES.filter((t) => units.some((u) => u.type === t));
 
     const wb = XlsxLite.createWorkbook();
     const reg = wb.style;
-    const sh = wb.addSheet("Unit Backup");
-    const NCOL = 6;
-    [200, 70, 70, 96, 96, 220].forEach((w, i) => sh.setCol(i, w));
-    const sTitle = reg({ font: { sz: 13, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center" } });
-    const sMeta = reg({ font: { sz: 10, color: GREY }, fill: WARM, align: { h: "left", v: "center", wrap: true } });
-    const sBand = reg({ font: { sz: 9, bold: true, color: NAVY }, fill: LBLUE, align: { h: "left", v: "center" } });
+    const cs = (o) => reg({
+      font: { sz: o.sz || 11, bold: o.bold, italic: o.italic, color: o.color || NAVY },
+      fill: o.fill || null,
+      align: { h: o.h || "center", v: "center", wrap: o.wrap },
+      numFmt: o.nf || null,
+      border: o.top ? { top: { style: o.topW || "thin", color: o.topC || SEP } } : null,
+    });
+    const sTitle = cs({ sz: 13, bold: true, color: WHITE, fill: NAVY, h: "left" });
+    const sMeta = cs({ sz: 10, color: GREY, fill: WARM, h: "left", wrap: true });
+    const sBand = cs({ sz: 9, bold: true, color: NAVY, fill: LBLUE, h: "left" });
+    const sFoot = cs({ sz: 8, italic: true, color: GREY, h: "left", wrap: true });
     const hL = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center", wrap: true } });
     const hC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
-    const tc = (o) => reg({ font: { sz: 10, bold: o.bold, color: o.color || NAVY }, align: { h: o.h || "center", v: "center", wrap: o.wrap }, numFmt: o.nf || null });
+    const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
+    const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
+    const metaLine = `Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"}  ·  ${units.length} units  ·  ${types.length} unit type${types.length === 1 ? "" : "s"}  ·  Fitzrovia — Internal & Confidential`;
 
-    sh.row(26); sh.cell(b.name + " — Unit Backup", { colspan: NCOL, s: sTitle });
-    sh.row(20); sh.cell(`Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"}  ·  ${units.length} individual units  ·  Fitzrovia — Internal & Confidential`, { colspan: NCOL, s: sMeta });
-    sh.row(8);
+    // overall blended metrics
+    const oRent = avg(units.map((u) => u.rent));
+    const oPsf = avg(units.filter((u) => u.psf != null).map((u) => +u.psf));
+    const oSf = avg(units.filter((u) => u.sqft != null).map((u) => +u.sqft));
 
-    sh.row(20); sh.cell("INDIVIDUAL UNITS", { colspan: NCOL, s: sBand });
-    sh.row(22); ["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"].forEach((h, i) => sh.cell(h, { s: i === 0 || i === 5 ? hL : hC }));
-    units.forEach((u) => {
-      sh.row();
-      sh.cell(TYPE_LABEL[u.type] || u.type, { s: tc({ h: "left" }) });
-      sh.cell(u.bath != null ? u.bath : "", { t: u.bath != null ? "n" : "s", s: tc({}) });
-      sh.cell(u.sqft != null ? u.sqft : "", { t: u.sqft != null ? "n" : "s", s: tc({ nf: NF_INT }) });
-      sh.cell(u.rent != null ? Math.round(u.rent) : "", { t: u.rent != null ? "n" : "s", s: tc({ nf: NF_INT }) });
-      sh.cell(u.psf != null ? +Number(u.psf).toFixed(2) : "", { t: u.psf != null ? "n" : "s", s: tc({ nf: NF_DEC }) });
-      sh.cell(u.note || "", { s: tc({ h: "left", color: GREY, wrap: true }) });
-    });
+    // ======================= SHEET 1 — SUMMARY =============================
+    const s1 = wb.addSheet("Summary");
+    const SW = [132, 92, 96, 104, 104];                 // KPI cards: hero + 4 even
+    const NCOL = SW.length;
+    SW.forEach((w, i) => s1.setCol(i, w));
 
-    sh.row(10);
-    sh.row(20); sh.cell("SUMMARY BY UNIT TYPE", { colspan: NCOL, s: sBand });
-    sh.row(22); ["Unit Type", "# Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)", ""].forEach((h, i) => sh.cell(h, { s: i === 0 ? hL : hC }));
-    const sumRow = (label, us, bold) => {
+    s1.row(28); s1.cell(b.name + " — Unit Backup", { colspan: NCOL, s: sTitle });
+    s1.row(20); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
+    s1.row(10);
+
+    const kpis = [
+      [oRent != null ? money(oRent) : "—", "Avg gross rent", ORANGE],
+      [oPsf != null ? psf(oPsf) + "/sf" : "—", "Avg PSF", NAVY],
+      [oSf != null ? Math.round(oSf).toLocaleString() : "—", "Avg size (sf)", NAVY],
+      [String(units.length), "Units", NAVY],
+      [String(types.length), "Unit types", NAVY],
+    ];
+    s1.row(28); kpis.forEach((k) => s1.cell(k[0], { s: kpiVal(k[2]) }));
+    s1.row(18); kpis.forEach((k) => s1.cell(k[1], { s: kpiLab }));
+    s1.row(14);
+
+    s1.row(20); s1.cell("SUMMARY BY UNIT TYPE  ·  weighted average in bold", { colspan: NCOL, s: sBand });
+    s1.row(24); ["Unit Type", "Units", "Avg SF", "Avg Rent ($/mo)", "Avg PSF ($/sf)"].forEach((h, i) => s1.cell(h, { s: i === 0 ? hL : hC }));
+    let sz = 0;
+    const sumRow = (label, us, wavg) => {
       const sf = avg(us.filter((u) => u.sqft != null).map((u) => +u.sqft));
       const r = avg(us.map((u) => u.rent));
       const p = avg(us.filter((u) => u.psf != null).map((u) => +u.psf));
-      sh.row();
-      sh.cell(label, { s: tc({ h: "left", bold }) });
-      sh.cell(us.length, { t: "n", s: tc({ bold, nf: NF_INT }) });
-      sh.cell(sf != null ? Math.round(sf) : "", { t: sf != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
-      sh.cell(r != null ? Math.round(r) : "", { t: r != null ? "n" : "s", s: tc({ bold, nf: NF_INT }) });
-      sh.cell(p != null ? +p.toFixed(2) : "", { t: p != null ? "n" : "s", s: tc({ bold, nf: NF_DEC }) });
-      sh.cell("", { s: tc({}) });
+      const bg = wavg ? "#E7ECF7" : (sz++ % 2 === 1 ? "#F6F8FD" : WHITE);
+      const sc = (o) => cs(Object.assign({ sz: wavg ? 11 : 10, bold: !!wavg, fill: bg, color: wavg ? NAVY : "#3A4256" }, wavg ? { top: true, topW: "medium", topC: NAVY } : {}, o));
+      s1.row(18);
+      s1.cell(label, { s: sc({ h: "left" }) });
+      s1.cell(us.length, { t: "n", s: sc({ nf: NF_INT }) });
+      s1.cell(sf != null ? Math.round(sf) : "", { t: sf != null ? "n" : "s", s: sc({ nf: NF_INT }) });
+      s1.cell(r != null ? Math.round(r) : "", { t: r != null ? "n" : "s", s: sc({ nf: NF_INT }) });
+      s1.cell(p != null ? +p.toFixed(2) : "", { t: p != null ? "n" : "s", s: sc({ nf: NF_DEC }) });
     };
     types.forEach((t) => sumRow(TYPE_LABEL[t] || t, units.filter((u) => u.type === t), false));
     sumRow("Weighted Average", units, true);
+    s1.row(6);
+    s1.row(); s1.cell("Averages computed across all scraped units for the snapshot.", { colspan: NCOL, s: sFoot });
+
+    // ======================= SHEET 2 — ALL UNITS ===========================
+    const s2 = wb.addSheet("All Units");
+    const UCOLS = ["Unit Type", "Bath", "SF", "Rent ($/mo)", "Rent PSF ($/sf)", "Notes"];
+    const UW = [120, 60, 64, 100, 104, 240];
+    const NCOL2 = UCOLS.length;
+    UW.forEach((w, i) => s2.setCol(i, w));
+
+    s2.row(28); s2.cell(b.name + " — Individual Units", { colspan: NCOL2, s: sTitle });
+    s2.row(20); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
+    s2.row(10);
+    s2.row(24); UCOLS.forEach((h, i) => s2.cell(h, { s: (i === 0 || i === 5) ? hL : hC }));
+
+    // group by unit type, then rent desc, for a clean read
+    const ordered = units.slice().sort((x, y) =>
+      (UNIT_TYPES.indexOf(x.type) - UNIT_TYPES.indexOf(y.type)) || ((y.rent || 0) - (x.rent || 0)));
+    let uz = 0;
+    ordered.forEach((u) => {
+      const bg = uz++ % 2 === 1 ? "#F6F8FD" : WHITE;
+      const uc = (o) => cs(Object.assign({ sz: 10, color: "#3A4256", fill: bg }, o));
+      s2.row();
+      s2.cell(TYPE_LABEL[u.type] || u.type, { s: uc({ h: "left" }) });
+      s2.cell(u.bath != null ? u.bath : "", { t: u.bath != null ? "n" : "s", s: uc({}) });
+      s2.cell(u.sqft != null ? u.sqft : "", { t: u.sqft != null ? "n" : "s", s: uc({ nf: NF_INT }) });
+      s2.cell(u.rent != null ? Math.round(u.rent) : "", { t: u.rent != null ? "n" : "s", s: uc({ nf: NF_INT }) });
+      s2.cell(u.psf != null ? +Number(u.psf).toFixed(2) : "", { t: u.psf != null ? "n" : "s", s: uc({ nf: NF_DEC }) });
+      s2.cell(u.note || "", { s: uc({ h: "left", color: GREY, wrap: true }) });
+    });
 
     const safe = (b.name || "building").replace(/[^\w\- ]+/g, "").trim() || "building";
     downloadBlob(`${safe} — unit backup.xlsx`, wb.blob());
