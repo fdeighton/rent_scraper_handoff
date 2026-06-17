@@ -191,7 +191,12 @@ def main():
     def success_snaps(bid):
         rows = [s for s in snaps_by_building.get(bid, []) if s["status"] == "success"]
         rows.sort(key=lambda s: s["ts"] or "")
-        return rows
+        # collapse multiple scrapes on the same calendar date to the latest one,
+        # so trends/deltas have one observation per date (no same-date vertical jogs)
+        by_date = {}
+        for s in rows:
+            by_date[s["date"]] = s
+        return list(by_date.values())
 
     summary, prev_summary, trends, history, quarterly = {}, {}, {}, {}, {}
     snapshots = {}  # last N successful snapshots per building (for the historical picker)

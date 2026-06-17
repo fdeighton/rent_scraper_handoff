@@ -1782,7 +1782,15 @@
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
-      target.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap });
+      // Per-series gap threshold: break the line only on a genuine interruption
+      // (a gap > 2.5x this series' median scrape interval, min ~16 days), not on
+      // cross-building date misalignment. Scrapes aren't perfectly synchronized.
+      const tms = pts.map((p) => Date.parse(p.d));
+      const gaps = []; for (let k = 1; k < tms.length; k++) gaps.push(tms[k] - tms[k - 1]);
+      const sg = gaps.slice().sort((m, n) => m - n);
+      const med = sg.length ? sg[Math.floor(sg.length / 2)] : 0;
+      const gapMs = Math.max(med * 2.5, 16 * 864e5);
+      target.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap, tms, gapMs });
     });
     if (!target.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
 
@@ -1902,7 +1910,7 @@
         let dpath = "", run = [];
         const flush = () => { if (run.length) dpath += smoothPath(run) + " "; run = []; };
         s.pts.forEach((p, i) => {
-          if (i && xIdx.get(p.d) - xIdx.get(s.pts[i - 1].d) > 1) flush();  // missing scrape date(s) between → gap
+          if (i && (s.tms[i] - s.tms[i - 1]) > s.gapMs) flush();  // genuine interruption → break the line
           const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v;
           vmapNow[p.d] = v; run.push({ X: x(p.d), Y: y(v) });
         });
