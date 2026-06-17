@@ -872,14 +872,16 @@
     // ======================= SHEET 1 — COMP ANALYSIS =======================
     const s1 = wb.addSheet("Comp Analysis");
     // Distance lives at the far right, formatted like the vs-Subject column.
+    // Column widths are chosen so the five 2-column KPI cards above the table read
+    // as near-equal pairs (≈160–200px) while each data column still fits content.
     const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "vs Subject", "Distance (m)"];
-    const PW = [168, 50, 94, 88, 64, 64, 80, 72, 88, 80];
+    const PW = [148, 54, 96, 80, 80, 80, 84, 78, 86, 80];   // KPI pairs: 202/176/160/162/166
     const NCOL = PCOLS.length;
     PW.forEach((w, i) => s1.setCol(i, w));
 
     s1.row(28); s1.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
     s1.row(20); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
-    s1.row(8);
+    s1.row(10);
 
     const kpis = [
       [money(bRent), "Benchmark gross rent", ORANGE],
@@ -888,12 +890,12 @@
       [posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED],
       [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY],
     ];
-    s1.row(26); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
-    s1.row(16); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
-    s1.row(12);
+    s1.row(28); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
+    s1.row(18); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
+    s1.row(14);
 
     s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
-    s1.row(24); PCOLS.forEach((h, i) => s1.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
+    s1.row(30); PCOLS.forEach((h, i) => s1.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
 
     let zeb = 0;
     ordered.forEach((c) => {
@@ -916,7 +918,7 @@
       const wBg = subj ? "#CFDAF2" : "#E7ECF7";
 
       rws.forEach((r, i) => {
-        s1.row();
+        s1.row(18);
         const m = r.m, p = r.p;
         const d = p && p.avgRent != null ? m.avgRent - p.avgRent : null;
         const dPct = d != null && p.avgRent ? +((d / p.avgRent) * 100).toFixed(1) : null;
@@ -953,19 +955,20 @@
       });
     });
 
+    s1.row(6);
     s1.row(); s1.cell("vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Distance to subject (m) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
 
     // ===================== SHEET 2 — BUILDING DETAILS ======================
     const s2 = wb.addSheet("Building Details");
     const DCOLS = ["Building", "Role", "Owner / manager", "Asset", "Year", "Units", "Address", "City", "Incentives"];
-    const DW = [180, 70, 200, 92, 56, 56, 210, 110, 260];
+    const DW = [180, 64, 196, 74, 52, 52, 204, 88, 280];
     const NCOL2 = DCOLS.length;
     DW.forEach((w, i) => s2.setCol(i, w));
 
     s2.row(28); s2.cell("Building Details — " + a.name, { colspan: NCOL2, s: sTitle });
     s2.row(20); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
-    s2.row(8);
-    s2.row(22); DCOLS.forEach((h, i) => s2.cell(h, { s: (i === 4 || i === 5) ? sHeadC : sHeadL }));
+    s2.row(10);
+    s2.row(24); DCOLS.forEach((h, i) => s2.cell(h, { s: (i === 4 || i === 5) ? sHeadC : sHeadL }));
 
     let dz = 0;
     ordered.forEach((c) => {
