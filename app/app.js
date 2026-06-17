@@ -654,7 +654,12 @@
       prev: p ? { byType: p.byType, weighted: p.weighted } : null,
     };
   }
-  const selectedSnap = (a) => snapState[a.id] || (runDates(a)[0] || null);
+  const selectedSnap = (a) => {
+    const ds = runDates(a);
+    const sel = snapState[a.id];
+    // ignore a remembered date that no longer exists (e.g., after a seed regen)
+    return (sel && ds.includes(sel)) ? sel : (ds[0] || null);
+  };
 
   // ---- Add existing universe buildings to an analysis's comp set -----------
   function addCompsToAnalysis(a, ids) {
@@ -1633,8 +1638,9 @@
           <option value="avgPsf" ${st.metric === "avgPsf" ? "selected" : ""}>Average Rent PSF</option>
           <option value="avgRent" ${st.metric === "avgRent" ? "selected" : ""}>Average Gross Rent</option>
         </select>
-        <label>From</label><input type="date" id="f-from" value="${st.from}" min="${minD}" max="${maxD}"/>
-        <label>To</label><input type="date" id="f-to" value="${st.to}" min="${minD}" max="${maxD}"/>
+        <label>From</label><input type="date" id="f-from" value="${st.from}" min="${minD}" max="${st.to}"/>
+        <label>To</label><input type="date" id="f-to" value="${st.to}" min="${st.from}" max="${maxD}"/>
+        <span class="date-err" id="trend-dateerr" role="alert"></span>
         <label>Unit types</label>
         <div class="msel" id="msel-t">
           <button type="button" class="msel__btn" id="mt-btn" aria-haspopup="true" aria-expanded="false"><span class="msel__sum" id="mt-sum">${typesSummary()}</span>${icon("chevron-down")}</button>
@@ -1661,8 +1667,20 @@
     const draw = () => drawChart(a, cols, st);
     const upSums = () => { document.getElementById("mt-sum").innerHTML = typesSummary(); document.getElementById("mb-sum").innerHTML = buildsSummary(); };
     document.getElementById("f-metric").onchange = (e) => { st.metric = e.target.value; renderTrends(a, cols); };
-    document.getElementById("f-from").onchange = (e) => { st.from = e.target.value; draw(); };
-    document.getElementById("f-to").onchange = (e) => { st.to = e.target.value; draw(); };
+    const dateErr = document.getElementById("trend-dateerr");
+    const fromEl = document.getElementById("f-from"), toEl = document.getElementById("f-to");
+    fromEl.onchange = (e) => {
+      const v = e.target.value;
+      if (!v) { e.target.value = st.from; return; }                 // ignore a cleared field
+      if (v > st.to) { dateErr.textContent = "Start date can't be after the end date."; e.target.value = st.from; return; }
+      dateErr.textContent = ""; st.from = v; toEl.min = v; draw();   // keep To's minimum in sync
+    };
+    toEl.onchange = (e) => {
+      const v = e.target.value;
+      if (!v) { e.target.value = st.to; return; }
+      if (v < st.from) { dateErr.textContent = "End date can't be before the start date."; e.target.value = st.to; return; }
+      dateErr.textContent = ""; st.to = v; fromEl.max = v; draw();   // keep From's maximum in sync
+    };
     document.querySelectorAll("#tc-types input").forEach((cb) => (cb.onchange = () => {
       const t = cb.dataset.t;
       if (cb.checked) { if (!st.types.includes(t)) st.types.push(t); }
