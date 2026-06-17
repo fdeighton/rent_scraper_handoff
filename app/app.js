@@ -1670,6 +1670,22 @@
     return den ? num / den : null;
   }
 
+  // Smooth (Catmull-Rom -> cubic Bézier) path through pixel points for clean curves.
+  function smoothPath(p) {
+    const n = p.length;
+    if (!n) return "";
+    if (n === 1) return `M ${p[0].X} ${p[0].Y}`;
+    if (n === 2) return `M ${p[0].X} ${p[0].Y} L ${p[1].X} ${p[1].Y}`;
+    let d = `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)}`;
+    for (let i = 0; i < n - 1; i++) {
+      const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
+      const c1x = p1.X + (p2.X - p0.X) / 6, c1y = p1.Y + (p2.Y - p0.Y) / 6;
+      const c2x = p2.X - (p3.X - p1.X) / 6, c2y = p2.Y - (p3.Y - p1.Y) / 6;
+      d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.X.toFixed(1)} ${p2.Y.toFixed(1)}`;
+    }
+    return d;
+  }
+
   let chartCache = {};  // persistent SVG scaffold + per-building series elements (object constancy)
   let chartRaf = {};    // in-flight requestAnimationFrame id per analysis
 
@@ -1702,7 +1718,7 @@
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
-      target.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, dash: c.bench ? "" : "5 4", pts, vmap });
+      target.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap });
     });
     if (!target.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
 
@@ -1793,13 +1809,13 @@
 
       active.forEach((rec) => {
         const s = rec.s, vmapNow = {};
-        const dpath = s.pts.map((p, i) => { const fv = rec.from[p.d]; const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return (i ? "L" : "M") + x(p.d) + " " + y(v); }).join(" ");
-        rec.path.setAttribute("d", dpath);
+        const coords = s.pts.map((p) => { const fv = rec.from[p.d]; const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return { X: x(p.d), Y: y(v) }; });
+        rec.path.setAttribute("d", smoothPath(coords));
         rec.path.setAttribute("stroke", s.color);
-        rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.5);
+        rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.6);
         rec.path.setAttribute("stroke-linecap", "round");
         rec.path.setAttribute("stroke-linejoin", "round");
-        if (s.dash) rec.path.setAttribute("stroke-dasharray", s.dash); else rec.path.removeAttribute("stroke-dasharray");
+        rec.path.setAttribute("stroke-opacity", s.bench ? "1" : "0.9");
         let dots = "";
         s.pts.forEach((p) => { const cy = y(vmapNow[p.d]); dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`; });
         rec.dotsG.innerHTML = dots;
