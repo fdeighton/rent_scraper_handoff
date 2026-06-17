@@ -175,7 +175,14 @@
     }
     renderList();
     $("#na-search").oninput = renderList;
-    benchSel.onchange = () => { selected.delete(benchSel.value); $("#na-count").textContent = selected.size + " selected"; renderList(); };
+    let lastAuto = "";  // last benchmark-derived name we filled, so we don't clobber a user-typed name
+    benchSel.onchange = () => {
+      selected.delete(benchSel.value);
+      $("#na-count").textContent = selected.size + " selected";
+      const b = bld(benchSel.value), nm = $("#na-name");
+      if (b && (!nm.value.trim() || nm.value === lastAuto)) { nm.value = b.name; lastAuto = b.name; }
+      renderList();
+    };
 
     function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
     function onKey(e) { if (e.key === "Escape") close(); }
