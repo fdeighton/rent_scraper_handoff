@@ -1576,7 +1576,7 @@
   let trendState = {};
   function renderTrends(a, cols) {
     const key = a.id;
-    if (!trendState[key]) trendState[key] = { metric: "avgPsf", types: ["__all"], bsel: null, from: null, to: null };
+    if (!trendState[key]) trendState[key] = { metric: "avgPsf", types: null, bsel: null, from: null, to: null };
     const st = trendState[key];
     if (!st.bsel) st.bsel = new Set(cols.map((c) => c.b.id));
 
@@ -1596,10 +1596,11 @@
     if (!st.from) st.from = minD;
     if (!st.to) st.to = maxD;
     const availTypes = UNIT_TYPES.filter((t) => typeSet.has(t));
+    if (!st.types) st.types = availTypes.slice();  // default: all types → all-units weighted average
+    st.avail = availTypes;
 
-    const typeChecks = [{ k: "__all", label: "All units (weighted)" }]
-      .concat(availTypes.map((t) => ({ k: t, label: TYPE_LABEL[t] })))
-      .map(({ k, label }) => `<label class="tcheck"><input type="checkbox" data-t="${k}" ${st.types.includes(k) ? "checked" : ""}/> ${label}</label>`).join("");
+    const typeChecks = availTypes
+      .map((t) => `<label class="tcheck"><input type="checkbox" data-t="${t}" ${st.types.includes(t) ? "checked" : ""}/> ${TYPE_LABEL[t]}</label>`).join("");
     const buildChecks = cols.map((c) =>
       `<label class="tcheck"><input type="checkbox" data-b="${c.b.id}" ${st.bsel.has(c.b.id) ? "checked" : ""}/> ${esc(c.b.name)}${c.bench ? " ★" : ""}</label>`).join("");
 
@@ -1624,7 +1625,7 @@
         </div>
       </div>
       <div class="card chart-card">
-        <h3>${st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent"}</h3>
+        <h3 id="chart-title">${st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent"}</h3>
         <div id="chart"></div>
         <div class="legend" id="legend"></div>
       </div>`;
@@ -1645,18 +1646,23 @@
     }));
     document.querySelectorAll(".trend-link").forEach((bn) => (bn.onclick = () => {
       const on = bn.dataset.on === "1";
-      if (bn.dataset.grp === "t") st.types = on ? ["__all"].concat(availTypes) : [];
+      if (bn.dataset.grp === "t") st.types = on ? availTypes.slice() : [];
       else st.bsel = on ? new Set(cols.map((c) => c.b.id)) : new Set();
       renderTrends(a, cols);
     }));
     draw();
   }
 
-  const TREND_DASH = ["", "6 4", "2 3", "9 3 2 3", "1 3"]; // per-unit-type line style when multiple types shown
-  function trendVal(point, metric, type) {
-    if (type === "__all") return point[metric];
-    const bt = point.byType && point.byType[type];
-    return bt ? bt[metric] : null;
+  // Weighted average of `metric` across the selected unit types at one snapshot,
+  // weighted by each type's unit count — so each building's line dynamically
+  // re-blends as type boxes are toggled (all types checked == all-units weighted).
+  function weightedAt(point, metric, types) {
+    let num = 0, den = 0;
+    types.forEach((t) => {
+      const bt = point.byType && point.byType[t];
+      if (bt && bt[metric] != null && bt.count) { num += bt[metric] * bt.count; den += bt.count; }
+    });
+    return den ? num / den : null;
   }
 
   function drawChart(a, cols, st) {
@@ -1672,23 +1678,27 @@
     const xIdx = new Map(dates.map((d, i) => [d, i]));
     const x = (d) => padL + (dates.length === 1 ? (W - padL - padR) / 2 : (xIdx.get(d) / (dates.length - 1)) * (W - padL - padR));
 
-    // One series per selected building × selected unit type.
-    const multiType = st.types.length > 1;
+    // One line per selected building; its value is the count-weighted average
+    // across the selected unit types (re-blends live as type boxes are toggled).
     const series = [];
     cols.forEach((c, i) => {
       if (!st.bsel.has(c.b.id)) return;
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
-      st.types.forEach((t, ti) => {
-        const pts = (D.trends[c.b.id] || [])
-          .filter((p) => p.date >= st.from && p.date <= st.to)
-          .map((p) => ({ d: p.date, v: trendVal(p, st.metric, t) }))
-          .filter((p) => p.v != null && xIdx.has(p.d));
-        if (!pts.length) return;
-        const tl = t === "__all" ? "All" : (TYPE_LABEL[t] || t);
-        series.push({ name: c.b.name, label: multiType ? `${c.b.name} · ${tl}` : c.b.name, bench: c.bench, color, dash: TREND_DASH[ti % TREND_DASH.length], pts });
-      });
+      const pts = (D.trends[c.b.id] || [])
+        .filter((p) => p.date >= st.from && p.date <= st.to)
+        .map((p) => ({ d: p.date, v: weightedAt(p, st.metric, st.types) }))
+        .filter((p) => p.v != null && xIdx.has(p.d));
+      if (!pts.length) return;
+      series.push({ name: c.b.name, label: c.b.name, bench: c.bench, color, dash: c.bench ? "" : "5 4", pts });
     });
     if (!series.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; document.getElementById("legend").innerHTML = ""; return; }
+    // dynamic title reflects the unit-type weighting scope
+    const tt = document.getElementById("chart-title");
+    if (tt) {
+      const mName = st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent";
+      const scope = !st.types.length ? "—" : (st.avail && st.types.length === st.avail.length) ? "all units (weighted)" : st.types.map((t) => TYPE_LABEL[t] || t).join(" + ") + " (weighted)";
+      tt.textContent = `${mName} · ${scope}`;
+    }
 
     const vals = [];
     series.forEach((s) => s.pts.forEach((p) => vals.push(p.v)));
