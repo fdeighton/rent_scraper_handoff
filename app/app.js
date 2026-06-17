@@ -541,12 +541,13 @@
       <a class="pop-btn" href="#/building/${b.id}">View building →</a>
     </div>`;
   }
-  function setUniverseMarkers() {
+  function setUniverseMarkers(focusBench) {
     if (!uCluster) return;
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
     if (uLines) uLines.clearLayers();
     const pts = [];
+    let benchMarker = null;
 
     // connector lines benchmark -> each comp (only in bucket mode)
     if (anchor && anchor.lat != null && uLines) {
@@ -569,10 +570,22 @@
       // hide the hover hint while the persistent popup is open for this marker
       m.on("popupopen", () => m.closeTooltip());
       uCluster.addLayer(m);
+      if (anchor && b.id === anchor.id) benchMarker = m;
       pts.push([b.lat, b.lng]);
     });
     if (pts.length) uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
     else uMap.setView([43.7, -79.4], 11);
+    // when a compare set is selected, open the benchmark popup to start
+    // (de-cluster it first if needed); normal click/collapse rules apply after
+    if (focusBench && benchMarker) {
+      setTimeout(() => {
+        try {
+          const vis = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
+          if (vis && vis !== benchMarker && uCluster.zoomToShowLayer) uCluster.zoomToShowLayer(benchMarker, () => benchMarker.openPopup());
+          else benchMarker.openPopup();
+        } catch (e) {}
+      }, 150);
+    }
   }
   function wireMap(list) {
     const L = window.L;
@@ -585,7 +598,7 @@
       ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true })
       : L.layerGroup();
     uMap.addLayer(uCluster);
-    setUniverseMarkers();
+    setUniverseMarkers(true);  // focus the benchmark popup on (re)entry / bucket select
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
 
     const bucketSel = document.getElementById("bu-bucket");
