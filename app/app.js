@@ -1753,6 +1753,72 @@
   let chartCache = {};  // persistent SVG scaffold + per-building series elements (object constancy)
   let chartRaf = {};    // in-flight requestAnimationFrame id per analysis
 
+  // Hover crosshair + comparison tooltip for the trend chart.
+  function trendHoverMove(cache, ev) {
+    const hv = cache.hover; if (!hv || !hv.series.length) return;
+    const rect = cache.svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const svgX = (ev.clientX - rect.left) / rect.width * hv.W;
+    const svgY = (ev.clientY - rect.top) / rect.height * hv.H;
+
+    // nearest scrape date to the cursor
+    let D = null, best = Infinity;
+    hv.dates.forEach((d) => { const dd = Math.abs(hv.x(d) - svgX); if (dd < best) { best = dd; D = d; } });
+    if (D == null) { trendHoverLeave(cache); return; }
+
+    // value (and change vs the series' previous observation) for each visible series at D
+    const rows = [];
+    hv.series.forEach((s) => {
+      const v = s.vmap[D];
+      if (v == null) return;                       // no observation here → omit (no $0/NaN)
+      const idx = s.pts.findIndex((p) => p.d === D);
+      const prev = idx > 0 ? s.pts[idx - 1].v : null;
+      rows.push({ id: s.id, name: s.name, bench: s.bench, color: s.color, v, change: prev != null ? v - prev : null, y: hv.y(v) });
+    });
+    if (!rows.length) { trendHoverLeave(cache); return; }
+    rows.sort((a, b) => b.v - a.v);                // highest → lowest
+
+    // nearest line to the cursor (highlight if close enough)
+    let near = null, nd = Infinity;
+    rows.forEach((r) => { const dd = Math.abs(r.y - svgY); if (dd < nd) { nd = dd; near = r.id; } });
+    const hovered = nd <= 22 ? near : null;
+
+    // crosshair + point markers
+    const cx = hv.x(D);
+    let g = `<line class="trend-cross" x1="${cx.toFixed(1)}" y1="${hv.padT}" x2="${cx.toFixed(1)}" y2="${hv.H - hv.padB}"/>`;
+    rows.forEach((r) => { g += `<circle class="trend-cross-dot" cx="${cx.toFixed(1)}" cy="${r.y.toFixed(1)}" r="${r.id === hovered ? 5 : 3.5}" fill="${r.color}"/>`; });
+    cache.hoverG.innerHTML = g;
+
+    // dim non-hovered lines when near a specific one
+    Object.keys(cache.series).forEach((bid) => {
+      const rec = cache.series[bid];
+      if (rec && rec.grp) rec.grp.style.opacity = hovered ? (bid === hovered ? "1" : "0.18") : "1";
+    });
+
+    // tooltip
+    const psfMode = hv.metric === "avgPsf";
+    const fmtV = psfMode ? (x) => "$" + x.toFixed(2) + "/sf" : (x) => "$" + Math.round(x).toLocaleString();
+    const fmtC = (c) => c == null ? "" : ` <span class="tt-chg ${c > 0 ? "up" : c < 0 ? "down" : ""}">(${c > 0 ? "+" : c < 0 ? "−" : ""}${psfMode ? "$" + Math.abs(c).toFixed(2) : "$" + Math.abs(Math.round(c)).toLocaleString()})</span>`;
+    let html = `<div class="tt-date">${fmtDate(D)}</div>`;
+    rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtC(r.change)}</span></div>`; });
+    const tip = cache.tip;
+    tip.innerHTML = html; tip.hidden = false;
+
+    // position near cursor, clamped inside the chart container
+    const host = cache.svg.parentNode;
+    const hr = host.getBoundingClientRect();
+    const px = ev.clientX - hr.left, py = ev.clientY - hr.top;
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let left = px + 16; if (left + tw > host.clientWidth - 4) left = px - tw - 16; if (left < 4) left = 4;
+    let top = py - th / 2; if (top < 4) top = 4; if (top + th > host.clientHeight - 4) top = host.clientHeight - th - 4;
+    tip.style.left = left + "px"; tip.style.top = top + "px";
+  }
+  function trendHoverLeave(cache) {
+    if (cache.hoverG) cache.hoverG.innerHTML = "";
+    if (cache.tip) cache.tip.hidden = true;
+    Object.keys(cache.series).forEach((bid) => { const rec = cache.series[bid]; if (rec && rec.grp) rec.grp.style.opacity = "1"; });
+  }
+
   function drawChart(a, cols, st) {
     const chartEl = document.getElementById("chart");
     const legendEl = document.getElementById("legend");
@@ -1814,10 +1880,17 @@
       svg.setAttribute("class", "linechart"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
       const gridG = document.createElementNS(NS, "g"); gridG.setAttribute("class", "grid");
       const linesG = document.createElementNS(NS, "g"); linesG.setAttribute("class", "axis");
-      svg.appendChild(gridG); svg.appendChild(linesG);
+      const hoverG = document.createElementNS(NS, "g"); hoverG.setAttribute("class", "hoverlayer");
+      const overlay = document.createElementNS(NS, "rect"); overlay.setAttribute("fill", "transparent"); overlay.style.cursor = "crosshair";
+      svg.appendChild(gridG); svg.appendChild(linesG); svg.appendChild(hoverG); svg.appendChild(overlay);
+      chartEl.style.position = "relative";
       chartEl.replaceChildren(svg);
+      const tip = document.createElement("div"); tip.className = "trend-tip"; tip.hidden = true;
+      chartEl.appendChild(tip);
       legendEl.replaceChildren();
-      cache = chartCache[key] = { svg, gridG, linesG, series: {}, legend: {}, yMin: null, yMax: null, fitMin: null, fitMax: null, datesKey };
+      cache = chartCache[key] = { svg, gridG, linesG, hoverG, overlay, tip, series: {}, legend: {}, yMin: null, yMax: null, fitMin: null, fitMax: null, datesKey };
+      overlay.addEventListener("mousemove", (ev) => trendHoverMove(cache, ev));
+      overlay.addEventListener("mouseleave", () => trendHoverLeave(cache));
     }
 
     // Axis bounds — keep the current fit while the data still fits inside it, so a
@@ -1831,6 +1904,16 @@
     }
     cache.fitMin = tYMin; cache.fitMax = tYMax;
     if (cache.yMin == null) { cache.yMin = tYMin; cache.yMax = tYMax; }  // first paint: no axis morph
+
+    // keep the hover overlay + data current (settled axis used for the crosshair/tooltip)
+    cache.svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    cache.overlay.setAttribute("x", padL); cache.overlay.setAttribute("y", padT);
+    cache.overlay.setAttribute("width", Math.max(0, W - padL - padR)); cache.overlay.setAttribute("height", Math.max(0, H - padT - padB));
+    const ySettled = (v) => padT + (1 - (v - tYMin) / ((tYMax - tYMin) || 1)) * (H - padT - padB);
+    cache.hover = {
+      dates, x, y: ySettled, padT, padB, H, W, metric: st.metric,
+      series: target.map((s) => ({ id: s.bid, name: s.name, bench: s.bench, color: s.color, pts: s.pts, vmap: s.vmap })),
+    };
 
     const want = new Set(target.map((s) => s.bid));
 

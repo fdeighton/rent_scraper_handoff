@@ -421,6 +421,21 @@ table.comp thead th {
 .chart-card { margin-bottom: var(--sp-5); }
 .chart-card h3 { font-size: 16px; font-weight: 600; margin: 0 0 var(--sp-4); }
 svg.linechart { width: 100%; height: 420px; display: block; }
+#chart { position: relative; }
+.hoverlayer { pointer-events: none; }
+.trend-cross { stroke: var(--navy-600); stroke-width: 1; stroke-dasharray: 4 4; opacity: .55; }
+.trend-cross-dot { stroke: #fff; stroke-width: 1.5; }
+.trend-tip { position: absolute; z-index: 20; pointer-events: none; background: var(--navy); color: #fff;
+  border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow-md); min-width: 188px; max-width: 280px; }
+.trend-tip .tt-date { font-weight: 600; font-size: 11px; color: #c9cee3; margin-bottom: 6px; }
+.trend-tip .tt-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.trend-tip .tt-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.trend-tip .tt-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trend-tip .tt-val { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.trend-tip .tt-chg { color: #9aa3c4; font-size: 11px; }
+.trend-tip .tt-chg.up { color: #5fd0a0; }
+.trend-tip .tt-chg.down { color: #ff9b8a; }
+.trend-tip .tt-hi { font-weight: 700; }
 svg .axis text { fill: var(--grey); font-size: 11px; }
 svg .grid line { stroke: var(--border); stroke-dasharray: 3 3; }
 svg .axis-label { fill: var(--grey); font-size: 11px; }
