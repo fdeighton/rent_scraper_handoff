@@ -1670,32 +1670,6 @@
     return den ? num / den : null;
   }
 
-  // Monotone cubic (Fritsch-Carlson) -> cubic Bézier. Smooth like a spline but
-  // can't overshoot, so no loops/bumps on sharp changes (X must be increasing).
-  function smoothPath(p) {
-    const n = p.length;
-    if (!n) return "";
-    if (n === 1) return `M ${p[0].X} ${p[0].Y}`;
-    if (n === 2) return `M ${p[0].X} ${p[0].Y} L ${p[1].X} ${p[1].Y}`;
-    const dx = [], d = [];
-    for (let i = 0; i < n - 1; i++) { dx[i] = p[i + 1].X - p[i].X; d[i] = dx[i] !== 0 ? (p[i + 1].Y - p[i].Y) / dx[i] : 0; }
-    const m = new Array(n);
-    m[0] = d[0]; m[n - 1] = d[n - 2];
-    for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
-    for (let i = 0; i < n - 1; i++) {                         // limit tangents → monotone, no overshoot
-      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
-      const a = m[i] / d[i], b = m[i + 1] / d[i], h = Math.hypot(a, b);
-      if (h > 3) { const t = 3 / h; m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
-    }
-    let path = `M ${p[0].X.toFixed(1)} ${p[0].Y.toFixed(1)}`;
-    for (let i = 0; i < n - 1; i++) {
-      const c1x = p[i].X + dx[i] / 3, c1y = p[i].Y + m[i] * dx[i] / 3;
-      const c2x = p[i + 1].X - dx[i] / 3, c2y = p[i + 1].Y - m[i + 1] * dx[i] / 3;
-      path += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p[i + 1].X.toFixed(1)} ${p[i + 1].Y.toFixed(1)}`;
-    }
-    return path;
-  }
-
   let chartCache = {};  // persistent SVG scaffold + per-building series elements (object constancy)
   let chartRaf = {};    // in-flight requestAnimationFrame id per analysis
 
@@ -1803,6 +1777,19 @@
       rec.enter = !rec.cur;          // brand-new series → fade in
       rec.from = rec.cur || s.vmap;  // continue from current display; new ones hold at target while fading in
       rec.s = s;
+      // from-line interpolator: a point this series GAINS on a toggle starts on
+      // the existing line (emerges) instead of snapping in (which caused spikes)
+      const fkeys = Object.keys(rec.from).sort();
+      rec.fromY = (d) => {
+        if (rec.from[d] != null) return rec.from[d];
+        if (!fkeys.length) return null;
+        const xd = x(d);
+        let lo = null, hi = null;
+        for (const fd of fkeys) { if (x(fd) <= xd) lo = fd; else { hi = fd; break; } }
+        if (lo == null) return rec.from[fkeys[0]];
+        if (hi == null) return rec.from[fkeys[fkeys.length - 1]];
+        return rec.from[lo] + (rec.from[hi] - rec.from[lo]) * ((xd - x(lo)) / (x(hi) - x(lo) || 1));
+      };
       active.push(rec);
     });
     // benchmark drawn last so the Parker subject line stays emphasized (on top)
@@ -1828,8 +1815,9 @@
 
       active.forEach((rec) => {
         const s = rec.s, vmapNow = {};
-        const coords = s.pts.map((p) => { const fv = rec.from[p.d]; const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return { X: x(p.d), Y: y(v) }; });
-        rec.path.setAttribute("d", smoothPath(coords));
+        let dpath = "";
+        s.pts.forEach((p, i) => { const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; dpath += (i ? " L " : "M ") + x(p.d).toFixed(1) + " " + y(v).toFixed(1); });
+        rec.path.setAttribute("d", dpath);
         rec.path.setAttribute("stroke", s.color);
         rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.6);
         rec.path.setAttribute("stroke-linecap", "round");
