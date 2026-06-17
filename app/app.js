@@ -1646,9 +1646,14 @@
     }));
     document.querySelectorAll(".trend-link").forEach((bn) => (bn.onclick = () => {
       const on = bn.dataset.on === "1";
-      if (bn.dataset.grp === "t") st.types = on ? availTypes.slice() : [];
-      else st.bsel = on ? new Set(cols.map((c) => c.b.id)) : new Set();
-      renderTrends(a, cols);
+      if (bn.dataset.grp === "t") {
+        st.types = on ? availTypes.slice() : [];
+        document.querySelectorAll("#tc-types input").forEach((cb) => { cb.checked = st.types.includes(cb.dataset.t); });
+      } else {
+        st.bsel = on ? new Set(cols.map((c) => c.b.id)) : new Set();
+        document.querySelectorAll("#tc-builds input").forEach((cb) => { cb.checked = st.bsel.has(cb.dataset.b); });
+      }
+      draw();  // morph in place — no remount, no legend reset
     }));
     draw();
   }
@@ -1665,13 +1670,14 @@
     return den ? num / den : null;
   }
 
-  let trendAnim = {};  // last-rendered frame per analysis (so morphs continue smoothly)
-  let trendRaf = {};   // in-flight requestAnimationFrame id per analysis
+  let chartCache = {};  // persistent SVG scaffold + per-building series elements (object constancy)
+  let chartRaf = {};    // in-flight requestAnimationFrame id per analysis
 
   function drawChart(a, cols, st) {
     const chartEl = document.getElementById("chart");
     const legendEl = document.getElementById("legend");
     if (!chartEl) return;
+    const NS = "http://www.w3.org/2000/svg";
     const key = a.id;
     const W = Math.max(720, (chartEl.clientWidth || 900));
     const H = 420, padL = 64, padR = 24, padT = 16, padB = 56;
@@ -1680,13 +1686,13 @@
       cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => { if (p.date >= st.from && p.date <= st.to) s.add(p.date); }));
       return [...s].sort();
     })();
-    if (trendRaf[key]) cancelAnimationFrame(trendRaf[key]);
-    if (!dates.length) { chartEl.innerHTML = `<div class="empty">No data in selected range.</div>`; legendEl.innerHTML = ""; trendAnim[key] = null; return; }
+    if (chartRaf[key]) cancelAnimationFrame(chartRaf[key]);
+    if (!dates.length) { chartEl.innerHTML = `<div class="empty">No data in selected range.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
     const xIdx = new Map(dates.map((d, i) => [d, i]));
     const x = (d) => padL + (dates.length === 1 ? (W - padL - padR) / 2 : (xIdx.get(d) / (dates.length - 1)) * (W - padL - padR));
 
-    // target series — one line per building, weighted across the selected types
-    const series = [];
+    // target series, keyed by building id (stable identity for object constancy)
+    const target = [];
     cols.forEach((c, i) => {
       if (!st.bsel.has(c.b.id)) return;
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
@@ -1695,84 +1701,124 @@
         .map((p) => ({ d: p.date, v: weightedAt(p, st.metric, st.types) }))
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
-      series.push({ id: c.b.id, name: c.b.name, label: c.b.name, bench: c.bench, color, dash: c.bench ? "" : "5 4", pts });
+      const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
+      target.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, dash: c.bench ? "" : "5 4", pts, vmap });
     });
-    if (!series.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; trendAnim[key] = null; return; }
+    if (!target.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
 
-    // dynamic title + legend (set once; not part of the per-frame morph)
+    // dynamic title
     const tt = document.getElementById("chart-title");
     if (tt) {
       const mName = st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent";
       const scope = !st.types.length ? "—" : (st.avail && st.types.length === st.avail.length) ? "all units (weighted)" : st.types.map((t) => TYPE_LABEL[t] || t).join(" + ") + " (weighted)";
       tt.textContent = `${mName} · ${scope}`;
     }
-    legendEl.innerHTML = series.map((s) => `<span class="lg"><span class="dot" style="background:${s.color}"></span>${esc(s.label)}${s.bench ? " ★" : ""}</span>`).join("");
 
     // target axis bounds
-    const allV = []; series.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
+    const allV = []; target.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
     let tYMin = Math.min(...allV), tYMax = Math.max(...allV);
     const padY = (tYMax - tYMin) * 0.12 || tYMax * 0.1;
     tYMin = Math.max(0, tYMin - padY); tYMax = tYMax + padY;
 
+    // reuse the SVG scaffold across changes (no remount) when the x-axis is unchanged
     const datesKey = dates.join("|");
-    const prev = trendAnim[key];
-    const morph = !!prev && prev.datesKey === datesKey;  // only morph when the x-axis is unchanged
-    const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
+    let cache = chartCache[key];
+    const reuse = cache && cache.svg && cache.svg.parentNode === chartEl && cache.datesKey === datesKey;
+    if (!reuse) {
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("class", "linechart"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      const gridG = document.createElementNS(NS, "g"); gridG.setAttribute("class", "grid");
+      const linesG = document.createElementNS(NS, "g"); linesG.setAttribute("class", "axis");
+      svg.appendChild(gridG); svg.appendChild(linesG);
+      chartEl.replaceChildren(svg);
+      legendEl.replaceChildren();
+      cache = chartCache[key] = { svg, gridG, linesG, series: {}, legend: {}, yMin: tYMin, yMax: tYMax, datesKey };
+    }
+
+    const want = new Set(target.map((s) => s.bid));
+
+    // legend diff — keep existing items, add new, remove gone (no full reset)
+    Object.keys(cache.legend).forEach((bid) => { if (!want.has(bid)) { cache.legend[bid].remove(); delete cache.legend[bid]; } });
+    target.forEach((s) => {
+      let el = cache.legend[s.bid];
+      if (!el) {
+        el = document.createElement("span"); el.className = "lg";
+        el.innerHTML = `<span class="dot"></span><span class="lgname"></span>`;
+        legendEl.appendChild(el); cache.legend[s.bid] = el;
+      }
+      el.querySelector(".dot").style.background = s.color;
+      el.querySelector(".lgname").textContent = s.name + (s.bench ? " ★" : "");
+    });
+
+    // series data-join: enter (new) / update (continuing) / exit (removed)
+    const exits = [];
+    Object.keys(cache.series).forEach((bid) => { if (!want.has(bid)) exits.push(cache.series[bid]); });
+    const active = [];
+    target.forEach((s) => {
+      let rec = cache.series[s.bid];
+      if (!rec) { // ENTER — create persistent path + dots group
+        const path = document.createElementNS(NS, "path"); path.setAttribute("fill", "none");
+        const dotsG = document.createElementNS(NS, "g");
+        const grp = document.createElementNS(NS, "g");
+        grp.appendChild(path); grp.appendChild(dotsG);
+        cache.linesG.appendChild(grp);
+        rec = { grp, path, dotsG, cur: null };
+        cache.series[s.bid] = rec;
+      }
+      rec.enter = !rec.cur;          // brand-new series → fade in
+      rec.from = rec.cur || s.vmap;  // continue from current display; new ones hold at target while fading in
+      rec.s = s;
+      active.push(rec);
+    });
+    // benchmark drawn last so the Parker subject line stays emphasized (on top)
+    active.slice().sort((p, q) => (p.s.bench === q.s.bench ? 0 : p.s.bench ? 1 : -1)).forEach((rec) => cache.linesG.appendChild(rec.grp));
+
+    const fromYMin = cache.yMin, fromYMax = cache.yMax;
     const lerp = (p, q, e) => p + (q - p) * e;
-    const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOutCubic: moves off the current position immediately, settles gently
-    const DUR = 520;
+    const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOut: glide off the current position, settle gently
+    const DUR = 480;
+    const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
 
     const renderFrame = (e) => {
-      const yMin = morph ? lerp(prev.yMin, tYMin, e) : tYMin;
-      const yMax = morph ? lerp(prev.yMax, tYMax, e) : tYMax;
-      const span = (yMax - yMin) || 1;
+      const yMin = lerp(fromYMin, tYMin, e), yMax = lerp(fromYMax, tYMax, e), span = (yMax - yMin) || 1;
       const y = (v) => padT + (1 - (v - yMin) / span) * (H - padT - padB);
+      cache.yMin = yMin; cache.yMax = yMax;  // remember displayed axis so an interrupted morph continues
 
       let grid = "";
       const ticks = 5;
-      for (let i = 0; i <= ticks; i++) {
-        const v = yMin + (i / ticks) * (yMax - yMin), yy = y(v);
-        grid += `<g class="grid"><line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/></g><text class="axis-label" x="${padL - 10}" y="${yy + 4}" text-anchor="end">${fmtY(v)}</text>`;
-      }
+      for (let i = 0; i <= ticks; i++) { const v = yMin + (i / ticks) * (yMax - yMin), yy = y(v); grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/><text class="axis-label" x="${padL - 10}" y="${yy + 4}" text-anchor="end">${fmtY(v)}</text>`; }
       const step = Math.ceil(dates.length / 14);
-      let xlab = "";
-      dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) xlab += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
+      dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) grid += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
+      cache.gridG.innerHTML = grid;
 
-      const snap = {};
-      let lines = "";
-      const ordered = series.slice().sort((s1, s2) => (s1.bench === s2.bench ? 0 : s1.bench ? 1 : -1));
-      ordered.forEach((s) => {
-        const pv = morph && prev.vals[s.id] ? prev.vals[s.id] : null;
-        const vmap = {};
-        const dpath = s.pts.map((p, i) => {
-          let v = p.v;
-          if (pv && pv[p.d] != null) v = lerp(pv[p.d], p.v, e);
-          vmap[p.d] = v;
-          return (i ? "L" : "M") + x(p.d) + " " + y(v);
-        }).join(" ");
-        snap[s.id] = vmap;
-        const sw = s.bench ? 3 : 1.5;
-        const dash = s.dash ? `stroke-dasharray="${s.dash}"` : "";
+      active.forEach((rec) => {
+        const s = rec.s, vmapNow = {};
+        const dpath = s.pts.map((p, i) => { const fv = rec.from[p.d]; const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return (i ? "L" : "M") + x(p.d) + " " + y(v); }).join(" ");
+        rec.path.setAttribute("d", dpath);
+        rec.path.setAttribute("stroke", s.color);
+        rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.5);
+        rec.path.setAttribute("stroke-linecap", "round");
+        rec.path.setAttribute("stroke-linejoin", "round");
+        if (s.dash) rec.path.setAttribute("stroke-dasharray", s.dash); else rec.path.removeAttribute("stroke-dasharray");
         let dots = "";
-        s.pts.forEach((p) => {
-          const cy = y(vmap[p.d]);
-          dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`;
-        });
-        lines += `<path d="${dpath}" fill="none" stroke="${s.color}" stroke-width="${sw}" ${dash} stroke-linecap="round" stroke-linejoin="round"/>${dots}`;
+        s.pts.forEach((p) => { const cy = y(vmapNow[p.d]); dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`; });
+        rec.dotsG.innerHTML = dots;
+        rec.grp.style.opacity = rec.enter ? String(e) : "1";
+        rec.cur = vmapNow;
       });
+      exits.forEach((rec) => { rec.grp.style.opacity = String(1 - e); });
 
-      chartEl.innerHTML = `<svg class="linechart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${xlab}<g class="axis">${lines}</g></svg>`;
-      trendAnim[key] = { vals: snap, yMin, yMax, datesKey };  // remember the displayed frame
+      if (e >= 1) {  // finalize: drop exited series
+        exits.forEach((rec) => rec.grp.remove());
+        Object.keys(cache.series).forEach((bid) => { if (!want.has(bid)) delete cache.series[bid]; });
+        active.forEach((rec) => (rec.enter = false));
+      }
     };
 
-    if (!morph) { renderFrame(1); return; }   // first paint / x-axis changed → snap
+    renderFrame(0);  // paint at the current position first (no flash)
     const t0 = performance.now();
-    const tick = (now) => {
-      const e = ease(Math.min(1, (now - t0) / DUR));
-      renderFrame(e);
-      if (e < 1) trendRaf[key] = requestAnimationFrame(tick);
-    };
-    trendRaf[key] = requestAnimationFrame(tick);
+    const tick = (now) => { const e = ease(Math.min(1, (now - t0) / DUR)); renderFrame(e); if (e < 1) chartRaf[key] = requestAnimationFrame(tick); };
+    chartRaf[key] = requestAnimationFrame(tick);
   }
 
   // ========================================================= Building Detail =
