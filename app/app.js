@@ -931,7 +931,7 @@
 
     s1.row(28); s1.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
     s1.row(fitH(metaLine, totalW1, 10)); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
-    s1.row(6);
+    s1.row(8);
 
     const kpis = [
       [money(bRent), "Benchmark rent", ORANGE],
@@ -941,9 +941,9 @@
       [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank", NAVY],
     ];
     const kpiLabH = kpis.reduce((h, k, i) => Math.max(h, fitH(k[1], PW[2 * i] + PW[2 * i + 1], 8, 11)), 16);
-    s1.row(28); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
+    s1.row(26); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
     s1.row(kpiLabH); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
-    s1.row(14);
+    s1.row(8);
 
     s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
     s1.row(32); PCOLS.forEach((h, i) => s1.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
