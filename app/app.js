@@ -660,7 +660,7 @@
   // (newest first); fall back to the union of comp dates if no benchmark history.
   function runDates(a) {
     const snaps = D.snapshots || {};
-    if (a.benchmark && snaps[a.benchmark] && snaps[a.benchmark].length) return snaps[a.benchmark].map((s) => s.date);
+    if (a.benchmark && snaps[a.benchmark] && snaps[a.benchmark].length) return snaps[a.benchmark].map((s) => s.date).slice(0, 8);
     const set = new Set();
     a.comps.forEach((c) => (snaps[c.building] || []).forEach((s) => set.add(s.date)));
     return [...set].sort().reverse().slice(0, 8);
@@ -2353,14 +2353,43 @@
       ${q.length ? `<table class="hist"><thead><tr><th>Quarter</th><th>Active listings</th><th>Avg size (sf)</th><th>Avg rent</th><th>Avg PSF</th></tr></thead><tbody>${qrows}</tbody></table>` : '<div class="empty">No history.</div>'}
     </div>`;
 
-    const scrapeHist = `<div class="card"><div class="card__title">${icon("clock")} Scrape History</div>
-      <div class="scrape-hist">${hist.slice(0, 15).map((h) => `
-        <div class="row">
+    // per-snapshot detail (by date) for expanding each scrape-history row
+    const snapByDate = {};
+    (D.snapshots[id] || []).forEach((s) => (snapByDate[s.date] = s));
+    const scrapeDetail = (h, det) => {
+      let html = `<div class="sh-detail">`;
+      html += `<div class="sh-inc"><b>Incentive</b><div>${h.incentives ? esc(h.incentives) : '<span class="sub">None captured</span>'}</div></div>`;
+      if (det && det.weighted) {
+        const w = det.weighted;
+        html += `<div class="sh-kpis"><span><b class="tnum">${w.count}</b> units</span><span><b class="tnum">${money(w.avgRent)}</b> avg rent</span><span><b class="tnum">${psf(w.avgPsf)}</b> avg PSF</span><span><b class="tnum">${w.avgSqft || "—"}</b> avg sf</span></div>`;
+        const byRows = UNIT_TYPES.filter((t) => det.byType[t]).map((t) => {
+          const x = det.byType[t];
+          return `<tr><td>${TYPE_LABEL[t]}</td><td class="tnum">${x.count}</td><td class="tnum">${x.avgSqft || "—"}</td><td class="tnum">${money(x.avgRent)}</td><td class="tnum">${psf(x.avgPsf)}</td></tr>`;
+        }).join("");
+        html += `<table class="sh-tbl"><thead><tr><th>Unit type</th><th>Units</th><th>Avg SF</th><th>Avg rent</th><th>Avg PSF</th></tr></thead><tbody>${byRows}</tbody></table>`;
+        if (det.units && det.units.length) {
+          const uRows = det.units.map((u) => `<tr><td>${TYPE_LABEL[u.type] || esc(u.type)}</td><td class="tnum">${u.bath != null ? u.bath : "—"}</td><td class="tnum">${u.sqft != null ? u.sqft : "—"}</td><td class="tnum">${money(u.rent)}</td><td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td><td class="sh-note">${u.note ? esc(u.note) : ""}</td></tr>`).join("");
+          html += `<div class="sh-subhead">Individual listings (${det.units.length})</div><table class="sh-tbl sh-units"><thead><tr><th>Unit type</th><th>Bath</th><th>SF</th><th>Rent</th><th>PSF</th><th>Notes</th></tr></thead><tbody>${uRows}</tbody></table>`;
+        } else {
+          html += `<div class="sub" style="margin-top:8px">Individual listings retained for the 8 most recent scrapes.</div>`;
+        }
+      } else {
+        html += `<div class="sub" style="margin-top:8px">No unit-level detail${h.status !== "success" ? " — this scrape errored" : " retained for this scrape"}.</div>`;
+      }
+      return html + `</div>`;
+    };
+    const scrapeHist = `<div class="card"><div class="card__title">${icon("clock")} Scrape History <span class="sub" style="font-weight:400">· click a row for detail</span></div>
+      <div class="scrape-hist">${hist.slice(0, 15).map((h, i) => {
+        const det = snapByDate[(h.date || "").slice(0, 10)];
+        return `<div class="row sh-row" data-i="${i}">
           <span class="${h.status === "success" ? "dot-ok" : "dot-err"}">${icon(h.status === "success" ? "check" : "edit")}</span>
           <span class="when">${fmtDate(h.date)}</span>
           <span class="tnum" style="width:64px">${h.units} units</span>
           <span class="inc">${h.incentives ? esc(h.incentives) : '<span class="sub">No incentive captured</span>'}</span>
-        </div>`).join("") || '<div class="empty">No scrapes recorded.</div>'}
+          <span class="sh-caret">${icon("chevron-down")}</span>
+        </div>
+        <div class="sh-panel" data-panel="${i}" hidden>${scrapeDetail(h, det)}</div>`;
+      }).join("") || '<div class="empty">No scrapes recorded.</div>'}
       </div></div>`;
 
     $view.innerHTML = `
@@ -2394,6 +2423,14 @@
     $view.querySelectorAll("tr.qtotal").forEach((tr) => (tr.onclick = () => {
       tr.classList.toggle("open");
       $view.querySelectorAll(`tr.qsub[data-parent="${tr.dataset.q}"]`).forEach((r) => (r.style.display = r.style.display === "none" ? "table-row" : "none"));
+    }));
+
+    $view.querySelectorAll(".sh-row").forEach((r) => (r.onclick = () => {
+      const panel = $view.querySelector(`.sh-panel[data-panel="${r.dataset.i}"]`);
+      if (!panel) return;
+      const show = panel.hasAttribute("hidden");
+      if (show) { panel.removeAttribute("hidden"); r.classList.add("open"); }
+      else { panel.setAttribute("hidden", ""); r.classList.remove("open"); }
     }));
   }
 

@@ -245,27 +245,33 @@ def main():
                 pby, pw = aggregate(units_by_snap.get(succ[-2]["id"], []))
                 prev_summary[bid] = {"date": succ[-2]["date"], "byType": pby, "weighted": pw}
 
-        # last up-to-8 successful snapshots (newest first) for the historical picker
+        # per-snapshot detail (newest first) for the most recent 15 successful
+        # scrapes: powers the analysis historical picker (capped to 8 in the UI)
+        # AND the expandable Scrape History rows on the building page. To keep
+        # data.js lean, the full individual-listing array is retained only for the
+        # 8 most recent; older scrapes still expand to a by-type + weighted summary.
+        window = succ[-15:]
+        nwin = len(window)
         sfull = []
-        for s in succ[-8:]:
+        for i, s in enumerate(window):
             us = units_by_snap.get(s["id"], [])
             by, w = aggregate(us)
             if not w:
                 continue
-            # the individual priced listings that roll up into the cell averages
-            listings = [
-                {"type": u["type"], "bath": u["bath"], "rent": round(u["rent"]), "sqft": u["sqft"],
-                 "psf": u["psf"], "note": u["note"]}
-                for u in us if u["rent"] is not None
-            ]
-            sfull.append({
+            entry = {
                 "date": s["date"],
                 "incentives": s["incentives"],
                 "byType": {t: {"avgRent": by[t]["avgRent"], "avgPsf": by[t]["avgPsf"],
                                "avgSqft": by[t]["avgSqft"], "count": by[t]["count"]} for t in by},
                 "weighted": w,
-                "units": listings,
-            })
+            }
+            if i >= nwin - 8:        # individual listings for the 8 most recent only
+                entry["units"] = [
+                    {"type": u["type"], "bath": u["bath"], "rent": round(u["rent"]), "sqft": u["sqft"],
+                     "psf": u["psf"], "note": u["note"]}
+                    for u in us if u["rent"] is not None
+                ]
+            sfull.append(entry)
         sfull.reverse()
         if sfull:
             snapshots[bid] = sfull

@@ -495,6 +495,24 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .scrape-hist .dot-err { color: var(--orange-600); }
 .scrape-hist .when { color: var(--grey); font-size: 12px; width: 70px; flex: 0 0 70px; }
 .scrape-hist .inc { color: var(--navy-600); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scrape-hist .sh-row { cursor: pointer; transition: background .12s; }
+.scrape-hist .sh-row:hover { background: var(--tint); }
+.scrape-hist .sh-caret { flex: 0 0 16px; color: var(--grey); display: inline-flex; transition: transform .15s; }
+.scrape-hist .sh-caret svg { width: 16px; height: 16px; }
+.scrape-hist .sh-row.open .sh-caret { transform: rotate(180deg); }
+.scrape-hist .sh-panel { padding: 12px 0 16px 32px; border-bottom: 1px solid var(--border); }
+.sh-detail { display: flex; flex-direction: column; gap: 12px; }
+.sh-detail .sh-inc { font-size: 13px; color: var(--navy-600); }
+.sh-detail .sh-inc b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); margin-bottom: 3px; }
+.sh-detail .sh-kpis { display: flex; flex-wrap: wrap; gap: 20px; font-size: 13px; color: var(--grey); }
+.sh-detail .sh-kpis b { color: var(--navy); font-size: 15px; margin-right: 4px; }
+.sh-detail .sh-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); margin-top: 4px; }
+.sh-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sh-tbl th { text-align: right; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--grey); font-weight: 600; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+.sh-tbl th:first-child, .sh-tbl td:first-child { text-align: left; }
+.sh-tbl td { padding: 4px 10px; border-bottom: 1px solid var(--border-soft, #f0f0ec); color: var(--navy-600); }
+.sh-tbl .sh-note { text-align: left; color: var(--grey); font-size: 11px; max-width: 280px; white-space: normal; }
+.sh-units td { font-size: 11px; }
 
 /* Sidebar custom tag */
 .nav-tag { margin-left: auto; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; background: var(--navy-600); color: #c9cee3; padding: 1px 6px; border-radius: var(--r-pill); }
