@@ -869,14 +869,61 @@
     // buildings pre-sorted by rank (highest weighted rent first); unranked last
     const ordered = cols.slice().sort((x, y) => (rankMap[x.b.id] || 9999) - (rankMap[y.b.id] || 9999));
 
+    // ---- auto-fit helpers: size columns to their content (and header tokens) so
+    // nothing clips and nothing is over-wide. px ≈ chars × per-char width + padding.
+    const charW = (sz, bold) => (sz <= 9 ? 6.0 : sz <= 10 ? 6.6 : sz <= 11 ? 7.1 : 7.7) * (bold ? 1.05 : 1);
+    const rawPx = (text, sz, bold) => String(text == null ? "" : text).length * charW(sz, bold || false);
+    const wpx = (text, sz, bold) => (text == null || text === "") ? 0 : Math.ceil(rawPx(text, sz, bold)) + 14;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    // headers wrap, so a column only needs to fit the header's longest token
+    const headerW = (h) => Math.ceil(h.split(/[\s/]+/).reduce((a, w) => Math.max(a, w.length), 0) * charW(9, true)) + 14;
+    const fmtN = (n) => Math.round(n).toLocaleString();
+
     // ======================= SHEET 1 — COMP ANALYSIS =======================
     const s1 = wb.addSheet("Comp Analysis");
     // Distance lives at the far right, formatted like the vs-Subject column.
-    // Column widths are chosen so the five 2-column KPI cards above the table read
-    // as near-equal pairs (≈160–200px) while each data column still fits content.
     const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "vs Subject", "Distance (m)"];
-    const PW = [148, 54, 96, 80, 80, 80, 84, 78, 86, 80];   // KPI pairs: 202/176/160/162/166
     const NCOL = PCOLS.length;
+
+    // measure the widest content per column
+    let wBuild = 0, wRank = 0, wUnit = wpx("Weighted average", 11, true), wRent = 0, wD = 0, wDp = 0, wPsf = 0, wSize = 0, wVs = 0, wDist = 0;
+    types.forEach((t) => (wUnit = Math.max(wUnit, wpx(TYPE_LABEL[t], 10, false))));
+    ordered.forEach((c) => {
+      const { cur, prev } = colSnap(c.b.id, snap);
+      if (!cur) return;
+      const subj = c.bench, rank = rankMap[c.b.id];
+      wBuild = Math.max(wBuild, wpx(c.b.name + (subj ? " ★" : ""), 12, true));
+      if (rank) wRank = Math.max(wRank, wpx(String(rank), 13, true));
+      const num = (m, isW) => {
+        if (!m || m.avgRent == null) return;
+        wRent = Math.max(wRent, wpx(fmtN(m.avgRent), 11, isW));
+        if (m.avgPsf != null) wPsf = Math.max(wPsf, wpx((+Number(m.avgPsf).toFixed(2)), 11, isW));
+        if (m.avgSqft != null) wSize = Math.max(wSize, wpx(fmtN(m.avgSqft), 11, isW));
+      };
+      types.forEach((t) => {
+        const m = cur.byType && cur.byType[t], p = prev && prev.byType && prev.byType[t];
+        if (!m || m.avgRent == null) return;
+        num(m, false);
+        if (p && p.avgRent != null) { const d = Math.round(m.avgRent - p.avgRent); wD = Math.max(wD, wpx((d < 0 ? "−" : "") + Math.abs(d), 10, false)); if (p.avgRent) wDp = Math.max(wDp, wpx(((m.avgRent - p.avgRent) / p.avgRent * 100).toFixed(1), 10, false)); }
+      });
+      if (cur.weighted && cur.weighted.avgRent != null) {
+        num(cur.weighted, true);
+        if (!subj) { const vs = vsSubject(cur.weighted.avgRent); if (vs != null) wVs = Math.max(wVs, wpx((vs > 0 ? "+" : "") + vs + "%", 11, true)); }
+        wDist = Math.max(wDist, wpx(subj ? "Benchmark" : (c.distance != null ? fmtN(c.distance) : ""), 11, true));
+      }
+    });
+    const PW = [
+      clamp(Math.max(wBuild, headerW("Building")), 110, 240),
+      clamp(Math.max(wRank, headerW("Rank")), 42, 70),
+      clamp(Math.max(wUnit, headerW("Unit type")), 84, 150),
+      clamp(Math.max(wRent, headerW("Avg rent")), 64, 120),
+      clamp(Math.max(wD, headerW("rent ($)")), 54, 110),
+      clamp(Math.max(wDp, headerW("rent (%)")), 54, 110),
+      clamp(Math.max(wPsf, headerW("Avg PSF")), 60, 120),
+      clamp(Math.max(wSize, headerW("Avg size")), 58, 120),
+      clamp(Math.max(wVs, headerW("Subject")), 64, 120),
+      clamp(Math.max(wDist, headerW("Distance")), 66, 120),
+    ];
     PW.forEach((w, i) => s1.setCol(i, w));
 
     s1.row(28); s1.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
@@ -895,7 +942,7 @@
     s1.row(14);
 
     s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
-    s1.row(30); PCOLS.forEach((h, i) => s1.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
+    s1.row(32); PCOLS.forEach((h, i) => s1.cell(h, { s: (i === 0 || i === 2) ? sHeadL : sHeadC }));
 
     let zeb = 0;
     ordered.forEach((c) => {
@@ -961,8 +1008,32 @@
     // ===================== SHEET 2 — BUILDING DETAILS ======================
     const s2 = wb.addSheet("Building Details");
     const DCOLS = ["Building", "Role", "Owner / manager", "Asset", "Year", "Units", "Address", "City", "Incentives"];
-    const DW = [180, 64, 196, 74, 52, 52, 204, 88, 280];
     const NCOL2 = DCOLS.length;
+
+    // measure content; wide free-text columns (owner/address/incentives) are
+    // capped and wrap, with row heights computed to fit the wrapped lines.
+    let dB = 0, dO = 0, dA = 0, dAd = 0, dC = 0, dI = 0;
+    ordered.forEach((c) => {
+      const cur = snapOf(c.b.id);
+      if (!cur) return;
+      dB = Math.max(dB, wpx(c.b.name + (c.bench ? " ★" : ""), 10, true));
+      dO = Math.max(dO, wpx(c.b.owner || "—", 10, false));
+      dA = Math.max(dA, wpx(c.b.assetType || "—", 10, false));
+      dAd = Math.max(dAd, wpx(c.b.address || "—", 10, false));
+      dC = Math.max(dC, wpx(c.b.city || "—", 10, false));
+      dI = Math.max(dI, wpx(cur.incentives || "—", 9, false));
+    });
+    const DW = [
+      clamp(Math.max(dB, headerW("Building")), 120, 240),
+      clamp(headerW("Role") + 14, 56, 80),
+      clamp(Math.max(dO, headerW("Owner")), 120, 220),
+      clamp(Math.max(dA, headerW("Asset")), 60, 130),
+      clamp(headerW("Year") + 10, 48, 64),
+      clamp(headerW("Units") + 10, 48, 70),
+      clamp(Math.max(dAd, headerW("Address")), 120, 220),
+      clamp(Math.max(dC, headerW("City")), 70, 130),
+      clamp(Math.min(dI, 300), 170, 300),
+    ];
     DW.forEach((w, i) => s2.setCol(i, w));
 
     s2.row(28); s2.cell("Building Details — " + a.name, { colspan: NCOL2, s: sTitle });
@@ -970,6 +1041,8 @@
     s2.row(10);
     s2.row(24); DCOLS.forEach((h, i) => s2.cell(h, { s: (i === 4 || i === 5) ? sHeadC : sHeadL }));
 
+    // lines a string needs at a given column width (wrap), and the resulting row height
+    const linesAt = (text, colW, sz) => Math.max(1, Math.ceil(rawPx(text, sz, false) / Math.max(20, colW - 8)));
     let dz = 0;
     ordered.forEach((c) => {
       const cur = snapOf(c.b.id);
@@ -977,7 +1050,11 @@
       const subj = c.bench;
       const dbg = subj ? TINT : (dz++ % 2 === 1 ? "#F6F8FD" : WHITE);
       const dcs = (o) => cs(Object.assign({ sz: 10, color: "#3A4256", fill: dbg, wrap: true, h: "left" }, o));
-      s2.row();
+      const lines = Math.max(
+        linesAt(c.b.owner || "—", DW[2], 10),
+        linesAt(c.b.address || "—", DW[6], 10),
+        linesAt(cur.incentives || "—", DW[8], 9));
+      s2.row(Math.max(18, lines * 13 + 6));
       s2.cell(c.b.name + (subj ? " ★" : ""), { s: dcs({ bold: true, color: subj ? ORANGE : NAVY }) });
       s2.cell(subj ? "Subject" : "Comp", { s: dcs({}) });
       s2.cell(c.b.owner || "—", { s: dcs({}) });
