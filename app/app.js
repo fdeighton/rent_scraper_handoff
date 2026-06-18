@@ -2056,9 +2056,16 @@
     hv.dates.forEach((d) => { const dd = Math.abs(hv.x(d) - svgX); if (dd < best) { best = dd; D = d; } });
     if (D == null) { trendHoverLeave(cache); return; }
 
-    // value + premium/discount vs the subject (★) at D, for each visible series
+    // value + premium/discount vs the subject (★) at D, for each visible series.
+    // If the subject wasn't scraped at D, carry forward its last observed price.
     const benchS = hv.series.find((s) => s.bench);
-    const subjV = benchS ? benchS.vmap[D] : null;
+    let subjV = benchS ? benchS.vmap[D] : null;
+    let subjCarried = false;
+    if (benchS && subjV == null) {
+      for (let i = benchS.pts.length - 1; i >= 0; i--) {
+        if (benchS.pts[i].d <= D && benchS.pts[i].v != null) { subjV = benchS.pts[i].v; subjCarried = true; break; }
+      }
+    }
     const rows = [];
     hv.series.forEach((s) => {
       const v = s.vmap[D];
@@ -2096,7 +2103,7 @@
     };
     let html = `<div class="tt-date">${fmtDate(D)}</div>`;
     rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtVs(r)}</span></div>`; });
-    if (subjV) html += `<div class="tt-note">( ) = premium / discount vs subject</div>`;
+    if (subjV) html += `<div class="tt-note">( ) = premium / discount vs subject${subjCarried ? " (last obs.)" : ""}</div>`;
     const tip = cache.tip;
     tip.innerHTML = html; tip.hidden = false;
 
