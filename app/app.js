@@ -2056,14 +2056,15 @@
     hv.dates.forEach((d) => { const dd = Math.abs(hv.x(d) - svgX); if (dd < best) { best = dd; D = d; } });
     if (D == null) { trendHoverLeave(cache); return; }
 
-    // value (and change vs the series' previous observation) for each visible series at D
+    // value + premium/discount vs the subject (★) at D, for each visible series
+    const benchS = hv.series.find((s) => s.bench);
+    const subjV = benchS ? benchS.vmap[D] : null;
     const rows = [];
     hv.series.forEach((s) => {
       const v = s.vmap[D];
       if (v == null) return;                       // no observation here → omit (no $0/NaN)
-      const idx = s.pts.findIndex((p) => p.d === D);
-      const prev = idx > 0 ? s.pts[idx - 1].v : null;
-      rows.push({ id: s.id, name: s.name, bench: s.bench, color: s.color, v, change: prev != null ? v - prev : null, y: hv.y(v) });
+      const vs = (!s.bench && subjV) ? Math.round(((v - subjV) / subjV) * 100) : null;
+      rows.push({ id: s.id, name: s.name, bench: s.bench, color: s.color, v, vs, y: hv.y(v) });
     });
     if (!rows.length) { trendHoverLeave(cache); return; }
     rows.sort((a, b) => b.v - a.v);                // highest → lowest
@@ -2088,10 +2089,14 @@
     // tooltip
     const psfMode = hv.metric === "avgPsf";
     const fmtV = psfMode ? (x) => "$" + x.toFixed(2) + "/sf" : (x) => "$" + Math.round(x).toLocaleString();
-    const fmtC = (c) => c == null ? "" : ` <span class="tt-chg ${c > 0 ? "up" : c < 0 ? "down" : ""}">(${c > 0 ? "+" : c < 0 ? "−" : ""}${psfMode ? "$" + Math.abs(c).toFixed(2) : "$" + Math.abs(Math.round(c)).toLocaleString()})</span>`;
+    const fmtVs = (r) => {
+      if (r.bench) return ` <span class="tt-chg tt-subj">(subject)</span>`;
+      if (r.vs == null) return "";
+      return ` <span class="tt-chg ${r.vs > 0 ? "up" : r.vs < 0 ? "down" : ""}">(${r.vs > 0 ? "+" : r.vs < 0 ? "−" : ""}${Math.abs(r.vs)}%)</span>`;
+    };
     let html = `<div class="tt-date">${fmtDate(D)}</div>`;
-    rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtC(r.change)}</span></div>`; });
-    if (rows.some((r) => r.change != null)) html += `<div class="tt-note">( ) = change vs prior snapshot</div>`;
+    rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtVs(r)}</span></div>`; });
+    if (subjV) html += `<div class="tt-note">( ) = premium / discount vs subject</div>`;
     const tip = cache.tip;
     tip.innerHTML = html; tip.hidden = false;
 

@@ -438,6 +438,7 @@ svg.linechart { width: 100%; height: 420px; display: block; }
 .trend-tip .tt-chg { color: #9aa3c4; font-size: 11px; }
 .trend-tip .tt-chg.up { color: #5fd0a0; }
 .trend-tip .tt-chg.down { color: #ff9b8a; }
+.trend-tip .tt-chg.tt-subj { color: #c9cee3; font-style: italic; }
 .trend-tip .tt-hi { font-weight: 700; }
 .trend-tip .tt-note { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.12); font-size: 10px; color: #8d96b8; font-style: italic; }
 svg .axis text { fill: var(--grey); font-size: 11px; }
