@@ -863,8 +863,8 @@
     const sHeadC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
     const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
     const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
-    const metaLine = `Benchmark: ${bench ? bench.name : "—"}  ·  Snapshot: ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comparables` +
-      (subjRank ? `  ·  Subject ranks #${subjRank} of ${rankN} by weighted rent` : "") + `  ·  Fitzrovia — Internal & Confidential`;
+    const metaLine = `Benchmark: ${bench ? bench.name : "—"}  ·  ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comparables` +
+      (subjRank ? `  ·  Subject ranks #${subjRank} / ${rankN}` : "") + `  ·  Fitzrovia — Internal & Confidential`;
 
     // buildings pre-sorted by rank (highest weighted rent first); unranked last
     const ordered = cols.slice().sort((x, y) => (rankMap[x.b.id] || 9999) - (rankMap[y.b.id] || 9999));
@@ -878,6 +878,8 @@
     // headers wrap, so a column only needs to fit the header's longest token
     const headerW = (h) => Math.ceil(h.split(/[\s/]+/).reduce((a, w) => Math.max(a, w.length), 0) * charW(9, true)) + 14;
     const fmtN = (n) => Math.round(n).toLocaleString();
+    // row height that fits `text` wrapped across width `w` at font size `sz`
+    const fitH = (text, w, sz, lh) => Math.max(18, Math.ceil(rawPx(text, sz, false) / Math.max(40, w - 14)) * (lh || 13) + 6);
 
     // ======================= SHEET 1 — COMP ANALYSIS =======================
     const s1 = wb.addSheet("Comp Analysis");
@@ -925,9 +927,10 @@
       clamp(Math.max(wDist, headerW("Distance")), 66, 120),
     ];
     PW.forEach((w, i) => s1.setCol(i, w));
+    const totalW1 = PW.reduce((x, y) => x + y, 0);
 
     s1.row(28); s1.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
-    s1.row(20); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
+    s1.row(fitH(metaLine, totalW1, 10)); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
     s1.row(10);
 
     const kpis = [
@@ -937,8 +940,9 @@
       [posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED],
       [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY],
     ];
+    const kpiLabH = kpis.reduce((h, k, i) => Math.max(h, fitH(k[1], PW[2 * i] + PW[2 * i + 1], 8, 11)), 16);
     s1.row(28); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
-    s1.row(18); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
+    s1.row(kpiLabH); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
     s1.row(14);
 
     s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
@@ -1035,9 +1039,10 @@
       clamp(Math.min(dI, 300), 170, 300),
     ];
     DW.forEach((w, i) => s2.setCol(i, w));
+    const totalW2 = DW.reduce((x, y) => x + y, 0);
 
     s2.row(28); s2.cell("Building Details — " + a.name, { colspan: NCOL2, s: sTitle });
-    s2.row(20); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
+    s2.row(fitH(metaLine, totalW2, 10)); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
     s2.row(10);
     s2.row(24); DCOLS.forEach((h, i) => s2.cell(h, { s: (i === 4 || i === 5) ? sHeadC : sHeadL }));
 
@@ -1333,6 +1338,8 @@
     const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
     const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
     const metaLine = `Snapshot: ${snap && snap.date ? fmtDate(snap.date) : "—"}  ·  ${units.length} units  ·  ${types.length} unit type${types.length === 1 ? "" : "s"}  ·  Fitzrovia — Internal & Confidential`;
+    // row height that fits the meta line wrapped across the sheet width
+    const fitH = (text, w) => Math.max(18, Math.ceil((String(text).length * 6.6) / Math.max(40, w - 14)) * 13 + 6);
 
     // overall blended metrics
     const oRent = avg(units.map((u) => u.rent));
@@ -1346,7 +1353,7 @@
     SW.forEach((w, i) => s1.setCol(i, w));
 
     s1.row(28); s1.cell(b.name + " — Unit Backup", { colspan: NCOL, s: sTitle });
-    s1.row(20); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
+    s1.row(fitH(metaLine, SW.reduce((x, y) => x + y, 0))); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
     s1.row(10);
 
     const kpis = [
@@ -1389,7 +1396,7 @@
     UW.forEach((w, i) => s2.setCol(i, w));
 
     s2.row(28); s2.cell(b.name + " — Individual Units", { colspan: NCOL2, s: sTitle });
-    s2.row(20); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
+    s2.row(fitH(metaLine, UW.reduce((x, y) => x + y, 0))); s2.cell(metaLine, { colspan: NCOL2, s: sMeta });
     s2.row(10);
     s2.row(24); UCOLS.forEach((h, i) => s2.cell(h, { s: (i === 0 || i === 5) ? hL : hC }));
 
