@@ -492,6 +492,11 @@
     if (buState.psfBand !== "__all") list = list.filter((b) => { const v = psfOf(b); return v != null && PSF_BANDS[buState.psfBand].test(v); });
     return list.sort(SORTERS[buState.sort] || SORTERS.name);
   }
+  // any filter / sort / search away from defaults? (drives the Reset button state)
+  function buDirty() {
+    return !!(buState.q || buState.sort !== "name" ||
+      ["city", "assetType", "owner", "era", "rentBand", "psfBand"].some((k) => buState[k] !== "__all"));
+  }
   function universeFilterBar() {
     const opt = (pairs, sel) => pairs.map(([v, l]) => `<option value="${esc(v)}" ${sel === v ? "selected" : ""}>${esc(l)}</option>`).join("");
     const fromVals = (head, key) => [["__all", head]].concat(distinctVals(key).map((v) => [v, v]));
@@ -501,7 +506,7 @@
       ["psf_desc", "Avg PSF (high→low)"], ["psf_asc", "Avg PSF (low→high)"],
       ["year_desc", "Year built (newest)"], ["units_desc", "Units (most)"], ["recent", "Recently scraped"],
     ];
-    const dirty = buState.q || buState.sort !== "name" || ["city", "assetType", "owner", "era", "rentBand", "psfBand"].some((k) => buState[k] !== "__all");
+    const dirty = buDirty();
     return `<div class="bu-filters">
       <select id="f-city" class="fsel">${opt(fromVals("All cities", "city"), buState.city)}</select>
       <select id="f-asset" class="fsel">${opt(fromVals("All types", "assetType"), buState.assetType)}</select>
@@ -556,6 +561,8 @@
       if (g) g.innerHTML = items.length ? items.map(buCard).join("") : `<div class="card" style="grid-column:1/-1"><div class="empty">${icon("search")}<br/>No buildings match these filters.</div></div>`;
       const c = $view.querySelector("#bu-count");
       if (c) c.textContent = `Showing ${items.length} of ${universeList("").length} buildings`;
+      const rb = $view.querySelector("#f-clear");      // keep the Reset button's state live
+      if (rb) rb.disabled = !buDirty();
     };
 
     const s = document.getElementById("bu-search");
