@@ -2091,6 +2091,7 @@
     const fmtC = (c) => c == null ? "" : ` <span class="tt-chg ${c > 0 ? "up" : c < 0 ? "down" : ""}">(${c > 0 ? "+" : c < 0 ? "−" : ""}${psfMode ? "$" + Math.abs(c).toFixed(2) : "$" + Math.abs(Math.round(c)).toLocaleString()})</span>`;
     let html = `<div class="tt-date">${fmtDate(D)}</div>`;
     rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtC(r.change)}</span></div>`; });
+    if (rows.some((r) => r.change != null)) html += `<div class="tt-note">( ) = change vs prior snapshot</div>`;
     const tip = cache.tip;
     tip.innerHTML = html; tip.hidden = false;
 
