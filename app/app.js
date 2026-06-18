@@ -863,8 +863,8 @@
     const sHeadC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
     const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
     const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
-    const metaLine = `Benchmark: ${bench ? bench.name : "—"}  ·  ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comparables` +
-      (subjRank ? `  ·  Subject ranks #${subjRank} / ${rankN}` : "") + `  ·  Fitzrovia — Internal & Confidential`;
+    const metaLine = `Benchmark: ${bench ? bench.name : "—"}  ·  ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comps` +
+      (subjRank ? `  ·  Subject #${subjRank} / ${rankN}` : "") + `  ·  Fitzrovia · Confidential`;
 
     // buildings pre-sorted by rank (highest weighted rent first); unranked last
     const ordered = cols.slice().sort((x, y) => (rankMap[x.b.id] || 9999) - (rankMap[y.b.id] || 9999));
@@ -931,14 +931,14 @@
 
     s1.row(28); s1.cell("Competitive Analysis — " + a.name, { colspan: NCOL, s: sTitle });
     s1.row(fitH(metaLine, totalW1, 10)); s1.cell(metaLine, { colspan: NCOL, s: sMeta });
-    s1.row(10);
+    s1.row(6);
 
     const kpis = [
-      [money(bRent), "Benchmark gross rent", ORANGE],
-      [money(mktRent), `Comp-set avg rent (${ncomp})`, NAVY],
-      [bPsf != null ? psf(bPsf) + "/sf" : "—", `Benchmark PSF · mkt ${psf(mktPsf)}`, NAVY],
+      [money(bRent), "Benchmark rent", ORANGE],
+      [money(mktRent), `Comp-set rent (${ncomp})`, NAVY],
+      [bPsf != null ? psf(bPsf) + "/sf" : "—", `PSF · mkt ${psf(mktPsf)}`, NAVY],
       [posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED],
-      [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank by rent", NAVY],
+      [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank", NAVY],
     ];
     const kpiLabH = kpis.reduce((h, k, i) => Math.max(h, fitH(k[1], PW[2 * i] + PW[2 * i + 1], 8, 11)), 16);
     s1.row(28); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
