@@ -225,7 +225,17 @@
     "Alberta": "AB", "Manitoba": "MB", "Saskatchewan": "SK", "Nova Scotia": "NS",
     "New Brunswick": "NB", "Newfoundland and Labrador": "NL", "Prince Edward Island": "PE",
   };
-  const STRATEGIES = ["playwright_render", "static_html", "tricon_api", "modal_iterate", "iframe_extract", "filter_iterate", "akamai_stealth"];
+  // Scrape strategies — the `value` is the technical key the scraper config needs;
+  // the `label` + `desc` are plain-English so a non-technical user can pick one.
+  const STRATEGY_INFO = [
+    { value: "playwright_render", label: "Standard — renders the page (recommended)", desc: "Loads the page in a real browser so JavaScript-built listings appear. The safe default — start here if you're unsure." },
+    { value: "static_html", label: "Simple page — no JavaScript", desc: "For plain HTML pages where the listings are already in the page source. Fast, but won't capture content that loads via JavaScript." },
+    { value: "tricon_api", label: "Direct data feed (API)", desc: "Pulls listings straight from the site's underlying data feed. The most reliable option when a site exposes one." },
+    { value: "modal_iterate", label: "Click-through pop-ups", desc: "For sites where each unit opens in a pop-up that must be clicked to read its price and details." },
+    { value: "iframe_extract", label: "Embedded widget (iframe)", desc: "For listings shown inside an embedded third-party widget or frame rather than the page itself." },
+    { value: "filter_iterate", label: "Filtered results — step through options", desc: "For pages that only reveal units after you apply filters (e.g., pick a bedroom type, then read the results)." },
+    { value: "akamai_stealth", label: "Bot-protected site (stealth)", desc: "For sites behind heavy bot protection. Slower — use only if the standard option gets blocked." },
+  ];
 
   function loadCustomBuildings() {
     try {
@@ -272,7 +282,7 @@
   }
 
   function openAddBuildingModal() {
-    const stratOpts = STRATEGIES.map((s) => `<option value="${s}">${s}</option>`).join("");
+    const stratOpts = STRATEGY_INFO.map((s) => `<option value="${s.value}">${esc(s.label)}</option>`).join("");
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Add Building">
@@ -308,9 +318,10 @@
         <div class="field"><label for="ab-photo">Photo URL <span class="sub">(optional — paste an image link, e.g. the listing's hero photo)</span></label><input type="text" id="ab-photo" placeholder="https://…/building.jpg"/></div>
         <hr class="modal-sep"/>
         <div class="field"><label for="ab-surl">Scrape URL <span class="sub">(the page that lists available units)</span></label><input type="text" id="ab-surl" placeholder="https://…/floorplans"/></div>
-        <div class="field"><label for="ab-strat">Scrape strategy</label>
+        <div class="field"><label for="ab-strat">How should we read this site? <span class="sub">(scrape strategy)</span></label>
           <select id="ab-strat">${stratOpts}</select>
-          <div class="geo-note">Pick a best guess now; the scraper's onboarding (debug_url.py + new-site skill) confirms/auto-tunes this once API keys are configured. Auto-detection can't run in the browser.</div>
+          <div class="strat-desc" id="ab-strat-desc">${esc(STRATEGY_INFO[0].desc)}</div>
+          <div class="geo-note">Not sure? Leave it on <b>Standard</b>. The scraper's onboarding (debug_url.py + new-site skill) confirms and auto-tunes this once API keys are configured — auto-detection can't run in the browser.</div>
         </div>
       </div>
       <div class="modal__foot">
@@ -349,6 +360,10 @@
       }
     };
     $("#ab-q").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); $("#ab-search").onclick(); } };
+
+    // live plain-English description of the selected scrape strategy
+    const stratDescMap = Object.fromEntries(STRATEGY_INFO.map((s) => [s.value, s.desc]));
+    $("#ab-strat").onchange = () => { $("#ab-strat-desc").textContent = stratDescMap[$("#ab-strat").value] || ""; };
 
     function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
     function onKey(e) { if (e.key === "Escape") close(); }

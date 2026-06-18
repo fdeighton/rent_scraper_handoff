@@ -576,6 +576,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .geo-item span { font-size: 11px; color: var(--grey); }
 .geo-loading, .geo-empty { padding: 10px; font-size: 12px; color: var(--grey); }
 .geo-note { font-size: 11px; color: var(--grey); margin-top: 6px; }
+.strat-desc { margin-top: 8px; font-size: 12px; line-height: 1.45; color: var(--navy-600); background: #F6F8FD; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 10px; }
 
 .empty { color: var(--grey); font-size: 13px; padding: var(--sp-5); text-align: center; }
 .ic { width: 18px; height: 18px; display: inline-block; vertical-align: middle; }
