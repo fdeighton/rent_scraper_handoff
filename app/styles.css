@@ -181,8 +181,8 @@ button { font-family: inherit; cursor: pointer; }
 .bu-filters .fsel:focus { outline: none; border-color: var(--navy); }
 .bu-filters__spacer { flex: 1 1 12px; }
 .bu-sort { font-size: 12px; color: var(--grey); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.bu-clear { font-size: 12px; color: var(--orange); background: none; border: none; cursor: pointer; padding: 6px 8px; }
-.bu-clear:hover { text-decoration: underline; }
+.bu-filters .bu-reset[disabled] { opacity: .4; cursor: default; }
+.bu-filters .bu-reset[disabled]:hover { background: var(--surface); }
 .bu-count { font-size: 12px; color: var(--grey); margin-bottom: 12px; }
 .bu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--sp-4); }
 .bcard {

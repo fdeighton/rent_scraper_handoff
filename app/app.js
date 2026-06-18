@@ -501,7 +501,7 @@
       ["psf_desc", "Avg PSF (high→low)"], ["psf_asc", "Avg PSF (low→high)"],
       ["year_desc", "Year built (newest)"], ["units_desc", "Units (most)"], ["recent", "Recently scraped"],
     ];
-    const active = ["city", "assetType", "owner", "era", "rentBand", "psfBand"].some((k) => buState[k] !== "__all");
+    const dirty = buState.q || buState.sort !== "name" || ["city", "assetType", "owner", "era", "rentBand", "psfBand"].some((k) => buState[k] !== "__all");
     return `<div class="bu-filters">
       <select id="f-city" class="fsel">${opt(fromVals("All cities", "city"), buState.city)}</select>
       <select id="f-asset" class="fsel">${opt(fromVals("All types", "assetType"), buState.assetType)}</select>
@@ -511,7 +511,7 @@
       <select id="f-psf" class="fsel">${opt(fromMap("Any PSF", PSF_BANDS), buState.psfBand)}</select>
       <span class="bu-filters__spacer"></span>
       <label class="bu-sort">Sort <select id="f-sort" class="fsel">${opt(sortOpts, buState.sort)}</select></label>
-      ${active ? '<button class="bu-clear" id="f-clear">Clear filters</button>' : ""}
+      <button class="btn bu-reset" id="f-clear"${dirty ? "" : " disabled"}>Reset filters</button>
     </div>
     <div class="bu-count" id="bu-count"></div>`;
   }
@@ -574,7 +574,7 @@
     bindSel("f-era", "era"); bindSel("f-rent", "rentBand"); bindSel("f-psf", "psfBand"); bindSel("f-sort", "sort");
     const clrBtn = document.getElementById("f-clear");
     if (clrBtn) clrBtn.onclick = () => {
-      Object.assign(buState, { city: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" });
+      Object.assign(buState, { q: "", city: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" });
       renderUniverse();
     };
     if (buState.view === "list") refreshGrid();   // populate the "Showing X of Y" count
