@@ -77,3 +77,18 @@ snapshot (for WoW deltas), the full trend series, quarterly rollups, and scrape
 history. Coming-Soon units (`rent_price IS NULL`) and sale-price contamination
 (`> $20,000`) are excluded from every average, mirroring the live view.
 ```
+
+## Deployment access (auth)
+This deployed app exposes **internal competitive intelligence** (scrape history,
+scrape results, comp analytics) and has **no server-side endpoints of its own** —
+it serves a baked, static `data.js`. Its access gate is therefore at the
+deployment layer, using the studio's existing auth approach
+(`HANDBOOK/.../05-policies/access-control.md`): **Vercel Deployment Protection /
+SSO (Microsoft Entra), gated by the appropriate `ai-studio-*` group.** Enable
+Deployment Protection on the Vercel project before sharing the URL.
+
+The **data layer** (Supabase) is governed by the repo's existing RLS approach in
+[`db/schema.sql`](../db/schema.sql): `scrape_snapshots` (scrape history),
+`unit_data` (scrape results), and the `building_summary` view are SELECT-gated to
+`authenticated`, writes are admin-only, and the anonymous role is explicitly
+`REVOKE`d. The scraper bypasses RLS via the `service_role` key.

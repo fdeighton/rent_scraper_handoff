@@ -96,14 +96,18 @@ CREATE TABLE IF NOT EXISTS public.scrape_snapshots (
 -- unit_data: individual extracted units belonging to a snapshot. This is the
 -- time series behind every trend line. rent_price NULL = "Coming Soon" (kept,
 -- but excluded from building_summary aggregates).
+-- Numeric CHECKs are the DB-side half of the scraper's persistence-boundary
+-- validation (scraper/extractor.py::validate_units sanitizes before this point).
+-- Non-negative only — no hard upper bound on rent_price so future high-end rents
+-- aren't rejected; the >20k sale-price guard stays soft, in the scraper.
 CREATE TABLE IF NOT EXISTS public.unit_data (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     snapshot_id     UUID NOT NULL REFERENCES public.scrape_snapshots(id) ON DELETE CASCADE,
     unit_type       TEXT NOT NULL,   -- Bachelor, 1-Bed, 1-Bed+Den, 2-Bed, 2-Bed+Den, 3-Bed, 3-Bed+Den
     bathrooms       TEXT,
-    square_footage  INTEGER,
-    rent_price      NUMERIC,
-    rent_psf        NUMERIC,
+    square_footage  INTEGER  CHECK (square_footage IS NULL OR square_footage >= 0),
+    rent_price      NUMERIC  CHECK (rent_price     IS NULL OR rent_price     >= 0),
+    rent_psf        NUMERIC  CHECK (rent_psf        IS NULL OR rent_psf        >= 0),
     raw_text        TEXT,
     notes           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -269,6 +273,16 @@ BEGIN
     $f$, t);
   END LOOP;
 END $$;
+
+-- Fail-safe deny for the anonymous role. RLS already denies anon (enabled + only
+-- an `authenticated` SELECT policy), but we also REVOKE the base grants so a
+-- future accidental `anon` policy can't expose the scrape-history (scrape_snapshots),
+-- scrape-results (unit_data), or building_summary read paths — these carry internal
+-- competitive intelligence. The scraper uses service_role (unaffected); the
+-- deployed frontend reads a baked static data.js and never queries these directly.
+REVOKE ALL ON public.comp_buildings, public.fitz_properties, public.comp_sets,
+    public.scrape_snapshots, public.unit_data FROM anon;
+REVOKE ALL ON public.building_summary FROM anon;
 
 -- ----------------------------------------------------------------------------
 -- 6. RELOAD POSTGREST SCHEMA CACHE (run after seed load too)

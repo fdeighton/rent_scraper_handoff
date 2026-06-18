@@ -103,3 +103,78 @@ class TestValidateUnits:
         assert result[0]["bathrooms"] is None
         assert result[0]["raw_text"] is None
         assert result[0]["notes"] is None
+
+
+class TestValidateUnitsBoundary:
+    """Boundary validation: outlier guarding, type coercion, and quarantine
+    (the persistence-boundary hardening). Bad data is sanitized/dropped, never
+    raised — ingestion must keep going."""
+
+    def test_sale_price_rent_sanitized_to_none(self, extractor):
+        # > MAX_RENT (20k) is almost certainly a sale price — drop the number, keep the unit
+        units = [{"unit_type": "2-bed", "rent_price": 850000, "square_footage": 900}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["rent_price"] is None
+        assert result[0]["rent_psf"] is None  # not computable without rent
+
+    def test_implausibly_low_rent_sanitized(self, extractor):
+        units = [{"unit_type": "1-bed", "rent_price": 50}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["rent_price"] is None
+
+    def test_negative_sqft_sanitized(self, extractor):
+        units = [{"unit_type": "1-bed", "rent_price": 2000, "square_footage": -10}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["square_footage"] is None
+
+    def test_absurd_sqft_sanitized(self, extractor):
+        units = [{"unit_type": "1-bed", "rent_price": 2000, "square_footage": 99999}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["square_footage"] is None
+
+    def test_absurd_psf_dropped_then_recomputed(self, extractor):
+        # garbage psf is dropped, then recomputed from clean rent/sqft
+        units = [{"unit_type": "2-bed", "rent_price": 3000, "square_footage": 1000, "rent_psf": 999}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["rent_psf"] == 3.0
+
+    def test_stringy_numbers_coerced(self, extractor):
+        units = [{"unit_type": "1-bed", "rent_price": "$2,100", "square_footage": "550 sqft"}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["rent_price"] == 2100.0
+        assert result[0]["square_footage"] == 550
+        assert result[0]["rent_psf"] == round(2100 / 550, 4)
+
+    def test_non_dict_row_quarantined(self, extractor):
+        units = ["not a dict", None, {"unit_type": "1-bed", "rent_price": 2000}]
+        result = extractor.validate_units(units)
+        assert len(result) == 1
+        assert result[0]["unit_type"] == "1-bed"
+
+    def test_empty_unit_type_quarantined(self, extractor):
+        units = [{"unit_type": "", "rent_price": 2000}, {"rent_price": 2000}]
+        result = extractor.validate_units(units)
+        assert len(result) == 0
+
+    def test_bathrooms_coerced_to_string(self, extractor):
+        units = [{"unit_type": "1-bed", "bathrooms": 2, "rent_price": 2000}]
+        result = extractor.validate_units(units)
+        assert result[0]["bathrooms"] == "2"
+
+    def test_does_not_raise_on_garbage(self, extractor):
+        # a pathological mix must never crash ingestion
+        units = [
+            {"unit_type": "1-bed", "rent_price": "n/a", "square_footage": "—", "rent_psf": "x"},
+            42,
+            {"unit_type": "3-bed", "rent_price": 4200, "square_footage": 1100},
+        ]
+        result = extractor.validate_units(units)
+        assert len(result) == 2  # the n/a row keeps the unit (nulled price), the int is dropped
+        assert result[0]["rent_price"] is None
+        assert result[1]["rent_price"] == 4200.0

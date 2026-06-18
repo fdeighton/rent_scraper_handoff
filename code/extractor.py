@@ -5,7 +5,44 @@ Sends raw page content to Claude and gets back structured unit data.
 
 import json
 import base64
+import re
+
 import anthropic
+
+
+# ---------------------------------------------------------------------------
+# Persistence-boundary guards. validate_units() (below) is the single point
+# every scraped unit crosses before it is written to Supabase, so the limits
+# live here. Bounds mirror app/build_data.py's sale-price guard (MAX_RENT).
+# ---------------------------------------------------------------------------
+VALID_UNIT_TYPES = frozenset({
+    "bachelor", "1-bed", "1-bed+den", "2-bed", "2-bed+den", "3-bed", "3-bed+den", "4-bed",
+})
+MAX_RENT = 20000   # monthly rent above this is almost certainly a sale price (condos.ca trap)
+MIN_RENT = 300     # below this is implausible for a monthly apartment rent
+MAX_SQFT = 10000   # interior sqft above this is a data error
+MAX_PSF = 50       # $/sqft above this is implausible
+
+
+def _to_number(value):
+    """Coerce a possibly-stringy numeric ('$2,100', '550 sqft', 2100) to float, or None.
+
+    Tolerant of the formatting Claude occasionally emits; returns None for
+    anything that isn't a parseable number so the caller can treat it as missing.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = re.sub(r"[^0-9.\-]", "", value)
+        if cleaned in ("", "-", ".", "-.", "--"):
+            return None
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
 
 
 VISION_SQFT_PROMPT = """Extract the square footage (SUPERFICIE / pi² / sqft) and unit type
@@ -616,34 +653,84 @@ class RentExtractor:
             }
 
     def validate_units(self, units: list[dict]) -> list[dict]:
-        """Validate and clean extracted unit data."""
-        valid_types = {
-            "bachelor", "1-bed", "1-bed+den", "2-bed", "2-bed+den", "3-bed", "3-bed+den", "4-bed"
-        }
+        """Validate, sanitize, and clean extracted unit data at the persistence boundary.
+
+        This is the single boundary every scraped unit crosses before it is written
+        to Supabase. It NEVER raises:
+
+          * Structurally-unusable rows (non-object, or unknown/empty unit_type) are
+            QUARANTINED — dropped and counted, so a misfiring scrape can't poison the
+            time series with junk rows.
+          * Out-of-range values (sale-price-contaminated rents, implausible
+            sqft/psf) are SANITIZED to NULL — the unit-type observation is kept, the
+            bad number is dropped, mirroring the "Coming Soon = NULL rent" semantics
+            the building_summary view already excludes from averages.
+
+        Every drop/coercion is tallied and a one-line summary is logged so bad
+        scrapes are visible in the run log without crashing ingestion. The return
+        shape (one dict per kept unit, with the exact DB column keys) is unchanged.
+        """
         cleaned = []
+        quarantine: dict[str, int] = {}
+
+        def flag(reason: str) -> None:
+            quarantine[reason] = quarantine.get(reason, 0) + 1
 
         for u in units:
-            unit_type = u.get("unit_type", "").lower().strip()
-            if unit_type not in valid_types:
-                print(f"  Warning: Skipping unit with invalid type '{unit_type}'")
+            if not isinstance(u, dict):
+                flag("not_an_object")
                 continue
 
-            # Calculate rent_psf if missing but rent and sqft available
-            rent = u.get("rent_price")
-            sqft = u.get("square_footage")
-            psf = u.get("rent_psf")
+            unit_type = str(u.get("unit_type") or "").lower().strip()
+            if unit_type not in VALID_UNIT_TYPES:
+                flag(f"unknown_unit_type[{unit_type or '<empty>'}]")
+                continue
 
+            # rent_price — coerce, then range-guard (sanitize to NULL, keep the unit)
+            rent = _to_number(u.get("rent_price"))
+            if rent is not None:
+                if rent > MAX_RENT:
+                    flag("rent_above_max(sale_price?)"); rent = None
+                elif rent <= 0:
+                    rent = None                       # 0/negative ⇒ treat as missing
+                elif rent < MIN_RENT:
+                    flag("rent_below_min"); rent = None
+
+            # square_footage — coerce to int, range-guard
+            sqft = _to_number(u.get("square_footage"))
+            if sqft is not None and sqft > MAX_SQFT:
+                flag("sqft_above_max"); sqft = None
+            elif sqft is not None and sqft <= 0:
+                sqft = None                           # 0/negative ⇒ missing
+            sqft = int(round(sqft)) if sqft is not None else None
+
+            # rent_psf — coerce, range-guard, then recompute from clean rent/sqft if absent
+            psf = _to_number(u.get("rent_psf"))
+            if psf is not None and (psf > MAX_PSF or psf <= 0):
+                if psf > MAX_PSF:
+                    flag("psf_above_max")
+                psf = None
             if psf is None and rent is not None and sqft is not None and sqft > 0:
                 psf = round(rent / sqft, 4)
 
+            bathrooms = u.get("bathrooms")
+            bathrooms = str(bathrooms).strip() if bathrooms not in (None, "") else None
+            raw_text = u.get("raw_text")
+            notes = u.get("notes")
+
             cleaned.append({
                 "unit_type": unit_type,
-                "bathrooms": u.get("bathrooms"),
+                "bathrooms": bathrooms,
                 "square_footage": sqft,
                 "rent_price": rent,
                 "rent_psf": psf,
-                "raw_text": u.get("raw_text"),
-                "notes": u.get("notes"),
+                "raw_text": str(raw_text) if raw_text is not None else None,
+                "notes": str(notes) if notes is not None else None,
             })
+
+        if quarantine:
+            total = sum(quarantine.values())
+            summary = ", ".join(f"{n}× {reason}" for reason, n in sorted(quarantine.items()))
+            print(f"  Quarantined/sanitized {total} value(s): {summary}")
 
         return cleaned
