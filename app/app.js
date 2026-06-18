@@ -405,7 +405,7 @@
   }
 
   // ===================================================== Building Universe ===
-  let buState = { q: "", view: "list", city: "__all", bucket: "__all" };
+  let buState = { q: "", view: "list", city: "__all", bucket: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" };
   let uMap = null, uCluster = null, uLines = null;
   const benchmarkIds = () => new Set(D.analyses.map((a) => a.benchmark));
 
@@ -434,6 +434,88 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // ---- Universe advanced filters + sort (list view) ------------------------
+  // A building's latest weighted rent / PSF (from the building_summary rollup).
+  const rentOf = (b) => { const s = D.summary[b.id]; return s && s.weighted ? s.weighted.avgRent : null; };
+  const psfOf = (b) => { const s = D.summary[b.id]; return s && s.weighted ? s.weighted.avgPsf : null; };
+  const ERAS = {
+    "2020": { label: "2020 or newer", test: (y) => y >= 2020 },
+    "2010": { label: "2010–2019", test: (y) => y >= 2010 && y < 2020 },
+    "2000": { label: "2000–2009", test: (y) => y >= 2000 && y < 2010 },
+    older: { label: "Before 2000", test: (y) => y < 2000 },
+  };
+  const RENT_BANDS = {
+    lt2000: { label: "Under $2,000", test: (v) => v < 2000 },
+    "2to3": { label: "$2,000–3,000", test: (v) => v >= 2000 && v < 3000 },
+    "3to4": { label: "$3,000–4,000", test: (v) => v >= 3000 && v < 4000 },
+    gte4: { label: "$4,000+", test: (v) => v >= 4000 },
+  };
+  const PSF_BANDS = {
+    lt3: { label: "Under $3/sf", test: (v) => v < 3 },
+    "3to4": { label: "$3–4/sf", test: (v) => v >= 3 && v < 4 },
+    "4to5": { label: "$4–5/sf", test: (v) => v >= 4 && v < 5 },
+    gte5: { label: "$5+/sf", test: (v) => v >= 5 },
+  };
+  const _nl = (v) => v == null || Number.isNaN(v);                  // null/NaN → sort last
+  const _byNum = (fn, dir) => (a, b) => {
+    const va = fn(a), vb = fn(b);
+    if (_nl(va) && _nl(vb)) return a.name.localeCompare(b.name);
+    if (_nl(va)) return 1;
+    if (_nl(vb)) return -1;
+    return dir === "asc" ? va - vb : vb - va;
+  };
+  const SORTERS = {
+    name: (a, b) => a.name.localeCompare(b.name),
+    rent_desc: _byNum(rentOf, "desc"),
+    rent_asc: _byNum(rentOf, "asc"),
+    psf_desc: _byNum(psfOf, "desc"),
+    psf_asc: _byNum(psfOf, "asc"),
+    year_desc: _byNum((b) => b.yearBuilt, "desc"),
+    units_desc: _byNum((b) => b.unitCount, "desc"),
+    recent: (a, b) => (b.lastScrape || "").localeCompare(a.lastScrape || "") || a.name.localeCompare(b.name),
+  };
+  function distinctVals(key) {
+    const set = new Set();
+    Object.values(D.buildings).forEach((b) => { if (b.isActive !== false && b[key]) set.add(b[key]); });
+    return [...set].sort((a, b) => String(a).localeCompare(String(b)));
+  }
+  // The fully-filtered + sorted list that backs the universe grid.
+  function universeFiltered() {
+    const q = (buState.q || "").trim().toLowerCase();
+    let list = Object.values(D.buildings).filter((b) => b.isActive !== false);
+    if (q) list = list.filter((b) => (b.name + " " + (b.address || "") + " " + (b.city || "") + " " + (b.owner || "")).toLowerCase().includes(q));
+    if (buState.city !== "__all") list = list.filter((b) => b.city === buState.city);
+    if (buState.assetType !== "__all") list = list.filter((b) => (b.assetType || "") === buState.assetType);
+    if (buState.owner !== "__all") list = list.filter((b) => (b.owner || "") === buState.owner);
+    if (buState.era !== "__all") list = list.filter((b) => b.yearBuilt != null && ERAS[buState.era].test(b.yearBuilt));
+    if (buState.rentBand !== "__all") list = list.filter((b) => { const v = rentOf(b); return v != null && RENT_BANDS[buState.rentBand].test(v); });
+    if (buState.psfBand !== "__all") list = list.filter((b) => { const v = psfOf(b); return v != null && PSF_BANDS[buState.psfBand].test(v); });
+    return list.sort(SORTERS[buState.sort] || SORTERS.name);
+  }
+  function universeFilterBar() {
+    const opt = (pairs, sel) => pairs.map(([v, l]) => `<option value="${esc(v)}" ${sel === v ? "selected" : ""}>${esc(l)}</option>`).join("");
+    const fromVals = (head, key) => [["__all", head]].concat(distinctVals(key).map((v) => [v, v]));
+    const fromMap = (head, map) => [["__all", head]].concat(Object.entries(map).map(([k, v]) => [k, v.label]));
+    const sortOpts = [
+      ["name", "Name (A–Z)"], ["rent_desc", "Avg rent (high→low)"], ["rent_asc", "Avg rent (low→high)"],
+      ["psf_desc", "Avg PSF (high→low)"], ["psf_asc", "Avg PSF (low→high)"],
+      ["year_desc", "Year built (newest)"], ["units_desc", "Units (most)"], ["recent", "Recently scraped"],
+    ];
+    const active = ["city", "assetType", "owner", "era", "rentBand", "psfBand"].some((k) => buState[k] !== "__all");
+    return `<div class="bu-filters">
+      <select id="f-city" class="fsel">${opt(fromVals("All cities", "city"), buState.city)}</select>
+      <select id="f-asset" class="fsel">${opt(fromVals("All types", "assetType"), buState.assetType)}</select>
+      <select id="f-owner" class="fsel">${opt(fromVals("All owners", "owner"), buState.owner)}</select>
+      <select id="f-era" class="fsel">${opt(fromMap("Any era", ERAS), buState.era)}</select>
+      <select id="f-rent" class="fsel">${opt(fromMap("Any rent", RENT_BANDS), buState.rentBand)}</select>
+      <select id="f-psf" class="fsel">${opt(fromMap("Any PSF", PSF_BANDS), buState.psfBand)}</select>
+      <span class="bu-filters__spacer"></span>
+      <label class="bu-sort">Sort <select id="f-sort" class="fsel">${opt(sortOpts, buState.sort)}</select></label>
+      ${active ? '<button class="bu-clear" id="f-clear">Clear filters</button>' : ""}
+    </div>
+    <div class="bu-count" id="bu-count"></div>`;
+  }
+
   function destroyMap() {
     if (uMap) { try { uMap.remove(); } catch (e) {} }
     uMap = null; uCluster = null; uLines = null;
@@ -448,7 +530,7 @@
       body = hasLeaflet ? mapShellHtml(filtered) :
         `<div class="card"><div class="empty">${icon("map")}<br/>The map needs the Leaflet library + CartoDB tiles, which load over the network. You appear to be offline — switch to List view, or reopen with a connection.</div></div>`;
     } else {
-      body = `<div class="bu-grid">${filtered.map(buCard).join("")}</div>`;
+      body = universeFilterBar() + `<div class="bu-grid">${universeFiltered().map(buCard).join("")}</div>`;
     }
 
     $view.innerHTML = `
@@ -468,19 +550,37 @@
       </div>
       ${body}`;
 
+    const refreshGrid = () => {
+      const items = universeFiltered();
+      const g = $view.querySelector(".bu-grid");
+      if (g) g.innerHTML = items.length ? items.map(buCard).join("") : '<div class="bu-empty">No buildings match these filters.</div>';
+      const c = $view.querySelector("#bu-count");
+      if (c) c.textContent = `Showing ${items.length} of ${universeList("").length} buildings`;
+    };
+
     const s = document.getElementById("bu-search");
     s.oninput = () => {
       buState.q = s.value;
       if (buState.view === "map" && uCluster) setUniverseMarkers();
-      else { const g = $view.querySelector(".bu-grid"); if (g) g.innerHTML = idsToCards(s.value); }
+      else refreshGrid();
     };
     $view.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { buState.view = b.dataset.v; renderUniverse(); }));
     const addBtn = document.getElementById("bu-add");
     if (addBtn) addBtn.onclick = openAddBuildingModal;
 
+    // list-view advanced filters + sort
+    const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { buState[key] = el.value; refreshGrid(); }; };
+    bindSel("f-city", "city"); bindSel("f-asset", "assetType"); bindSel("f-owner", "owner");
+    bindSel("f-era", "era"); bindSel("f-rent", "rentBand"); bindSel("f-psf", "psfBand"); bindSel("f-sort", "sort");
+    const clrBtn = document.getElementById("f-clear");
+    if (clrBtn) clrBtn.onclick = () => {
+      Object.assign(buState, { city: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" });
+      renderUniverse();
+    };
+    if (buState.view === "list") refreshGrid();   // populate the "Showing X of Y" count
+
     if (buState.view === "map" && hasLeaflet) wireMap(filtered);
   }
-  function idsToCards(q) { return universeList(q).map(buCard).join(""); }
 
   // ---- Map (Leaflet + CartoDB Positron, branded markers) -------------------
   function mapCities() {
