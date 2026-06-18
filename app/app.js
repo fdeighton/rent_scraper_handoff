@@ -2390,7 +2390,7 @@
           <span class="${h.status === "success" ? "dot-ok" : "dot-err"}">${icon(h.status === "success" ? "check" : "edit")}</span>
           <span class="when">${fmtDate(h.date)}</span>
           <span class="tnum" style="width:64px">${h.units} units</span>
-          <span class="inc">${h.incentives ? esc(h.incentives) : '<span class="sub">No incentive captured</span>'}</span>
+          ${h.incentives ? '<span class="sh-tag">incentive</span>' : ""}
           <span class="sh-caret">${icon("chevron-down")}</span>
         </div>
         <div class="sh-panel" data-panel="${i}" hidden>${scrapeDetail(h, det)}</div>`;

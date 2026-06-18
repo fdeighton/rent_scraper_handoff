@@ -498,7 +498,8 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .scrape-hist .sh-row { cursor: pointer; transition: background .12s; }
 .scrape-hist .sh-row:hover { background: #F6F8FD; }
 .scrape-hist .sh-row.open { background: #F6F8FD; }
-.scrape-hist .sh-caret { flex: 0 0 16px; color: var(--grey); display: inline-flex; transition: transform .15s; }
+.scrape-hist .sh-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--grey); border: 1px solid var(--border); border-radius: 9px; padding: 1px 9px; }
+.scrape-hist .sh-caret { flex: 0 0 16px; margin-left: auto; color: var(--grey); display: inline-flex; transition: transform .15s; }
 .scrape-hist .sh-caret svg { width: 16px; height: 16px; }
 .scrape-hist .sh-row.open .sh-caret { transform: rotate(180deg); }
 .scrape-hist .sh-panel { padding: 16px 0 22px 32px; border-bottom: 1px solid var(--border); background: #FCFCFB; }
