@@ -2358,23 +2358,28 @@
     (D.snapshots[id] || []).forEach((s) => (snapByDate[s.date] = s));
     const scrapeDetail = (h, det) => {
       let html = `<div class="sh-detail">`;
-      html += `<div class="sh-inc"><b>Incentive</b><div>${h.incentives ? esc(h.incentives) : '<span class="sub">None captured</span>'}</div></div>`;
+      html += `<div class="sh-inc"><span class="sh-lbl">Incentive</span>${h.incentives ? esc(h.incentives) : '<span class="sub">None captured</span>'}</div>`;
       if (det && det.weighted) {
         const w = det.weighted;
-        html += `<div class="sh-kpis"><span><b class="tnum">${w.count}</b> units</span><span><b class="tnum">${money(w.avgRent)}</b> avg rent</span><span><b class="tnum">${psf(w.avgPsf)}</b> avg PSF</span><span><b class="tnum">${w.avgSqft || "—"}</b> avg sf</span></div>`;
-        const byRows = UNIT_TYPES.filter((t) => det.byType[t]).map((t) => {
-          const x = det.byType[t];
-          return `<tr><td>${TYPE_LABEL[t]}</td><td class="tnum">${x.count}</td><td class="tnum">${x.avgSqft || "—"}</td><td class="tnum">${money(x.avgRent)}</td><td class="tnum">${psf(x.avgPsf)}</td></tr>`;
-        }).join("");
-        html += `<table class="sh-tbl"><thead><tr><th>Unit type</th><th>Units</th><th>Avg SF</th><th>Avg rent</th><th>Avg PSF</th></tr></thead><tbody>${byRows}</tbody></table>`;
+        html += `<div class="sh-stats"><span><b class="tnum">${w.count}</b> units</span><span><b class="tnum">${money(w.avgRent)}</b> avg rent</span><span><b class="tnum">${psf(w.avgPsf)}</b> avg PSF</span><span><b class="tnum">${w.avgSqft ? w.avgSqft.toLocaleString() : "—"}</b> avg sf</span></div>`;
         if (det.units && det.units.length) {
-          const uRows = det.units.map((u) => `<tr><td>${TYPE_LABEL[u.type] || esc(u.type)}</td><td class="tnum">${u.bath != null ? u.bath : "—"}</td><td class="tnum">${u.sqft != null ? u.sqft : "—"}</td><td class="tnum">${money(u.rent)}</td><td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td><td class="sh-note">${u.note ? esc(u.note) : ""}</td></tr>`).join("");
-          html += `<div class="sh-subhead">Individual listings (${det.units.length})</div><table class="sh-tbl sh-units"><thead><tr><th>Unit type</th><th>Bath</th><th>SF</th><th>Rent</th><th>PSF</th><th>Notes</th></tr></thead><tbody>${uRows}</tbody></table>`;
+          const us = det.units.slice().sort((a, b) => (UNIT_TYPES.indexOf(a.type) - UNIT_TYPES.indexOf(b.type)) || ((b.rent || 0) - (a.rent || 0)));
+          const uRows = us.map((u) => `<tr>
+            <td class="sh-type">${TYPE_LABEL[u.type] || esc(u.type)}</td>
+            <td class="tnum">${u.bath != null ? u.bath : "—"}</td>
+            <td class="tnum">${u.sqft != null ? u.sqft.toLocaleString() : "—"}</td>
+            <td class="tnum">${money(u.rent)}</td>
+            <td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td>
+            <td class="sh-note">${u.note ? esc(u.note) : "—"}</td></tr>`).join("");
+          html += `<div class="sh-subhead">Individual listings <span>${us.length}</span></div>
+            <table class="sh-tbl sh-units"><colgroup><col/><col/><col/><col/><col/><col/></colgroup>
+            <thead><tr><th>Unit type</th><th>Bath</th><th>SF</th><th>Rent</th><th>PSF</th><th>Notes</th></tr></thead>
+            <tbody>${uRows}</tbody></table>`;
         } else {
-          html += `<div class="sub" style="margin-top:8px">Individual listings retained for the 8 most recent scrapes.</div>`;
+          html += `<div class="sub" style="margin-top:4px">Individual listings retained for the 8 most recent scrapes.</div>`;
         }
       } else {
-        html += `<div class="sub" style="margin-top:8px">No unit-level detail${h.status !== "success" ? " — this scrape errored" : " retained for this scrape"}.</div>`;
+        html += `<div class="sub" style="margin-top:4px">No unit-level detail${h.status !== "success" ? " — this scrape errored" : " retained for this scrape"}.</div>`;
       }
       return html + `</div>`;
     };
