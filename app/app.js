@@ -861,8 +861,13 @@
     const sFoot = cs({ sz: 8, italic: true, color: GREY, h: "left", wrap: true });
     const sHeadL = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "left", v: "center", wrap: true } });
     const sHeadC = reg({ font: { sz: 9, bold: true, color: WHITE }, fill: NAVY, align: { h: "center", v: "center", wrap: true } });
-    const kpiVal = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
-    const kpiLab = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER }, right: { color: BORDER } } });
+    // KPI cards span two columns; put left-edge borders on the anchor and right-
+    // edge borders on the covered cell so the box is closed on BOTH sides (a single
+    // merged style would draw the right border at the interior column boundary).
+    const kpiValA = (color) => reg({ font: { sz: 13, bold: true, color }, fill: WHITE, align: { h: "center", v: "center" }, border: { top: { color: BORDER }, left: { color: BORDER } } });
+    const kpiValC = reg({ fill: WHITE, border: { top: { color: BORDER }, right: { color: BORDER } } });
+    const kpiLabA = reg({ font: { sz: 8, color: GREY }, fill: WHITE, align: { h: "center", v: "center", wrap: true }, border: { bottom: { color: BORDER }, left: { color: BORDER } } });
+    const kpiLabC = reg({ fill: WHITE, border: { bottom: { color: BORDER }, right: { color: BORDER } } });
     const metaLine = `Benchmark: ${bench ? bench.name : "—"}  ·  ${snap ? fmtDate(snap) : "Latest"}  ·  ${ncomp} comps` +
       (subjRank ? `  ·  Subject #${subjRank} / ${rankN}` : "") + `  ·  Fitzrovia · Confidential`;
 
@@ -941,8 +946,8 @@
       [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank", NAVY],
     ];
     const kpiLabH = kpis.reduce((h, k, i) => Math.max(h, fitH(k[1], PW[2 * i] + PW[2 * i + 1], 8, 11)), 16);
-    s1.row(26); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiVal(k[2]) }));
-    s1.row(kpiLabH); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLab }));
+    s1.row(26); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiValA(k[2]), coverS: kpiValC }));
+    s1.row(kpiLabH); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLabA, coverS: kpiLabC }));
     s1.row(8);
 
     s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });

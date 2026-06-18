@@ -164,17 +164,24 @@
 
   // --- sheet builder (HTML-table-like: row()/cell() with colspan/rowspan) ----
   function sheet() {
-    const rows = [], merges = [], occ = {}, colW = [];
+    const rows = [], merges = [], occ = {}, colW = [], coverMap = {};
     let r = -1, cur = 0;
     function setCol(i, px) { colW[i] = px; }
     function row(px) { r++; rows.push({ ht: px || null, cells: [] }); cur = 0; }
     function skip(n) { cur += (n || 1); }
+    // o.coverS: style applied to the cells COVERED by a merge (empty), so borders
+    // render on the merge's outer edges (e.g. a box around a colspan KPI card)
+    // rather than only on the anchor cell's own edge.
     function cell(v, o) {
       o = o || {};
       while (occ[r + "_" + cur]) cur++;
       const c = cur, cs = o.colspan || 1, rs = o.rowspan || 1;
       rows[r].cells.push({ c, v, s: o.s, t: o.t });
-      for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) { if (!dr && !dc) continue; occ[(r + dr) + "_" + (c + dc)] = 1; }
+      for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) {
+        if (!dr && !dc) continue;
+        occ[(r + dr) + "_" + (c + dc)] = 1;
+        if (o.coverS != null) (coverMap[r + dr] = coverMap[r + dr] || []).push({ c: c + dc, s: o.coverS });
+      }
       if (cs > 1 || rs > 1) merges.push(A1(c, r) + ":" + A1(c + cs - 1, r + rs - 1));
       cur = c + cs;
     }
@@ -189,7 +196,7 @@
       rows.forEach((rw, ri) => {
         const ht = rw.ht != null ? ` ht="${(rw.ht * 0.75).toFixed(2)}" customHeight="1"` : "";
         data += `<row r="${ri + 1}"${ht}>`;
-        rw.cells.slice().sort((a, b) => a.c - b.c).forEach((cl) => {
+        rw.cells.concat(coverMap[ri] || []).sort((a, b) => a.c - b.c).forEach((cl) => {
           const ref = A1(cl.c, ri), sAttr = cl.s ? ` s="${cl.s}"` : "";
           if (cl.v === null || cl.v === undefined || cl.v === "") { data += `<c r="${ref}"${sAttr}/>`; return; }
           const isNum = cl.t === "n" || (cl.t == null && typeof cl.v === "number");
