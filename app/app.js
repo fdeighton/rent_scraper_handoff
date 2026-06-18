@@ -438,10 +438,12 @@
   // A building's latest weighted rent / PSF (from the building_summary rollup).
   const rentOf = (b) => { const s = D.summary[b.id]; return s && s.weighted ? s.weighted.avgRent : null; };
   const psfOf = (b) => { const s = D.summary[b.id]; return s && s.weighted ? s.weighted.avgPsf : null; };
+  // Non-numeric keys: JS reorders integer-like object keys ascending, which would
+  // flip this dropdown to oldest-first. Prefixed keys keep insertion (newest→oldest).
   const ERAS = {
-    "2020": { label: "2020 or newer", test: (y) => y >= 2020 },
-    "2010": { label: "2010–2019", test: (y) => y >= 2010 && y < 2020 },
-    "2000": { label: "2000–2009", test: (y) => y >= 2000 && y < 2010 },
+    e2020: { label: "2020 or newer", test: (y) => y >= 2020 },
+    e2010: { label: "2010–2019", test: (y) => y >= 2010 && y < 2020 },
+    e2000: { label: "2000–2009", test: (y) => y >= 2000 && y < 2010 },
     older: { label: "Before 2000", test: (y) => y < 2000 },
   };
   const RENT_BANDS = {
