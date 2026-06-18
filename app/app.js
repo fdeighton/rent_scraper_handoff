@@ -553,7 +553,7 @@
     const refreshGrid = () => {
       const items = universeFiltered();
       const g = $view.querySelector(".bu-grid");
-      if (g) g.innerHTML = items.length ? items.map(buCard).join("") : '<div class="empty" style="grid-column:1/-1">No buildings match these filters.</div>';
+      if (g) g.innerHTML = items.length ? items.map(buCard).join("") : `<div class="card" style="grid-column:1/-1"><div class="empty">${icon("search")}<br/>No buildings match these filters.</div></div>`;
       const c = $view.querySelector("#bu-count");
       if (c) c.textContent = `Showing ${items.length} of ${universeList("").length} buildings`;
     };
