@@ -2331,7 +2331,7 @@
     const NS = "http://www.w3.org/2000/svg";
     const key = a.id;
     const W = Math.max(720, (chartEl.clientWidth || 900));
-    const H = 420, padL = 64, padR = 24, padT = 16, padB = 56;
+    const H = 420, padL = 64, padR = 64, padT = 16, padB = 56;   // padR widened for end-of-line value labels
     const dates = (() => {
       const s = new Set();
       cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => { if (p.date >= st.from && p.date <= st.to) s.add(p.date); }));
@@ -2375,17 +2375,23 @@
     if (!reuse) {
       const svg = document.createElementNS(NS, "svg");
       svg.setAttribute("class", "linechart"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      const defs = document.createElementNS(NS, "defs");
+      const clip = document.createElementNS(NS, "clipPath"); clip.setAttribute("id", "chartclip-" + key);
+      const clipRect = document.createElementNS(NS, "rect");
+      clipRect.setAttribute("x", "0"); clipRect.setAttribute("y", "0"); clipRect.setAttribute("width", String(W)); clipRect.setAttribute("height", String(H));
+      clip.appendChild(clipRect); defs.appendChild(clip);
       const gridG = document.createElementNS(NS, "g"); gridG.setAttribute("class", "grid");
-      const linesG = document.createElementNS(NS, "g"); linesG.setAttribute("class", "axis");
+      const linesG = document.createElementNS(NS, "g"); linesG.setAttribute("class", "axis"); linesG.setAttribute("clip-path", "url(#chartclip-" + key + ")");
+      const labelsG = document.createElementNS(NS, "g"); labelsG.setAttribute("class", "endlabels");
       const hoverG = document.createElementNS(NS, "g"); hoverG.setAttribute("class", "hoverlayer");
       const overlay = document.createElementNS(NS, "rect"); overlay.setAttribute("fill", "transparent"); overlay.style.cursor = "crosshair";
-      svg.appendChild(gridG); svg.appendChild(linesG); svg.appendChild(hoverG); svg.appendChild(overlay);
+      svg.appendChild(defs); svg.appendChild(gridG); svg.appendChild(linesG); svg.appendChild(labelsG); svg.appendChild(hoverG); svg.appendChild(overlay);
       chartEl.style.position = "relative";
       chartEl.replaceChildren(svg);
       const tip = document.createElement("div"); tip.className = "trend-tip"; tip.hidden = true;
       chartEl.appendChild(tip);
       legendEl.replaceChildren();
-      cache = chartCache[key] = { svg, gridG, linesG, hoverG, overlay, tip, series: {}, legend: {}, yMin: null, yMax: null, fitMin: null, fitMax: null, datesKey };
+      cache = chartCache[key] = { svg, gridG, linesG, labelsG, clipRect, drawn: false, hoverG, overlay, tip, series: {}, legend: {}, yMin: null, yMax: null, fitMin: null, fitMax: null, datesKey };
       overlay.addEventListener("mousemove", (ev) => trendHoverMove(cache, ev));
       overlay.addEventListener("mouseleave", () => trendHoverLeave(cache));
     }
@@ -2433,13 +2439,14 @@
     const active = [];
     target.forEach((s) => {
       let rec = cache.series[s.bid];
-      if (!rec) { // ENTER — create persistent path + dots group
+      if (!rec) { // ENTER — create persistent area + path + dots group
+        const area = document.createElementNS(NS, "path"); area.setAttribute("stroke", "none");
         const path = document.createElementNS(NS, "path"); path.setAttribute("fill", "none");
         const dotsG = document.createElementNS(NS, "g");
         const grp = document.createElementNS(NS, "g");
-        grp.appendChild(path); grp.appendChild(dotsG);
+        grp.appendChild(area); grp.appendChild(path); grp.appendChild(dotsG);   // area sits behind the line
         cache.linesG.appendChild(grp);
-        rec = { grp, path, dotsG, cur: null };
+        rec = { grp, area, path, dotsG, cur: null };
         cache.series[s.bid] = rec;
       }
       rec.enter = !rec.cur;          // brand-new series → fade in
@@ -2466,8 +2473,9 @@
     const fromYMin = cache.yMin, fromYMax = cache.yMax;
     const lerp = (p, q, e) => p + (q - p) * e;
     const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOut: glide off the current position, settle gently
-    const DUR = 480;
+    const DUR = prefersReduced ? 0 : (cache.drawn ? 480 : 760);   // first paint = cinematic left-to-right draw-on
     const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
+    const labelFmt = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) : (v) => "$" + Math.round(v).toLocaleString();
 
     const renderFrame = (e) => {
       const yMin = lerp(fromYMin, tYMin, e), yMax = lerp(fromYMax, tYMax, e), span = (yMax - yMin) || 1;
@@ -2481,13 +2489,22 @@
       dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) grid += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
       cache.gridG.innerHTML = grid;
 
+      let endLabels = "";
       active.forEach((rec) => {
         const s = rec.s, vmapNow = {};
         // One continuous monotone line through every valid observation — connect
         // consecutive points even if filtering to a bucket dropped dates between
         // them (same-date dupes are deduped upstream, so no vertical artifacts).
         const coords = s.pts.map((p) => { const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return { X: x(p.d), Y: y(v) }; });
-        rec.path.setAttribute("d", smoothPath(coords));
+        const dpath = smoothPath(coords);
+        // faint area fill under the benchmark (subject) line only
+        if (rec.area) {
+          if (s.bench && coords.length) {
+            rec.area.setAttribute("d", `${dpath} L ${coords[coords.length - 1].X.toFixed(1)} ${H - padB} L ${coords[0].X.toFixed(1)} ${H - padB} Z`);
+            rec.area.setAttribute("fill", s.color); rec.area.setAttribute("fill-opacity", "0.09");
+          } else { rec.area.setAttribute("d", ""); rec.area.setAttribute("fill", "none"); }
+        }
+        rec.path.setAttribute("d", dpath);
         rec.path.setAttribute("stroke", s.color);
         rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.6);
         rec.path.setAttribute("stroke-linecap", "round");
@@ -2496,15 +2513,20 @@
         let dots = "";
         s.pts.forEach((p) => { const cy = y(vmapNow[p.d]); dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`; });
         rec.dotsG.innerHTML = dots;
-        rec.grp.style.opacity = rec.enter ? String(e) : "1";
+        rec.grp.style.opacity = cache.drawn ? (rec.enter ? String(e) : "1") : "1";   // first paint reveals via clip, not opacity
         rec.cur = vmapNow;
+        if (coords.length) { const lc = coords[coords.length - 1]; endLabels += `<text class="end-label${s.bench ? " end-label--bench" : ""}" x="${(lc.X + 8).toFixed(1)}" y="${(lc.Y + 3.5).toFixed(1)}" fill="${s.color}">${labelFmt(vmapNow[s.pts[s.pts.length - 1].d])}</text>`; }
       });
+      cache.labelsG.innerHTML = endLabels;
+      cache.labelsG.style.opacity = cache.drawn ? "1" : String(Math.max(0, (e - 0.6) / 0.4));   // labels fade in as the draw-on finishes
+      cache.clipRect.setAttribute("width", String(cache.drawn ? W : Math.max(0, e * W)));         // left-to-right reveal on first paint
       exits.forEach((rec) => { rec.grp.style.opacity = String(1 - e); });
 
-      if (e >= 1) {  // finalize: drop exited series
+      if (e >= 1) {  // finalize: drop exited series, lock in the full reveal
         exits.forEach((rec) => rec.grp.remove());
         Object.keys(cache.series).forEach((bid) => { if (!want.has(bid)) delete cache.series[bid]; });
         active.forEach((rec) => (rec.enter = false));
+        cache.drawn = true; cache.clipRect.setAttribute("width", String(W)); cache.labelsG.style.opacity = "1";
       }
     };
 
