@@ -808,9 +808,10 @@
     }).addTo(uMap);
     uLines = L.layerGroup().addTo(uMap);
     uCluster = L.markerClusterGroup
-      // removeOutsideVisibleBounds: false → keep all markers in the DOM so none
-      // transiently vanish mid-zoom (counts are small; no perf cost).
-      ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: false })
+      // removeOutsideVisibleBounds:false → keep all markers in the DOM (no perf cost
+      // at our scale). animate:false → skip the buggy cluster split animation that
+      // dropped children when a cluster bubble was clicked to expand.
+      ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: false, animate: false })
       : L.layerGroup();
     uMap.addLayer(uCluster);
     setUniverseMarkers(true);  // focus the benchmark popup on (re)entry / bucket select
