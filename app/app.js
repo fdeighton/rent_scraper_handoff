@@ -2667,6 +2667,8 @@
   window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); });
   loadCustomBuildings();
   loadCustomAnalyses();
+  // Always land on Building Universe on open/refresh, regardless of a persisted hash.
+  if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
   route();
 
   // Collapsible sidebar. Always starts OPEN on load (state is in-memory only, not
