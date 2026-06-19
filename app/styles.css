@@ -822,5 +822,6 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 }
 
 /* Rent-trend chart end-of-line value labels */
-.linechart .end-label { font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.linechart .end-label { font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; transition: opacity .12s var(--ease); }
 .linechart .end-label--bench { font-size: 12px; font-weight: 700; }
+.linechart .end-label--hi { font-size: 13px; font-weight: 800; stroke-width: 4px; }

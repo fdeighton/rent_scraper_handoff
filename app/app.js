@@ -2274,6 +2274,13 @@
       const rec = cache.series[bid];
       if (rec && rec.grp) rec.grp.style.opacity = hovered ? (bid === hovered ? "1" : "0.18") : "1";
     });
+    // bring the hovered line's end-of-line price label to the front + emphasize it
+    if (cache.labelsG) cache.labelsG.querySelectorAll(".end-label").forEach((t) => {
+      const hi = hovered && t.dataset.bid === hovered;
+      t.style.opacity = hovered ? (hi ? "1" : "0.2") : "1";
+      t.classList.toggle("end-label--hi", !!hi);
+      if (hi) cache.labelsG.appendChild(t);   // render last → on top of any overlap
+    });
 
     // tooltip
     const psfMode = hv.metric === "avgPsf";
@@ -2302,6 +2309,7 @@
     if (cache.hoverG) cache.hoverG.innerHTML = "";
     if (cache.tip) cache.tip.hidden = true;
     Object.keys(cache.series).forEach((bid) => { const rec = cache.series[bid]; if (rec && rec.grp) rec.grp.style.opacity = "1"; });
+    if (cache.labelsG) cache.labelsG.querySelectorAll(".end-label").forEach((t) => { t.style.opacity = "1"; t.classList.remove("end-label--hi"); });
   }
 
   function drawChart(a, cols, st) {
@@ -2419,14 +2427,13 @@
     const active = [];
     target.forEach((s) => {
       let rec = cache.series[s.bid];
-      if (!rec) { // ENTER — create persistent area + path + dots group
-        const area = document.createElementNS(NS, "path"); area.setAttribute("stroke", "none");
+      if (!rec) { // ENTER — create persistent path + dots group
         const path = document.createElementNS(NS, "path"); path.setAttribute("fill", "none");
         const dotsG = document.createElementNS(NS, "g");
         const grp = document.createElementNS(NS, "g");
-        grp.appendChild(area); grp.appendChild(path); grp.appendChild(dotsG);   // area sits behind the line
+        grp.appendChild(path); grp.appendChild(dotsG);
         cache.linesG.appendChild(grp);
-        rec = { grp, area, path, dotsG, cur: null };
+        rec = { grp, path, dotsG, cur: null };
         cache.series[s.bid] = rec;
       }
       rec.enter = !rec.cur;          // brand-new series → fade in
@@ -2477,13 +2484,6 @@
         // them (same-date dupes are deduped upstream, so no vertical artifacts).
         const coords = s.pts.map((p) => { const fv = rec.fromY(p.d); const v = fv != null ? lerp(fv, p.v, e) : p.v; vmapNow[p.d] = v; return { X: x(p.d), Y: y(v) }; });
         const dpath = smoothPath(coords);
-        // faint area fill under the benchmark (subject) line only
-        if (rec.area) {
-          if (s.bench && coords.length) {
-            rec.area.setAttribute("d", `${dpath} L ${coords[coords.length - 1].X.toFixed(1)} ${H - padB} L ${coords[0].X.toFixed(1)} ${H - padB} Z`);
-            rec.area.setAttribute("fill", s.color); rec.area.setAttribute("fill-opacity", "0.09");
-          } else { rec.area.setAttribute("d", ""); rec.area.setAttribute("fill", "none"); }
-        }
         rec.path.setAttribute("d", dpath);
         rec.path.setAttribute("stroke", s.color);
         rec.path.setAttribute("stroke-width", s.bench ? 3 : 1.6);
@@ -2495,7 +2495,7 @@
         rec.dotsG.innerHTML = dots;
         rec.grp.style.opacity = cache.drawn ? (rec.enter ? String(e) : "1") : "1";   // first paint reveals via clip, not opacity
         rec.cur = vmapNow;
-        if (coords.length) { const lc = coords[coords.length - 1]; endLabels += `<text class="end-label${s.bench ? " end-label--bench" : ""}" x="${(lc.X + 8).toFixed(1)}" y="${(lc.Y + 3.5).toFixed(1)}" fill="${s.color}">${labelFmt(vmapNow[s.pts[s.pts.length - 1].d])}</text>`; }
+        if (coords.length) { const lc = coords[coords.length - 1]; endLabels += `<text class="end-label${s.bench ? " end-label--bench" : ""}" data-bid="${s.bid}" x="${(lc.X + 8).toFixed(1)}" y="${(lc.Y + 3.5).toFixed(1)}" fill="${s.color}">${labelFmt(vmapNow[s.pts[s.pts.length - 1].d])}</text>`; }
       });
       cache.labelsG.innerHTML = endLabels;
       cache.labelsG.style.opacity = cache.drawn ? "1" : String(Math.max(0, (e - 0.6) / 0.4));   // labels fade in as the draw-on finishes
