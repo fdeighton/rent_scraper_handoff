@@ -724,33 +724,7 @@
     return `<div class="map-shell">
       <div class="map-toolbar">${mapToolbarInner()}</div>
       <div id="bu-map"></div>
-      <div class="mkt-card" id="mkt-card" hidden></div>
     </div>`;
-  }
-  // Floating "Rental Market Universe" overlay (all-buildings map view only).
-  function renderMarketCard() {
-    const card = document.getElementById("mkt-card");
-    if (!card) return;
-    if (buState.bucket && buState.bucket !== "__all") { card.hidden = true; return; }   // hide in compare-set mode
-    const list = universeList(buState.q);                       // map's set (respects search)
-    const counts = {};
-    list.forEach((b) => { if (b.city) counts[b.city] = (counts[b.city] || 0) + 1; });
-    const cities = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    const top = cities.slice(0, 4), more = cities.length - top.length;
-    const rows = top.map(([c, n]) => `<div class="mkt-row"><span>${esc(c)}</span><span class="mkt-n">${n}</span></div>`).join("")
-      + (more > 0 ? `<div class="mkt-more">+${more} more market${more === 1 ? "" : "s"}</div>` : "");
-    card.innerHTML = `
-      <div class="mkt-head"><span class="mkt-dot"></span><div>
-        <div class="mkt-title">Rental Market Universe</div>
-        <div class="mkt-sub">Tracked rental properties across core Canadian markets</div></div></div>
-      <div class="mkt-kpis">
-        <div class="mkt-kpi"><b>${list.length}</b><span>buildings</span></div>
-        <div class="mkt-kpi"><b>${cities.length}</b><span>market${cities.length === 1 ? "" : "s"}</span></div>
-        <div class="mkt-kpi"><b>${D.analyses.length}</b><span>analyses</span></div>
-      </div>
-      <div class="mkt-breakdown">${rows}</div>
-      <div class="mkt-help">Select a market cluster or zoom in to explore individual properties.</div>`;
-    card.hidden = false;
   }
   function markerIcon(isBench, i) {
     const glyph = isBench ? ICONS.star : ICONS.building;
@@ -853,7 +827,6 @@
       else setTimeout(openIt, 150);
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
-    renderMarketCard();                      // keep the universe overlay current (search/bucket)
   }
   // Connector lines: benchmark → each VISIBLE comp target. Comps hidden inside a
   // cluster collapse to a single line to that cluster (and fan out as it expands).
