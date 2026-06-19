@@ -183,10 +183,10 @@ button { font-family: inherit; cursor: pointer; }
 .search {
   display: flex; align-items: center; gap: var(--sp-2);
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); min-width: 260px;
+  border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); min-width: 304px;
 }
-.search input { border: none; outline: none; font-family: inherit; font-size: 14px; width: 100%; background: none; color: var(--navy); }
-.search .ic { color: var(--grey); }
+.search input { border: none; outline: none; font-family: inherit; font-size: 14px; width: 100%; min-width: 0; background: none; color: var(--navy); text-overflow: ellipsis; }
+.search .ic { color: var(--grey); flex: 0 0 auto; }
 .search:focus-within { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(255,78,49,.28); }
 
 /* Cards */
