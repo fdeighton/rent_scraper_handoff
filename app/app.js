@@ -857,10 +857,11 @@
     }).addTo(uMap);
     uLines = L.layerGroup().addTo(uMap);
     uCluster = L.markerClusterGroup
-      // removeOutsideVisibleBounds:false → keep all markers in the DOM (no perf cost
-      // at our scale). animate:false → skip the buggy cluster split animation that
-      // dropped children when a cluster bubble was clicked to expand.
-      ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: false, animate: false })
+      // removeOutsideVisibleBounds:false keeps all markers in the DOM (no perf cost
+      // at our scale) so none vanish mid-zoom. animate:true gives the slide-out when
+      // a cluster splits — safe now that the marker fade is gated to load only and no
+      // longer fights the split animation.
+      ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: false, animate: true })
       : L.layerGroup();
     uMap.addLayer(uCluster);
     // re-aim connector lines as clusters form/break — deferred a tick so
