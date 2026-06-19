@@ -158,16 +158,24 @@ button { font-family: inherit; cursor: pointer; }
 .btn--accent { background: var(--orange); color: #fff; border-color: var(--orange); }
 .btn--accent:hover { background: var(--orange-600); }
 
-/* Segmented control (view tabs) */
-.segmented { display: inline-flex; background: #eef0f4; border-radius: var(--r-md); padding: 2px; }
+/* Segmented control (view tabs) — sliding pill */
+.segmented { position: relative; display: inline-flex; background: #eef0f4; border-radius: var(--r-md); padding: 2px; }
 .segmented button {
+  position: relative; z-index: 1;
   border: none; background: none; padding: 6px 14px; border-radius: var(--r-sm);
   font-size: 13px; font-weight: 500; color: var(--grey);
   display: inline-flex; align-items: center; gap: 6px;
+  transition: color .12s var(--ease);
 }
 .segmented button .ic { width: 15px; height: 15px; }
-.segmented button.active { background: var(--surface); color: var(--navy); box-shadow: var(--shadow-xs); }
+.segmented button.active { color: var(--navy); }
 .segmented button:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(255,78,49,.28); }
+.seg-thumb {
+  position: absolute; top: 2px; bottom: 2px; left: 0; width: 0;
+  background: var(--surface); border-radius: var(--r-sm); box-shadow: var(--shadow-xs);
+  transition: transform .18s var(--ease), width .18s var(--ease);
+  pointer-events: none; z-index: 0;
+}
 
 /* Search */
 .search {
@@ -792,4 +800,13 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
   body.report-open .rp-tablewrap tr { break-inside: avoid; }
   body.report-open .rp-subtitle, body.report-open .rp-legend { break-after: avoid; break-inside: avoid; }
   @page { size: letter portrait; margin: 0; }
+}
+
+/* ---- opulence: entrance motion -------------------------------------------- */
+@keyframes fzRise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+#view.view-enter { animation: fzRise .18s var(--ease) both; }
+.bu-grid--enter .bcard { animation: fzRise .22s var(--ease) both; }   /* full renders only, not search/filter */
+@media (prefers-reduced-motion: reduce) {
+  #view.view-enter, .bu-grid--enter .bcard { animation: none !important; }
+  .seg-thumb { transition: none !important; }
 }

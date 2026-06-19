@@ -557,7 +557,7 @@
       body = hasLeaflet ? mapShellHtml(filtered) :
         `<div class="card"><div class="empty">${icon("map")}<br/>The map needs the Leaflet library + CartoDB tiles, which load over the network. You appear to be offline — switch to List view, or reopen with a connection.</div></div>`;
     } else {
-      body = universeFilterBar() + `<div class="bu-grid">${universeFiltered().map(buCard).join("")}</div>`;
+      body = universeFilterBar() + `<div class="bu-grid bu-grid--enter"></div>`;
     }
 
     $view.innerHTML = `
@@ -568,7 +568,7 @@
         </div>
         <div class="page-actions">
           <div class="search">${icon("search")}<input id="bu-search" placeholder="Search buildings, address, city…" value="${esc(buState.q)}"/></div>
-          <div class="segmented">
+          <div class="segmented" data-seg="universe-view">
             <button data-v="list" class="${buState.view === "list" ? "active" : ""}">List</button>
             <button data-v="map" class="${buState.view === "map" ? "active" : ""}">Map</button>
           </div>
@@ -577,10 +577,13 @@
       </div>
       ${body}`;
 
-    const refreshGrid = () => {
+    const refreshGrid = (animate) => {
       const items = universeFiltered();
       const g = $view.querySelector(".bu-grid");
-      if (g) g.innerHTML = items.length ? items.map(buCard).join("") : `<div class="card" style="grid-column:1/-1"><div class="empty">${icon("search")}<br/>No buildings match these filters.</div></div>`;
+      if (g) {
+        g.classList.toggle("bu-grid--enter", !!animate);   // stagger only on full renders
+        g.innerHTML = items.length ? items.map((b, i) => buCard(b, i)).join("") : `<div class="card" style="grid-column:1/-1"><div class="empty">${icon("search")}<br/>No buildings match these filters.</div></div>`;
+      }
       const c = $view.querySelector("#bu-count");
       if (c) c.textContent = `Showing ${items.length} of ${universeList("").length} buildings`;
       const rb = $view.querySelector("#f-clear");      // keep the Reset button's state live
@@ -591,14 +594,14 @@
     s.oninput = () => {
       buState.q = s.value;
       if (buState.view === "map" && uCluster) setUniverseMarkers();
-      else refreshGrid();
+      else refreshGrid(false);
     };
     $view.querySelectorAll("[data-v]").forEach((b) => (b.onclick = () => { buState.view = b.dataset.v; renderUniverse(); }));
     const addBtn = document.getElementById("bu-add");
     if (addBtn) addBtn.onclick = openAddBuildingModal;
 
     // list-view advanced filters + sort
-    const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { buState[key] = el.value; refreshGrid(); }; };
+    const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { buState[key] = el.value; refreshGrid(false); }; };
     bindSel("f-city", "city"); bindSel("f-asset", "assetType"); bindSel("f-owner", "owner");
     bindSel("f-era", "era"); bindSel("f-rent", "rentBand"); bindSel("f-psf", "psfBand"); bindSel("f-sort", "sort");
     const clrBtn = document.getElementById("f-clear");
@@ -606,9 +609,10 @@
       Object.assign(buState, { q: "", city: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" });
       renderUniverse();
     };
-    if (buState.view === "list") refreshGrid();   // populate the "Showing X of Y" count
+    if (buState.view === "list") refreshGrid(true);   // initial render: stagger the cards in
 
     if (buState.view === "map" && hasLeaflet) wireMap(filtered);
+    initSegmenteds($view);   // glide the List/Map pill on direct re-renders
   }
 
   // ---- Map (Leaflet + CartoDB Positron, branded markers) -------------------
@@ -759,8 +763,9 @@
       if (subset.length && uMap) uMap.fitBounds(subset, { padding: [40, 40], maxZoom: buState.city === "__all" ? 14 : 13 });
     }));
   }
-  function buCard(b) {
+  function buCard(b, i) {
     const sum = D.summary[b.id];
+    const delay = `style="animation-delay:${Math.min(i || 0, 14) * 18}ms"`;   // staggered entrance (capped)
     const photo = `<div class="bcard__ph">${icon("building")}</div>` +
       (b.photo ? `<img src="${esc(b.photo)}" alt="" loading="lazy" onerror="this.style.display='none'"/>` : "");
     const badges = [];
@@ -772,7 +777,7 @@
       chips = UNIT_TYPES.filter((t) => sum.byType[t]).slice(0, 4)
         .map((t) => `<span class="chip">${TYPE_LABEL[t]} <b>${money(sum.byType[t].avgRent)}</b></span>`).join("");
     }
-    return `<div class="bcard" data-go="#/building/${b.id}" onclick="location.hash='#/building/${b.id}'">
+    return `<div class="bcard" ${delay} data-go="#/building/${b.id}" onclick="location.hash='#/building/${b.id}'">
       <div class="bcard__photo">${photo}</div>
       <div class="bcard__body">
         <div class="bcard__name">${esc(b.name)}</div>
@@ -1238,7 +1243,7 @@
           <div class="page-sub">${esc(a.address || "")}${a.city ? ", " + esc(a.city) : ""} · benchmark vs ${a.comps.length} comparable buildings</div>
         </div>
         <div class="page-actions">
-          <div class="segmented">
+          <div class="segmented" data-seg="analysis-tab">
             <button data-tab="summary" class="${tab === "summary" ? "active" : ""}">${icon("layout")} Summary</button>
             <button data-tab="trends" class="${tab === "trends" ? "active" : ""}">${icon("chart")} Rent Trends</button>
           </div>
@@ -1274,11 +1279,13 @@
     const mktPsf = compSums.length ? (compSums.reduce((s, x) => s + (x.weighted && x.weighted.avgPsf ? x.weighted.avgPsf : 0), 0) / compSums.length) : null;
     const bRent = benchSum && benchSum.weighted ? benchSum.weighted.avgRent : null;
     const posn = bRent != null && mktRent != null ? Math.round(((bRent - mktRent) / mktRent) * 100) : null;
+    const bPsfV = benchSum && benchSum.weighted ? benchSum.weighted.avgPsf : null;
+    const num = (v, fmt, txt) => v == null ? "—" : `<span data-count="${v}" data-fmt="${fmt}">${txt}</span>`;
     return `<div class="kpis">
-      <div class="kpi"><div class="kpi__val accent tnum">${money(bRent)}</div><div class="kpi__label">Benchmark avg gross rent</div></div>
-      <div class="kpi"><div class="kpi__val tnum">${money(mktRent)}</div><div class="kpi__label">Comp-set avg rent (${compSums.length})</div></div>
-      <div class="kpi"><div class="kpi__val tnum">${psf(benchSum && benchSum.weighted ? benchSum.weighted.avgPsf : null)}<span style="font-size:14px">/sf</span></div><div class="kpi__label">Benchmark avg PSF · mkt ${psf(mktPsf)}</div></div>
-      <div class="kpi"><div class="kpi__val ${posn != null && posn >= 0 ? "success" : ""} tnum">${posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%"}</div><div class="kpi__label">Benchmark vs market</div></div>
+      <div class="kpi"><div class="kpi__val accent tnum">${num(bRent, "money", money(bRent))}</div><div class="kpi__label">Benchmark avg gross rent</div></div>
+      <div class="kpi"><div class="kpi__val tnum">${num(mktRent, "money", money(mktRent))}</div><div class="kpi__label">Comp-set avg rent (${compSums.length})</div></div>
+      <div class="kpi"><div class="kpi__val tnum">${bPsfV == null ? "—" : `${num(bPsfV, "psf", psf(bPsfV))}<span style="font-size:14px">/sf</span>`}</div><div class="kpi__label">Benchmark avg PSF · mkt ${psf(mktPsf)}</div></div>
+      <div class="kpi"><div class="kpi__val ${posn != null && posn >= 0 ? "success" : ""} tnum">${num(posn, "pct", posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%")}</div><div class="kpi__label">Benchmark vs market</div></div>
     </div>`;
   }
 
@@ -2478,9 +2485,9 @@
 
     const stats = `<div class="card"><div class="card__title">${icon("chart")} Scrape Stats</div>
       <div class="stat3">
-        <div class="s"><b class="tnum">${total}</b><span>Total scrapes</span></div>
-        <div class="s ok"><b class="tnum">${ok}</b><span>Successful</span></div>
-        <div class="s err"><b class="tnum">${err}</b><span>Errors</span></div>
+        <div class="s"><b class="tnum" data-count="${total}" data-fmt="int">${total}</b><span>Total scrapes</span></div>
+        <div class="s ok"><b class="tnum" data-count="${ok}" data-fmt="int">${ok}</b><span>Successful</span></div>
+        <div class="s err"><b class="tnum" data-count="${err}" data-fmt="int">${err}</b><span>Errors</span></div>
       </div>
       <div class="sub" style="margin-top:16px">${sum ? "Last scraped " + fmtDate(sum.date) + " · " + (sum.weighted ? sum.weighted.count : 0) + " units from latest snapshot" : "No successful scrape yet"}</div>
     </div>`;
@@ -2584,6 +2591,64 @@
   }
 
   // ============================================================== Router =====
+  // ---- motion / micro-interactions -----------------------------------------
+  const prefersReduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  function fmtCount(v, fmt) {
+    if (fmt === "psf") return "$" + v.toFixed(2);
+    if (fmt === "pct") return (v > 0 ? "+" : "") + Math.round(v) + "%";
+    if (fmt === "money") return "$" + Math.round(v).toLocaleString();
+    return Math.round(v).toLocaleString();                 // int
+  }
+  // Count [data-count] numbers up from 0 → target on mount (tabular nums keep them
+  // from jittering). Honors reduced-motion.
+  function animateCounts(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-count]").forEach((el) => {
+      const target = parseFloat(el.dataset.count);
+      if (!isFinite(target)) return;
+      const fmt = el.dataset.fmt || "int";
+      if (prefersReduced) { el.textContent = fmtCount(target, fmt); return; }
+      const dur = 650, t0 = performance.now();
+      const tick = (now) => {
+        const p = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - p, 3);                  // easeOutCubic
+        el.textContent = fmtCount(target * e, fmt);
+        if (p < 1) requestAnimationFrame(tick); else el.textContent = fmtCount(target, fmt);
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  // Sliding pill for segmented controls. The thumb is recreated each render, but
+  // we remember the last-active index per control (segLast) so it glides from
+  // where it was to the new active tab even across re-renders.
+  const segLast = {};
+  function placeThumb(seg) {
+    const key = seg.dataset.seg || "seg";
+    const btns = [...seg.querySelectorAll("button")];
+    if (!btns.length) return;
+    let thumb = seg.querySelector(".seg-thumb");
+    if (!thumb) { thumb = document.createElement("span"); thumb.className = "seg-thumb"; seg.insertBefore(thumb, seg.firstChild); }
+    const activeIdx = Math.max(0, btns.findIndex((b) => b.classList.contains("active")));
+    const at = (i) => { const b = btns[i]; thumb.style.width = b.offsetWidth + "px"; thumb.style.transform = `translateX(${b.offsetLeft}px)`; };
+    const fromIdx = segLast[key];
+    if (prefersReduced || fromIdx == null || fromIdx === activeIdx) {
+      thumb.style.transition = "none"; at(activeIdx);
+    } else {
+      thumb.style.transition = "none"; at(fromIdx); void thumb.offsetWidth;
+      thumb.style.transition = ""; requestAnimationFrame(() => at(activeIdx));
+    }
+    segLast[key] = activeIdx;
+  }
+  function initSegmenteds(root) { if (root) root.querySelectorAll(".segmented[data-seg]").forEach(placeThumb); }
+
+  // Re-trigger the page fade+rise entrance on the content container.
+  function playViewEnter() {
+    if (prefersReduced || !$view) return;
+    $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
+  }
+
   function route() {
     const h = location.hash || "#/universe";
     destroyMap();
@@ -2594,6 +2659,9 @@
     else if (m) renderAnalysis(m[1], m[2]);
     else if (h.startsWith("#/building/")) renderBuilding(h.split("/")[2]);
     else renderUniverse();
+    playViewEnter();
+    initSegmenteds($view);
+    animateCounts($view);
   }
   window.addEventListener("hashchange", route);
   window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); });
