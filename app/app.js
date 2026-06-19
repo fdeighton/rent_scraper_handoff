@@ -789,6 +789,24 @@
       if (subset.length && uMap) uMap.fitBounds(subset, { padding: [40, 40], maxZoom: buState.city === "__all" ? 14 : 13 });
     }));
   }
+  // Tiny rent-trend sparkline for a building card (weighted avg rent over time).
+  function sparkline(bid) {
+    const vals = (D.trends[bid] || []).map((p) => p.avgRent).filter((v) => v != null);
+    if (vals.length < 2) return "";
+    const w = 120, h = 30, pad = 3;
+    const min = Math.min(...vals), max = Math.max(...vals), range = (max - min) || 1, n = vals.length;
+    const pts = vals.map((v, i) => [pad + (i / (n - 1)) * (w - pad * 2), h - pad - ((v - min) / range) * (h - pad * 2)]);
+    const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+    const area = `M${pts[0][0].toFixed(1)} ${h} ` + pts.map((p) => `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ") + ` L${pts[n - 1][0].toFixed(1)} ${h} Z`;
+    const up = vals[n - 1] - vals[0];
+    const col = up > 0 ? "var(--success)" : up < 0 ? "var(--orange-600)" : "var(--grey)";
+    const last = pts[n - 1];
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+      <path d="${area}" fill="${col}" opacity="0.08" stroke="none"/>
+      <path d="${line}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.2" fill="${col}"/>
+    </svg>`;
+  }
   function buCard(b, i) {
     const sum = D.summary[b.id];
     const delay = `style="animation-delay:${Math.min(i || 0, 16) * 32}ms"`;   // staggered entrance (capped)
@@ -803,12 +821,19 @@
       chips = UNIT_TYPES.filter((t) => sum.byType[t]).slice(0, 4)
         .map((t) => `<span class="chip">${TYPE_LABEL[t]} <b>${money(sum.byType[t].avgRent)}</b></span>`).join("");
     }
+    const spark = sparkline(b.id);
     return `<div class="bcard" ${delay} data-go="#/building/${b.id}" onclick="location.hash='#/building/${b.id}'">
-      <div class="bcard__photo">${photo}</div>
+      <div class="bcard__photo">
+        ${photo}
+        <div class="bcard__overlay">
+          <div class="bcard__name">${esc(b.name)}</div>
+          ${b.city ? `<div class="bcard__city">${esc(b.city)}${b.province ? ", " + esc(b.province) : ""}</div>` : ""}
+        </div>
+      </div>
       <div class="bcard__body">
-        <div class="bcard__name">${esc(b.name)}</div>
-        <div class="bcard__addr">${esc(b.address || "")}${b.city ? ", " + esc(b.city) : ""}</div>
+        <div class="bcard__addr">${esc(b.address || "—")}</div>
         <div class="bcard__badges">${badges.join("")}</div>
+        ${spark ? `<div class="bcard__spark">${spark}</div>` : ""}
         <div class="bcard__chips">${chips || '<span class="sub">No recent units captured</span>'}</div>
         <div class="bcard__foot">${icon("clock")} ${b.lastScrape ? "Last scraped " + fmtDate(b.lastScrape) : "Not yet scraped"}</div>
       </div>
