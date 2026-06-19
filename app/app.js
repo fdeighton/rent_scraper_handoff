@@ -390,15 +390,15 @@
   // ============================================================== Sidebar ===
   function renderNav() {
     const route = location.hash || "#/universe";
-    let html = `<button class="nav-item ${route.startsWith("#/universe") ? "active" : ""}" data-go="#/universe">
+    let html = `<button class="nav-item ${route.startsWith("#/universe") ? "active" : ""}" data-go="#/universe" title="Building Universe">
         ${icon("globe")}<span class="nav-item__label">Building Universe</span></button>`;
     html += `<div class="sidebar__section">Analyses</div>`;
     for (const a of D.analyses) {
       const active = route.includes("/analysis/" + a.id);
-      html += `<button class="nav-item ${active ? "active" : ""}" data-go="#/analysis/${a.id}">
+      html += `<button class="nav-item ${active ? "active" : ""}" data-go="#/analysis/${a.id}" title="${esc(a.name)}">
           ${icon("building")}<span class="nav-item__label">${esc(a.name)}</span>${a.custom ? '<span class="nav-tag">custom</span>' : ""}</button>`;
     }
-    html += `<button class="nav-item" data-action="new-analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
+    html += `<button class="nav-item" data-action="new-analysis" title="New Analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
     $nav.innerHTML = html;
     $nav.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
     $nav.querySelectorAll('[data-action="new-analysis"]').forEach((b) => (b.onclick = openNewAnalysisModal));
@@ -2580,4 +2580,20 @@
   loadCustomBuildings();
   loadCustomAnalyses();
   route();
+
+  // Collapsible sidebar. Always starts OPEN on load (state is in-memory only, not
+  // persisted) and survives in-app navigation since it lives outside #nav.
+  (function wireSidebar() {
+    const sb = document.getElementById("sidebar"), tg = document.getElementById("sb-toggle");
+    if (!sb || !tg) return;
+    const apply = (open) => {
+      sb.classList.toggle("collapsed", !open);
+      tg.innerHTML = icon("chevron-left");
+      tg.title = open ? "Collapse sidebar" : "Expand sidebar";
+      tg.setAttribute("aria-label", tg.title);
+      if (uMap) setTimeout(() => { try { uMap.invalidateSize(); } catch (e) {} }, 200); // map fills new width
+    };
+    apply(true);                                              // default open every load
+    tg.onclick = () => apply(sb.classList.contains("collapsed"));
+  })();
 })();

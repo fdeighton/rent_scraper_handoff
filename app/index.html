@@ -17,10 +17,13 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
-      <a class="sidebar__back" href="#/universe" aria-label="Fitzrovia — home">
-        <img class="sidebar__logofull" src="fitzrovia-logo.png" alt="Fitzrovia" />
-      </a>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__head">
+        <a class="sidebar__back" href="#/universe" aria-label="Fitzrovia — home">
+          <img class="sidebar__logofull" src="fitzrovia-logo.png" alt="Fitzrovia" />
+        </a>
+        <button class="sidebar__toggle" id="sb-toggle" aria-label="Collapse sidebar" title="Collapse sidebar"></button>
+      </div>
       <nav class="sidebar__nav" id="nav"></nav>
     </aside>
     <main class="main">

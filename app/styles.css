@@ -41,6 +41,7 @@
   --shadow-lg: 0 6px 16px rgba(6,16,49,.08), 0 12px 32px rgba(6,16,49,.06);
 
   --sidebar-w: 232px;
+  --sidebar-collapsed-w: 64px;
   --header-h: 56px;
 
   --ease: cubic-bezier(.2,0,0,1);
@@ -71,17 +72,38 @@ button { font-family: inherit; cursor: pointer; }
   color: #fff;
   display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh;
+  transition: width .18s var(--ease), flex-basis .18s var(--ease);
 }
+.sidebar__head { display: flex; align-items: center; height: var(--header-h); border-bottom: 1px solid var(--navy-600); }
 .sidebar__back {
-  height: var(--header-h);
+  flex: 1; min-width: 0; height: 100%;
   display: flex; align-items: center; gap: var(--sp-2);
   padding: 0 var(--sp-5);
   color: #fff; font-weight: 500;
-  border-bottom: 1px solid var(--navy-600);
 }
 .sidebar__back .ic { opacity: .8; }
 .sidebar__logofull { height: 34px; width: auto; max-width: 100%; display: block; }
+.sidebar__toggle {
+  flex: 0 0 auto; margin-right: var(--sp-3);
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; color: #c9cee3; border-radius: var(--r-md);
+  transition: background .12s var(--ease), color .12s var(--ease);
+}
+.sidebar__toggle:hover { background: var(--navy-600); color: #fff; }
+.sidebar__toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255,78,49,.28); }
+.sidebar__toggle .ic { width: 18px; height: 18px; transition: transform .18s var(--ease); }
 .sidebar__nav { padding: var(--sp-4) var(--sp-3); overflow-y: auto; flex: 1; }
+
+/* collapsed rail */
+.sidebar.collapsed { width: var(--sidebar-collapsed-w); flex-basis: var(--sidebar-collapsed-w); }
+.sidebar.collapsed .sidebar__back { display: none; }
+.sidebar.collapsed .sidebar__head { justify-content: center; }
+.sidebar.collapsed .sidebar__toggle { margin: 0; }
+.sidebar.collapsed .sidebar__toggle .ic { transform: rotate(180deg); }
+.sidebar.collapsed .sidebar__nav { padding: var(--sp-4) var(--sp-2); }
+.sidebar.collapsed .sidebar__section { display: none; }
+.sidebar.collapsed .nav-item { justify-content: center; gap: 0; padding: var(--sp-2); }
+.sidebar.collapsed .nav-item__label, .sidebar.collapsed .nav-tag { display: none; }
 .sidebar__section {
   font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   color: #8d95b5; margin: var(--sp-5) var(--sp-3) var(--sp-2);
