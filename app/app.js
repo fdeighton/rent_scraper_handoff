@@ -624,7 +624,7 @@
           <div class="page-sub">${universeList("").length} buildings tracked · ${D.analyses.length} analyses · seed exported ${esc(D.generatedAt)}</div>
         </div>
         <div class="page-actions">
-          <div class="search">${icon("search")}<input id="bu-search" placeholder="Search buildings, address, city…" value="${esc(buState.q)}"/></div>
+          <div class="search">${icon("search")}<input id="bu-search" placeholder="Search buildings, address, city, etc." value="${esc(buState.q)}"/></div>
           <div class="segmented" data-seg="universe-view">
             <button data-v="list" class="${buState.view === "list" ? "active" : ""}">List</button>
             <button data-v="map" class="${buState.view === "map" ? "active" : ""}">Map</button>
