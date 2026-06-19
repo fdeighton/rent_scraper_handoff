@@ -40,6 +40,7 @@
     "star": '<path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17.3 5.8 20.7l1.6-6.8L2.2 8.9l6.9-.6z"/>',
     "calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/>',
     "chevron-down": '<path d="M6 9l6 6 6-6"/>',
+    "alert": '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
   };
   const icon = (n) => `<span class="ic">${ICONS[n] ? `<svg viewBox="0 0 24 24">${ICONS[n]}</svg>` : ""}</span>`;
 
@@ -114,6 +115,37 @@
     saveCustomAnalyses();
     renderNav();
     location.hash = "#/analysis/" + id;
+  }
+
+  // Branded confirm dialog — replaces native confirm(). Returns Promise<boolean>.
+  // `body` may contain HTML (caller escapes any dynamic text).
+  function confirmModal(o) {
+    o = o || {};
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.innerHTML = `<div class="modal modal--confirm" role="dialog" aria-modal="true" aria-label="${esc(o.title || "Confirm")}">
+        <div class="modal__head">
+          <div class="modal__chip modal__chip--danger">${icon("alert")}</div>
+          <div class="modal__title">${esc(o.title || "Are you sure?")}</div>
+          <button class="modal__x" data-cancel aria-label="Close">&times;</button>
+        </div>
+        <div class="modal__body"><p class="confirm-text">${o.body || ""}</p></div>
+        <div class="modal__foot">
+          <button class="btn" data-cancel>${esc(o.cancelLabel || "Cancel")}</button>
+          <button class="btn btn--accent" data-confirm>${esc(o.confirmLabel || "Confirm")}</button>
+        </div>
+      </div>`;
+      document.body.appendChild(overlay);
+      let done = false;
+      const finish = (v) => { if (done) return; done = true; overlay.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+      const onKey = (e) => { if (e.key === "Escape") finish(false); else if (e.key === "Enter") finish(true); };
+      document.addEventListener("keydown", onKey);
+      overlay.querySelectorAll("[data-cancel]").forEach((b) => (b.onclick = () => finish(false)));
+      overlay.querySelector("[data-confirm]").onclick = () => finish(true);
+      overlay.onclick = (e) => { if (e.target === overlay) finish(false); };
+      const cf = overlay.querySelector("[data-confirm]"); if (cf) cf.focus();
+    });
   }
 
   function openNewAnalysisModal() {
@@ -786,7 +818,7 @@
       buState.city = btn.dataset.city;
       $view.querySelectorAll("[data-city]").forEach((x) => x.classList.toggle("active", x === btn));
       const subset = bucketBuildings().list.filter((b) => b.lat != null && (buState.city === "__all" || b.city === buState.city)).map((b) => [b.lat, b.lng]);
-      if (subset.length && uMap) uMap.fitBounds(subset, { padding: [40, 40], maxZoom: buState.city === "__all" ? 14 : 13 });
+      if (subset.length && uMap) uMap.flyToBounds(subset, { padding: [40, 40], maxZoom: buState.city === "__all" ? 14 : 13, duration: 0.6 });   // smooth pan/zoom
     }));
   }
   function buCard(b, i) {
@@ -1289,7 +1321,11 @@
     $view.innerHTML = head + `<div id="tabbody"></div>`;
     $view.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => (location.hash = `#/analysis/${id}/${b.dataset.tab}`)));
     const rm = document.getElementById("a-remove");
-    if (rm) rm.onclick = () => { if (confirm(`Remove the "${a.name}" analysis? This only deletes your custom analysis, not any building data.`)) deleteAnalysis(id); };
+    if (rm) rm.onclick = () => confirmModal({
+      title: "Remove analysis?",
+      body: `Remove the <b>${esc(a.name)}</b> analysis? This only deletes your custom analysis — no building data is affected.`,
+      confirmLabel: "Remove analysis",
+    }).then((ok) => { if (ok) deleteAnalysis(id); });
     const ex = document.getElementById("a-export");
     if (ex) ex.onclick = () => openReport(a);
     const addc = document.getElementById("a-addcomp");
@@ -1635,12 +1671,15 @@
     }
 
     const wrap = document.querySelector("#tabbody .comp-wrap");
-    if (wrap) wrap.onclick = (e) => {
-      const rm = e.target.closest(".th-rm");
-      if (rm) { e.stopPropagation(); removeCompFromAnalysis(a, rm.dataset.rm); route(); return; }
-      const td = e.target.closest("td[data-bid]");
-      if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
-    };
+    if (wrap) {
+      wrap.onclick = (e) => {
+        const rm = e.target.closest(".th-rm");
+        if (rm) { e.stopPropagation(); removeCompFromAnalysis(a, rm.dataset.rm); route(); return; }
+        const td = e.target.closest("td[data-bid]");
+        if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
+      };
+      wrap.addEventListener("scroll", () => wrap.classList.toggle("scrolled", wrap.scrollTop > 0));   // sticky-header shadow
+    }
 
     const bin = document.querySelector("#tabbody .dropbin");
     if (bin) bin.onclick = (e) => {
@@ -2597,7 +2636,7 @@
           ${h.incentives ? '<span class="sh-tag">incentive</span>' : ""}
           <span class="sh-caret">${icon("chevron-down")}</span>
         </div>
-        <div class="sh-panel" data-panel="${i}" hidden>${scrapeDetail(h, det)}</div>`;
+        <div class="sh-panel" data-panel="${i}">${scrapeDetail(h, det)}</div>`;
       }).join("") || '<div class="empty">No scrapes recorded.</div>'}
       </div></div>`;
 
@@ -2627,7 +2666,11 @@
       ${scrapeHist}`;
 
     const brm = document.getElementById("b-remove");
-    if (brm) brm.onclick = () => { if (confirm(`Remove the added building "${b.name}"? This only deletes the building you added in this app.`)) deleteBuilding(id); };
+    if (brm) brm.onclick = () => confirmModal({
+      title: "Remove building?",
+      body: `Remove the added building <b>${esc(b.name)}</b>? This only deletes the building you added in this app.`,
+      confirmLabel: "Remove building",
+    }).then((ok) => { if (ok) deleteBuilding(id); });
 
     $view.querySelectorAll("tr.qtotal").forEach((tr) => (tr.onclick = () => {
       tr.classList.toggle("open");
@@ -2637,9 +2680,7 @@
     $view.querySelectorAll(".sh-row").forEach((r) => (r.onclick = () => {
       const panel = $view.querySelector(`.sh-panel[data-panel="${r.dataset.i}"]`);
       if (!panel) return;
-      const show = panel.hasAttribute("hidden");
-      if (show) { panel.removeAttribute("hidden"); r.classList.add("open"); }
-      else { panel.setAttribute("hidden", ""); r.classList.remove("open"); }
+      r.classList.toggle("open", panel.classList.toggle("open"));   // smooth grid-row accordion (CSS)
     }));
   }
 

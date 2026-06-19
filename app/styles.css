@@ -326,7 +326,8 @@ button { font-family: inherit; cursor: pointer; }
 .mk-pop .pop-btn, .mk-pop .pop-btn:visited { color: #fff; }
 
 /* ============================================================== Comp Table */
-.comp-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.comp-wrap { overflow: auto; max-height: calc(100vh - 230px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.comp-wrap.scrolled table.comp thead th { box-shadow: 0 6px 10px -5px rgba(6,16,49,.28); }   /* shadow appears once scrolled */
 table.comp { border-collapse: collapse; table-layout: fixed; font-size: 13px; margin: 0 auto; }
 /* fixed column widths → equal data columns; incentive/address text wraps instead of stretching one column */
 table.comp col.c-label { width: 160px; }
@@ -552,10 +553,13 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .scrape-hist .sh-caret { flex: 0 0 16px; margin-left: auto; color: var(--grey); display: inline-flex; transition: transform .15s; }
 .scrape-hist .sh-caret svg { width: 16px; height: 16px; }
 .scrape-hist .sh-row.open .sh-caret { transform: rotate(180deg); }
-.scrape-hist .sh-panel { padding: 16px 0 22px 32px; border-bottom: 1px solid var(--border); background: #FCFCFB; }
+.scrape-hist .sh-panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .26s var(--ease); }
+.scrape-hist .sh-panel.open { grid-template-rows: 1fr; border-bottom: 1px solid var(--border); }
+.scrape-hist .sh-panel > .sh-detail { overflow: hidden; min-height: 0; }
 
 /* expanded scrape detail — clean, report-grade */
-.sh-detail { display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
+.sh-detail { display: flex; flex-direction: column; gap: 14px; max-width: 720px; padding: 16px 0 22px 32px; background: #FCFCFB; opacity: 0; transition: opacity .2s var(--ease); }
+.sh-panel.open > .sh-detail { opacity: 1; }
 .sh-detail .sh-inc { font-size: 13px; color: var(--navy-600); line-height: 1.5; }
 .sh-detail .sh-inc .sh-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--grey); font-weight: 700; margin-right: 10px; }
 .sh-detail .sh-stats { display: flex; flex-wrap: wrap; gap: 0; font-size: 12px; color: var(--grey); }
@@ -825,3 +829,26 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .linechart .end-label { font-size: 11px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; transition: opacity .12s var(--ease); }
 .linechart .end-label--bench { font-size: 12px; font-weight: 700; }
 .linechart .end-label--hi { font-size: 13px; font-weight: 800; stroke-width: 4px; }
+
+/* ---- Tier-3 craft: selection, scrollbars, branded confirm + modal entrance -- */
+::selection { background: var(--light-blue); color: var(--navy); }
+* { scrollbar-width: thin; scrollbar-color: #c2c8da transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c2c8da; border-radius: var(--r-pill); border: 2px solid var(--paper); }
+::-webkit-scrollbar-thumb:hover { background: #9aa3c4; }
+
+.modal--confirm { width: 440px; }
+.modal__chip--danger { background: var(--orange-100); }
+.modal__chip--danger .ic { color: var(--orange-600); }
+.confirm-text { margin: 0; font-size: 14px; line-height: 1.55; color: var(--navy-600); }
+.confirm-text b { color: var(--navy); font-weight: 600; }
+
+.modal-overlay { animation: fzFade .16s var(--ease) both; }
+.modal { animation: fzPop .2s var(--ease) both; }
+@keyframes fzFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fzPop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay, .modal { animation: none !important; }
+  .scrape-hist .sh-panel, .sh-detail { transition: none !important; }
+}
