@@ -274,8 +274,16 @@ button { font-family: inherit; cursor: pointer; }
 .mk svg { stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .mk--comp { width: 30px; height: 30px; background: var(--navy); }
 .mk--comp svg { width: 15px; height: 15px; }
-.mk--bench { width: 38px; height: 38px; background: var(--orange); }
+.mk--bench { width: 38px; height: 38px; background: var(--orange); position: relative; }
 .mk--bench svg { width: 19px; height: 19px; fill: #fff; stroke: #fff; }
+.mk--bench::after {   /* slow pulsing ring draws the eye to the subject */
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid var(--orange); pointer-events: none;
+  animation: mkPulse 2.2s var(--ease) infinite;
+}
+@keyframes mkPulse { 0% { transform: scale(.9); opacity: .55; } 70%, 100% { transform: scale(1.7); opacity: 0; } }
+.mk, .mk-cluster { animation: mkIn .28s var(--ease) backwards; }   /* backwards: no flash during delay, frees transform for :hover after */
+@keyframes mkIn { from { opacity: 0; transform: translateY(-6px) scale(.85); } to { opacity: 1; transform: none; } }
 .leaflet-marker-icon .mk { transition: transform .12s var(--ease); }
 .leaflet-marker-icon:hover .mk { transform: scale(1.12); }
 
@@ -819,7 +827,7 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 @keyframes fzRise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes fzCardIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
 #view.view-enter { animation: fzRise .18s var(--ease) both; }
-.bu-grid--enter .bcard { animation: fzCardIn .42s var(--ease) both; }   /* full renders only, not search/filter */
+.bu-grid--enter .bcard { animation: fzCardIn .42s var(--ease) backwards; }   /* backwards: no flash during stagger; keeps :hover lift working */
 @media (prefers-reduced-motion: reduce) {
   #view.view-enter, .bu-grid--enter .bcard { animation: none !important; transform: none !important; }
   .seg-thumb, .nav-rail { transition: none !important; }
@@ -851,4 +859,20 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 @media (prefers-reduced-motion: reduce) {
   .modal-overlay, .modal { animation: none !important; }
   .scrape-hist .sh-panel, .sh-detail { transition: none !important; }
+}
+
+/* ---- Tier-4: toasts ---- */
+#toasts { position: fixed; right: 20px; bottom: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 14px; background: var(--navy); color: #fff; padding: 12px 16px; border-radius: var(--r-md); box-shadow: var(--shadow-lg); font-size: 13px; min-width: 200px; max-width: 360px; animation: toastIn .22s var(--ease) both; }
+.toast.out { animation: toastOut .2s var(--ease) forwards; }
+.toast__msg { flex: 1; line-height: 1.35; }
+.toast__msg b { font-weight: 600; }
+.toast__action { background: none; border: none; color: var(--orange); font-weight: 600; font-size: 13px; cursor: pointer; padding: 2px 2px; white-space: nowrap; }
+.toast__action:hover { text-decoration: underline; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(10px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .mk, .mk-cluster, .toast { animation: none !important; }
+  .mk--bench::after { animation: none !important; opacity: 0 !important; }
 }

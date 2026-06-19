@@ -117,6 +117,27 @@
     location.hash = "#/analysis/" + id;
   }
 
+  // Branded toast (bottom-right). opts: { action, onAction, duration }. `msg` is HTML
+  // (caller escapes dynamic text). Stacks; auto-dismisses; click action to act.
+  function toast(msg, opts) {
+    opts = opts || {};
+    let host = document.getElementById("toasts");
+    if (!host) { host = document.createElement("div"); host.id = "toasts"; document.body.appendChild(host); }
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `<span class="toast__msg">${msg}</span>`;
+    const dismiss = () => { clearTimeout(timer); if (!el.parentNode) return; el.classList.add("out"); setTimeout(() => el.remove(), 200); };
+    if (opts.action && opts.onAction) {
+      const btn = document.createElement("button");
+      btn.className = "toast__action"; btn.textContent = opts.action;
+      btn.onclick = () => { dismiss(); try { opts.onAction(); } catch (e) {} };
+      el.appendChild(btn);
+    }
+    host.appendChild(el);
+    const timer = setTimeout(dismiss, opts.duration || (opts.action ? 6000 : 3200));
+    return dismiss;
+  }
+
   // Branded confirm dialog — replaces native confirm(). Returns Promise<boolean>.
   // `body` may contain HTML (caller escapes any dynamic text).
   function confirmModal(o) {
@@ -290,6 +311,7 @@
     };
     saveCustomBuildings();
     location.hash = "#/building/" + id;
+    toast(`Added <b>${esc(b.name)}</b>`, { action: "Undo", onAction: () => deleteBuilding(id) });
   }
   function deleteBuilding(id) {
     if (!D.buildings[id]) return;
@@ -704,11 +726,12 @@
       <div id="bu-map"></div>
     </div>`;
   }
-  function markerIcon(isBench) {
+  function markerIcon(isBench, i) {
     const glyph = isBench ? ICONS.star : ICONS.building;
+    const delay = Math.min(i || 0, 16) * 30;   // staggered fade/drop-in
     return window.L.divIcon({
       className: "",
-      html: `<div class="mk ${isBench ? "mk--bench" : "mk--comp"}"><svg viewBox="0 0 24 24">${glyph}</svg></div>`,
+      html: `<div class="mk ${isBench ? "mk--bench" : "mk--comp"}" style="animation-delay:${delay}ms"><svg viewBox="0 0 24 24">${glyph}</svg></div>`,
       iconSize: isBench ? [38, 38] : [30, 30],
       iconAnchor: isBench ? [19, 19] : [15, 15],
     });
@@ -768,9 +791,9 @@
       });
     }
 
-    list.forEach((b) => {
+    list.forEach((b, i) => {
       if (b.lat == null || b.lng == null) return;
-      const m = window.L.marker([b.lat, b.lng], { icon: markerIcon(benchSet.has(b.id)) });
+      const m = window.L.marker([b.lat, b.lng], { icon: markerIcon(benchSet.has(b.id), i) });
       m.bindTooltip(tipHtml(b), { direction: "top", offset: [0, -16], className: "mk-tip", opacity: 1 });
       m.bindPopup(popupHtml(b), {
         className: "mk-pop", closeButton: true, closeOnClick: false, autoClose: true,
@@ -1020,9 +1043,11 @@
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
 
     $("#ac-add").onclick = () => {
-      if (selected.size) addCompsToAnalysis(a, [...selected]);
+      const ids = [...selected];
+      if (ids.length) addCompsToAnalysis(a, ids);
       close();
       route(); // re-render the current analysis page with the new comps
+      if (ids.length) toast(`Added ${ids.length} building${ids.length === 1 ? "" : "s"} to the set`, { action: "Undo", onAction: () => { ids.forEach((id) => removeCompFromAnalysis(a, id)); route(); } });
     };
   }
 
@@ -1311,6 +1336,7 @@
 
     const safe = (a.name || "analysis").replace(/[^\w\- ]+/g, "").trim() || "analysis";
     downloadBlob(`${safe} — comp analysis.xlsx`, wb.blob());
+    toast("Comp analysis exported to Excel");
   }
 
   function renderAnalysis(id, tab) {
@@ -1346,7 +1372,12 @@
       title: "Remove analysis?",
       body: `Remove the <b>${esc(a.name)}</b> analysis? This only deletes your custom analysis — no building data is affected.`,
       confirmLabel: "Remove analysis",
-    }).then((ok) => { if (ok) deleteAnalysis(id); });
+    }).then((ok) => {
+      if (!ok) return;
+      const saved = a;
+      deleteAnalysis(id);
+      toast(`Removed the <b>${esc(saved.name)}</b> analysis`, { action: "Undo", onAction: () => { D.analyses.push(saved); saveCustomAnalyses(); location.hash = "#/analysis/" + id; } });
+    });
     const ex = document.getElementById("a-export");
     if (ex) ex.onclick = () => openReport(a);
     const addc = document.getElementById("a-addcomp");
@@ -1662,6 +1693,7 @@
 
     const safe = (b.name || "building").replace(/[^\w\- ]+/g, "").trim() || "building";
     downloadBlob(`${safe} — unit backup.xlsx`, wb.blob());
+    toast("Unit backup exported to Excel");
   }
 
   function renderSummary(a, cols) {
@@ -1695,7 +1727,13 @@
     if (wrap) {
       wrap.onclick = (e) => {
         const rm = e.target.closest(".th-rm");
-        if (rm) { e.stopPropagation(); removeCompFromAnalysis(a, rm.dataset.rm); route(); return; }
+        if (rm) {
+          e.stopPropagation();
+          const rid = rm.dataset.rm, rb = bld(rid);
+          removeCompFromAnalysis(a, rid); route();
+          toast(`Removed <b>${esc(rb ? rb.name : "comp")}</b> from the set`, { action: "Undo", onAction: () => { readdComp(a, rid); route(); } });
+          return;
+        }
         const td = e.target.closest("td[data-bid]");
         if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
       };
@@ -1704,9 +1742,18 @@
 
     const bin = document.querySelector("#tabbody .dropbin");
     if (bin) bin.onclick = (e) => {
-      if (e.target.closest(".dropbin__readall")) { readdAllComps(a); route(); return; }
+      if (e.target.closest(".dropbin__readall")) {
+        const n = (a.removed || []).filter((id) => bld(id) && !a.comps.some((c) => c.building === id)).length;
+        readdAllComps(a); route();
+        toast(`Restored ${n} comp${n === 1 ? "" : "s"}`);
+        return;
+      }
       const btn = e.target.closest(".dropbin__readd");
-      if (btn) { readdComp(a, btn.dataset.readd); route(); }
+      if (btn) {
+        const rid = btn.dataset.readd, rb = bld(rid);
+        readdComp(a, rid); route();
+        toast(`Restored <b>${esc(rb ? rb.name : "comp")}</b>`, { action: "Undo", onAction: () => { removeCompFromAnalysis(a, rid); route(); } });
+      }
     };
   }
 
@@ -2691,7 +2738,12 @@
       title: "Remove building?",
       body: `Remove the added building <b>${esc(b.name)}</b>? This only deletes the building you added in this app.`,
       confirmLabel: "Remove building",
-    }).then((ok) => { if (ok) deleteBuilding(id); });
+    }).then((ok) => {
+      if (!ok) return;
+      const saved = D.buildings[id];
+      deleteBuilding(id);
+      toast(`Removed <b>${esc(saved.name)}</b>`, { action: "Undo", onAction: () => { D.buildings[id] = saved; saveCustomBuildings(); location.hash = "#/building/" + id; } });
+    });
 
     $view.querySelectorAll("tr.qtotal").forEach((tr) => (tr.onclick = () => {
       tr.classList.toggle("open");
