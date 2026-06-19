@@ -791,9 +791,16 @@
     if (focusBench && benchMarker) {
       const openIt = () => {
         try {
-          const vis = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
-          if (vis && vis !== benchMarker && uCluster.zoomToShowLayer) uCluster.zoomToShowLayer(benchMarker, () => benchMarker.openPopup());
-          else benchMarker.openPopup();
+          const parent = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
+          if (parent && parent !== benchMarker && uCluster.zoomToShowLayer) {
+            uCluster.zoomToShowLayer(benchMarker, () => {
+              const p2 = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
+              // still clustered ⇒ co-located with a comp (e.g. Sloane Tower A/B + Tower C
+              // share coords) and zoom can't separate them → fan the cluster out, then open
+              if (p2 && p2 !== benchMarker && p2.spiderfy) { p2.spiderfy(); setTimeout(() => benchMarker.openPopup(), 120); }
+              else benchMarker.openPopup();
+            });
+          } else benchMarker.openPopup();
         } catch (e) {}
       };
       if (fly && uMap) uMap.once("moveend", openIt);   // wait for the glide to settle
