@@ -600,8 +600,9 @@
     const addBtn = document.getElementById("bu-add");
     if (addBtn) addBtn.onclick = openAddBuildingModal;
 
-    // list-view advanced filters + sort
-    const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { buState[key] = el.value; refreshGrid(false); }; };
+    // list-view advanced filters + sort (stagger the cards in on each change;
+    // search stays instant so typing isn't jittery)
+    const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { buState[key] = el.value; refreshGrid(true); }; };
     bindSel("f-city", "city"); bindSel("f-asset", "assetType"); bindSel("f-owner", "owner");
     bindSel("f-era", "era"); bindSel("f-rent", "rentBand"); bindSel("f-psf", "psfBand"); bindSel("f-sort", "sort");
     const clrBtn = document.getElementById("f-clear");
