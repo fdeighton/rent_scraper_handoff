@@ -458,7 +458,7 @@ table.comp thead th {
 .msel { position: relative; display: inline-flex; }
 .msel__btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 190px; max-width: 240px;
   padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--navy);
-  font-family: inherit; font-size: 13px; cursor: pointer; transition: border-color .12s var(--ease), box-shadow .12s var(--ease); }
+  font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; transition: border-color .12s var(--ease), box-shadow .12s var(--ease); }
 .msel__btn:hover { border-color: var(--navy-600); }
 .msel__btn[aria-expanded="true"] { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(255,78,49,.12); }
 .msel__btn .ic { width: 14px; height: 14px; color: var(--grey); flex: 0 0 auto; }
@@ -527,7 +527,7 @@ svg .axis-label { fill: var(--grey); font-size: 11px; }
 .legend .lg.off:hover { opacity: .62; }
 .filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; margin-bottom: var(--sp-4); }
 .filters select, .filters input[type=date] {
-  font-family: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--border);
+  font-family: inherit; font-size: 13px; font-weight: 500; padding: 6px 10px; border: 1px solid var(--border);
   border-radius: var(--r-md); background: var(--surface); color: var(--navy);
 }
 .filters label { font-size: 12px; color: var(--grey); }
