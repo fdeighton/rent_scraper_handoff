@@ -505,7 +505,7 @@
 
   // ===================================================== Building Universe ===
   let buState = { q: "", view: "list", city: "__all", bucket: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" };
-  let uMap = null, uCluster = null, uLines = null;
+  let uMap = null, uCluster = null, uLines = null, uBenchMarker = null, uCompMarkers = [];
   const benchmarkIds = () => new Set(D.analyses.map((a) => a.benchmark));
 
   // Buildings shown on the map given the current search + comp-set bucket.
@@ -780,16 +780,7 @@
     if (uLines) uLines.clearLayers();
     const pts = [];
     let benchMarker = null;
-
-    // connector lines benchmark -> each comp (only in bucket mode)
-    if (anchor && anchor.lat != null && uLines) {
-      list.forEach((b) => {
-        if (b.id === anchor.id || b.lat == null || b.lng == null) return;
-        window.L.polyline([[anchor.lat, anchor.lng], [b.lat, b.lng]], {
-          color: "#1F2750", weight: 1.5, opacity: 0.35, dashArray: "4 5", interactive: false,
-        }).addTo(uLines);
-      });
-    }
+    const compMarkers = [];
 
     list.forEach((b, i) => {
       if (b.lat == null || b.lng == null) return;
@@ -803,8 +794,10 @@
       m.on("popupopen", () => m.closeTooltip());
       uCluster.addLayer(m);
       if (anchor && b.id === anchor.id) benchMarker = m;
+      else if (anchor) compMarkers.push(m);
       pts.push([b.lat, b.lng]);
     });
+    uBenchMarker = benchMarker; uCompMarkers = compMarkers;   // for cluster-aware connector lines
     if (pts.length) {
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
       else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
@@ -829,6 +822,28 @@
       if (fly && uMap) uMap.once("moveend", openIt);   // wait for the glide to settle
       else setTimeout(openIt, 150);
     }
+    setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
+  }
+  // Connector lines: benchmark → each VISIBLE comp target. Comps hidden inside a
+  // cluster collapse to a single line to that cluster (and fan out as it expands).
+  function drawLines() {
+    if (!uLines || !uCluster) return;
+    uLines.clearLayers();
+    if (!uBenchMarker) return;                       // only in compare-set (anchored) mode
+    const gvp = (m) => (uCluster.getVisibleParent && uCluster.getVisibleParent(m)) || m;
+    const aParent = gvp(uBenchMarker);
+    if (!aParent || !aParent.getLatLng) return;
+    const aLL = aParent.getLatLng();
+    const seen = new Set();
+    uCompMarkers.forEach((m) => {
+      const vp = gvp(m);
+      if (!vp || vp === aParent || !vp.getLatLng) return;   // same cluster as benchmark → no line
+      const ll = vp.getLatLng();
+      const key = ll.lat.toFixed(5) + "," + ll.lng.toFixed(5);
+      if (seen.has(key)) return;                            // one line per visible cluster/marker
+      seen.add(key);
+      window.L.polyline([aLL, ll], { color: "#1F2750", weight: 1.5, opacity: 0.35, dashArray: "4 5", interactive: false }).addTo(uLines);
+    });
   }
   function wireMap(list) {
     const L = window.L;
@@ -844,6 +859,8 @@
       ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: false, animate: false })
       : L.layerGroup();
     uMap.addLayer(uCluster);
+    uMap.on("zoomend", drawLines);                       // re-aim connector lines as clusters form/break
+    uCluster.on("spiderfied unspiderfied", drawLines);
     setUniverseMarkers(true);  // focus the benchmark popup on (re)entry / bucket select
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
     wireMapToolbar();
