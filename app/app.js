@@ -792,15 +792,15 @@
       const openIt = () => {
         try {
           const parent = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
-          if (parent && parent !== benchMarker && uCluster.zoomToShowLayer) {
-            uCluster.zoomToShowLayer(benchMarker, () => {
-              const p2 = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
-              // still clustered ⇒ co-located with a comp (e.g. Sloane Tower A/B + Tower C
-              // share coords) and zoom can't separate them → fan the cluster out, then open
-              if (p2 && p2 !== benchMarker && p2.spiderfy) { p2.spiderfy(); setTimeout(() => benchMarker.openPopup(), 120); }
-              else benchMarker.openPopup();
-            });
-          } else benchMarker.openPopup();
+          // If the benchmark is still inside a cluster at the fitted zoom (e.g. Sloane
+          // Tower A/B + Tower C share coords and never de-cluster), fan it out directly.
+          // (zoomToShowLayer's callback never fires with the cluster's animate:false.)
+          if (parent && parent !== benchMarker && parent.spiderfy) {
+            parent.spiderfy();
+            setTimeout(() => benchMarker.openPopup(), 160);   // let the spider legs settle, then open
+          } else {
+            benchMarker.openPopup();
+          }
         } catch (e) {}
       };
       if (fly && uMap) uMap.once("moveend", openIt);   // wait for the glide to settle
