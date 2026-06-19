@@ -505,7 +505,7 @@
 
   // ===================================================== Building Universe ===
   let buState = { q: "", view: "list", city: "__all", bucket: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" };
-  let uMap = null, uCluster = null, uLines = null, uBenchMarker = null, uCompMarkers = [];
+  let uMap = null, uCluster = null, uLines = null, uBenchMarker = null, uCompMarkers = [], mkAnimTimer = null;
   const benchmarkIds = () => new Set(D.analyses.map((a) => a.benchmark));
 
   // Buildings shown on the map given the current search + comp-set bucket.
@@ -801,6 +801,10 @@
   }
   function setUniverseMarkers(focusBench, fly) {
     if (!uCluster) return;
+    // Enable the entrance animation only for this load (initial render / set change /
+    // search). It's removed shortly after so zoom-driven cluster splits don't replay it.
+    const mapEl = document.getElementById("bu-map");
+    if (mapEl) { mapEl.classList.add("mk-animate"); clearTimeout(mkAnimTimer); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
     if (uLines) uLines.clearLayers();

@@ -303,7 +303,10 @@ button { font-family: inherit; cursor: pointer; }
   animation: mkPulse 2.2s var(--ease) infinite;
 }
 @keyframes mkPulse { 0% { transform: scale(.9); opacity: .55; } 70%, 100% { transform: scale(1.7); opacity: 0; } }
-.mk, .mk-cluster { animation: mkIn .28s var(--ease) backwards; }   /* backwards: no flash during delay, frees transform for :hover after */
+/* entrance only during a load window (#bu-map.mk-animate) — NOT on zoom-driven
+   cluster splits/merges, which would otherwise replay it. backwards: no flash
+   during the stagger delay, frees transform for :hover after. */
+#bu-map.mk-animate .mk, #bu-map.mk-animate .mk-cluster { animation: mkIn .28s var(--ease) backwards; }
 @keyframes mkIn { from { opacity: 0; transform: translateY(-6px) scale(.85); } to { opacity: 1; transform: none; } }
 .leaflet-marker-icon .mk { transition: transform .12s var(--ease); }
 .leaflet-marker-icon:hover .mk { transform: scale(1.12); }
