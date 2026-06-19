@@ -2531,10 +2531,12 @@
     const xIdx = new Map(dates.map((d, i) => [d, i]));
     const x = (d) => padL + (dates.length === 1 ? (W - padL - padR) / 2 : (xIdx.get(d) / (dates.length - 1)) * (W - padL - padR));
 
-    // target series, keyed by building id (stable identity for object constancy)
-    const target = [];
+    // Every series with data in range, keyed by building id (stable identity). legendAll
+    // powers the clickable legend — series toggled off persist as dimmed chips; target is
+    // the on subset that actually gets drawn, scaled, and hover-tracked. Colour is by col
+    // index so it's stable per building regardless of what's selected (matches the line).
+    const legendAll = [];
     cols.forEach((c, i) => {
-      if (!st.bsel.has(c.b.id)) return;
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
       const pts = (D.trends[c.b.id] || [])
         .filter((p) => p.date >= st.from && p.date <= st.to)
@@ -2542,8 +2544,9 @@
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
-      target.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap });
+      legendAll.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap, on: st.bsel.has(c.b.id) });
     });
+    const target = legendAll.filter((s) => s.on);
     if (!target.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
 
     // dynamic title
@@ -2613,19 +2616,32 @@
       series: target.map((s) => ({ id: s.bid, name: s.name, bench: s.bench, color: s.color, pts: s.pts, vmap: s.vmap })),
     };
 
-    const want = new Set(target.map((s) => s.bid));
+    const want = new Set(target.map((s) => s.bid));   // drawn lines = the on subset
 
-    // legend diff — keep existing items, add new, remove gone (no full reset)
-    Object.keys(cache.legend).forEach((bid) => { if (!want.has(bid)) { cache.legend[bid].remove(); delete cache.legend[bid]; } });
-    target.forEach((s) => {
+    // Legend — one chip per in-range series (off ones persist dimmed). Clicking a chip
+    // toggles that series through its dropdown checkbox, reusing the full path (bsel +
+    // summary + redraw); it never hides the last visible line. Diff keeps chips stable.
+    const legendWant = new Set(legendAll.map((s) => s.bid));
+    Object.keys(cache.legend).forEach((bid) => { if (!legendWant.has(bid)) { cache.legend[bid].remove(); delete cache.legend[bid]; } });
+    legendAll.forEach((s) => {
       let el = cache.legend[s.bid];
       if (!el) {
         el = document.createElement("span"); el.className = "lg";
         el.innerHTML = `<span class="dot"></span><span class="lgname"></span>`;
         legendEl.appendChild(el); cache.legend[s.bid] = el;
       }
+      el.classList.toggle("off", !s.on);
+      el.title = s.on ? "Click to hide this series" : "Click to show this series";
       el.querySelector(".dot").style.background = s.color;
       el.querySelector(".lgname").textContent = s.name + (s.bench ? " ★" : "");
+      el.onclick = () => {
+        const cb = document.querySelector(`#tc-builds input[data-b="${s.bid}"]`);
+        if (!cb) return;
+        // keep at least one line on the chart — ignore a click that would hide the last
+        if (!el.classList.contains("off") && legendEl.querySelectorAll(".lg:not(.off)").length <= 1) return;
+        cb.checked = !cb.checked;
+        if (cb.onchange) cb.onchange();
+      };
     });
 
     // series data-join: enter (new) / update (continuing) / exit (removed)
