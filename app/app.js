@@ -679,25 +679,28 @@
     universeList("").forEach((b) => { if (b.lat != null && b.city) counts[b.city] = (counts[b.city] || 0) + 1; });
     return Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   }
-  function mapShellHtml(list) {
+  // Toolbar contents (compare-set picker + city chips + legend). Extracted so a
+  // bucket change can re-render it in place without remounting the Leaflet map.
+  function mapToolbarInner() {
     const cityBtns = ['<button class="city-btn ' + (buState.city === "__all" ? "active" : "") + '" data-city="__all">All</button>']
       .concat(mapCities().map((c) => `<button class="city-btn ${buState.city === c ? "active" : ""}" data-city="${esc(c)}">${esc(c)}</button>`)).join("");
     const bucketOpts = ['<option value="__all">All buildings</option>']
       .concat(D.analyses.map((a) => `<option value="${a.id}" ${buState.bucket === a.id ? "selected" : ""}>${esc(a.name)} (${a.comps.length} comps)</option>`)).join("");
     const inBucket = buState.bucket && buState.bucket !== "__all";
-    return `<div class="map-shell">
-      <div class="map-toolbar">
-        <div class="bucket-pick">
-          <label for="bu-bucket">Compare set</label>
-          <select id="bu-bucket">${bucketOpts}</select>
-        </div>
-        <div class="city-btns" ${inBucket ? 'style="opacity:.5;pointer-events:none"' : ""}>${cityBtns}</div>
-        <div class="map-legend">
-          <span class="lg"><span class="swatch bench"></span> ${inBucket ? "Benchmark" : "Fitzrovia benchmark"}</span>
-          <span class="lg"><span class="swatch comp"></span> ${inBucket ? "Comp in set" : "Competitor"}</span>
-          ${inBucket ? '<span class="lg"><span class="swatch line"></span> Compared to</span>' : ""}
-        </div>
+    return `<div class="bucket-pick">
+        <label for="bu-bucket">Compare set</label>
+        <select id="bu-bucket">${bucketOpts}</select>
       </div>
+      <div class="city-btns" ${inBucket ? 'style="opacity:.5;pointer-events:none"' : ""}>${cityBtns}</div>
+      <div class="map-legend">
+        <span class="lg"><span class="swatch bench"></span> ${inBucket ? "Benchmark" : "Fitzrovia benchmark"}</span>
+        <span class="lg"><span class="swatch comp"></span> ${inBucket ? "Comp in set" : "Competitor"}</span>
+        ${inBucket ? '<span class="lg"><span class="swatch line"></span> Compared to</span>' : ""}
+      </div>`;
+  }
+  function mapShellHtml(list) {
+    return `<div class="map-shell">
+      <div class="map-toolbar">${mapToolbarInner()}</div>
       <div id="bu-map"></div>
     </div>`;
   }
@@ -747,7 +750,7 @@
       <a class="pop-btn" href="#/building/${b.id}">View building →</a>
     </div>`;
   }
-  function setUniverseMarkers(focusBench) {
+  function setUniverseMarkers(focusBench, fly) {
     if (!uCluster) return;
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
@@ -779,18 +782,22 @@
       if (anchor && b.id === anchor.id) benchMarker = m;
       pts.push([b.lat, b.lng]);
     });
-    if (pts.length) uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
-    else uMap.setView([43.7, -79.4], 11);
+    if (pts.length) {
+      if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
+      else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
+    } else uMap.setView([43.7, -79.4], 11);
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
     if (focusBench && benchMarker) {
-      setTimeout(() => {
+      const openIt = () => {
         try {
           const vis = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
           if (vis && vis !== benchMarker && uCluster.zoomToShowLayer) uCluster.zoomToShowLayer(benchMarker, () => benchMarker.openPopup());
           else benchMarker.openPopup();
         } catch (e) {}
-      }, 150);
+      };
+      if (fly && uMap) uMap.once("moveend", openIt);   // wait for the glide to settle
+      else setTimeout(openIt, 150);
     }
   }
   function wireMap(list) {
@@ -806,12 +813,16 @@
     uMap.addLayer(uCluster);
     setUniverseMarkers(true);  // focus the benchmark popup on (re)entry / bucket select
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
-
+    wireMapToolbar();
+  }
+  function wireMapToolbar() {
     const bucketSel = document.getElementById("bu-bucket");
     if (bucketSel) bucketSel.onchange = () => {
       buState.bucket = bucketSel.value;
       buState.city = "__all";
-      renderUniverse(); // re-render so toolbar (city lock, legend) reflects bucket mode
+      const tb = $view.querySelector(".map-toolbar");
+      if (tb) { tb.innerHTML = mapToolbarInner(); wireMapToolbar(); }   // refresh legend / city-lock in place
+      setUniverseMarkers(true, true);   // rebuild markers + GLIDE to the new set (no map remount)
     };
 
     $view.querySelectorAll("[data-city]").forEach((btn) => (btn.onclick = () => {
