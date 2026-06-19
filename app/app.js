@@ -506,6 +506,9 @@
   // ===================================================== Building Universe ===
   let buState = { q: "", view: "list", city: "__all", bucket: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" };
   let uMap = null, uCluster = null, uLines = null, uBenchMarker = null, uCompMarkers = [], mkAnimTimer = null;
+  let uIntroTimers = [];   // pending batched-intro timers, cleared before any re-render so a
+                           // mid-intro search/filter/toggle cancels cleanly and renders the final state.
+  function clearIntroTimers() { uIntroTimers.forEach((t) => clearTimeout(t)); uIntroTimers = []; }
   const benchmarkIds = () => new Set(D.analyses.map((a) => a.benchmark));
 
   // Buildings shown on the map given the current search + comp-set bucket.
@@ -623,6 +626,7 @@
   }
 
   function destroyMap() {
+    clearIntroTimers();
     if (uMap) { try { uMap.remove(); } catch (e) {} }
     uMap = null; uCluster = null; uLines = null;
   }
@@ -776,20 +780,16 @@
   function setUniverseMarkers(focusBench, fly, intro) {
     if (!uCluster) return;
     const mapEl = document.getElementById("bu-map");
+    clearIntroTimers();   // cancel any in-flight intro so this render wins cleanly
     // Intro only on the full universe view (no compare set anchored) — a bucket entry
     // is about surfacing its benchmark, not a blank-map populate.
     const doIntro = !!(intro && mapEl && !prefersReduced && (!buState.bucket || buState.bucket === "__all"));
-    if (doIntro) {
-      // View-entry intro: hold every marker/cluster invisible (mk-intro) as the layer
-      // renders so the map reads as blank, then bloom them in from the centre outward
-      // (playMapIntro) for a deliberate "populate to final state" reveal.
-      mapEl.classList.add("mk-intro");
+    if (mapEl) {
+      // mk-animate drives the one-time fade/scale entrance (#bu-map.mk-animate .mk).
+      // It's only present during an intentional load window so zoom-driven cluster
+      // splits/merges never replay it. Intro manages it per batch in populateIntro.
       mapEl.classList.remove("mk-animate"); clearTimeout(mkAnimTimer);
-    } else if (mapEl) {
-      // Lighter per-load fade for in-place updates (search / bucket change). Removed
-      // shortly after so zoom-driven cluster splits don't replay it.
-      mapEl.classList.remove("mk-intro");
-      mapEl.classList.add("mk-animate"); clearTimeout(mkAnimTimer); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900);
+      if (!doIntro) { mapEl.classList.add("mk-animate"); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
     }
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
@@ -797,6 +797,7 @@
     const pts = [];
     let benchMarker = null;
     const compMarkers = [];
+    const made = [];   // built-but-not-yet-added markers (so the intro can populate in batches)
 
     list.forEach((b, i) => {
       if (b.lat == null || b.lng == null) return;
@@ -808,17 +809,20 @@
       });
       // hide the hover hint while the persistent popup is open for this marker
       m.on("popupopen", () => m.closeTooltip());
-      uCluster.addLayer(m);
       if (anchor && b.id === anchor.id) benchMarker = m;
       else if (anchor) compMarkers.push(m);
       pts.push([b.lat, b.lng]);
+      made.push({ m, city: b.city || "" });
     });
     uBenchMarker = benchMarker; uCompMarkers = compMarkers;   // for cluster-aware connector lines
+    // Frame the final view first. Under intro, place it instantly onto a still-empty
+    // layer so the base map reads as blank before the data layer populates.
     if (pts.length) {
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
-      else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });   // intro: place instantly, then bloom
+      else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });
     } else uMap.setView([43.7, -79.4], 11);
-    if (doIntro) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));
+    if (doIntro) populateIntro(mapEl, made);                  // blank → batched, staggered by city
+    else uCluster.addLayers(made.map((x) => x.m));            // normal: add all at once
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
     if (focusBench && benchMarker) {
@@ -847,26 +851,30 @@
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
   }
-  // View-entry intro: bloom the rendered markers/clusters onto the (held-blank) map,
-  // centre outward, so the listings appear to populate incrementally to the final
-  // state. Animates the INNER .mk/.mk-cluster (the Leaflet wrapper owns positioning),
-  // then drops the mk-intro hold so everything settles to its natural resting state.
-  function playMapIntro(mapEl) {
-    if (!mapEl) return;
-    const els = Array.prototype.slice.call(mapEl.querySelectorAll(".mk, .mk-cluster"));
-    if (!els.length) { mapEl.classList.remove("mk-intro"); return; }
-    const r = mapEl.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    const cdist = (el) => { const b = el.getBoundingClientRect(); return Math.hypot(b.left + b.width / 2 - cx, b.top + b.height / 2 - cy); };
-    els.sort((a, b) => cdist(a) - cdist(b));   // nearest-to-centre first → blooms outward
-    const step = els.length > 14 ? 50 : 70;
-    const dur = 460;
-    els.forEach((el, i) => { el.style.animation = `mkIn ${dur}ms var(--ease) ${i * step}ms backwards`; });
-    clearTimeout(mkAnimTimer);
-    mkAnimTimer = setTimeout(() => {     // after the last marker lands, release the hold + inline styles
-      els.forEach((el) => { el.style.animation = ""; });
-      mapEl.classList.remove("mk-intro");
-    }, els.length * step + dur + 80);
+  // View-entry intro: the "rental intelligence layer initializing" reveal. The base
+  // map is already framed and the marker layer is empty; we add the buildings in
+  // batches grouped by market/city, each batch fading/scaling in once via mk-animate.
+  // Geographic grouping means each city's cluster forms from its own batch without
+  // disturbing already-placed clusters. Timers are tracked (uIntroTimers) so a search
+  // / filter / toggle mid-intro cancels cleanly. Self-heals to the full state.
+  function populateIntro(mapEl, made) {
+    if (!mapEl || !made.length) { if (mapEl) mapEl.classList.remove("mk-animate"); return; }
+    const groups = new Map();   // city → markers (preserve build order within a city)
+    made.forEach((x) => { const k = x.city || "·"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x.m); });
+    const batches = Array.from(groups.values()).sort((a, b) => b.length - a.length);   // biggest market first
+    // Stagger sized to a fixed budget so the total intro stays ~0.7–1.2s at any market count.
+    const STEP = batches.length > 1 ? Math.max(80, Math.min(170, Math.round(560 / (batches.length - 1)))) : 0;
+    mapEl.classList.add("mk-animate");   // keep the entrance fade live for the whole sequence
+    batches.forEach((batch, bi) => {
+      const t = setTimeout(() => {
+        if (!uCluster) return;
+        uCluster.addLayers(batch);       // bulk add → one render → one fade-in for this market
+        if (bi === batches.length - 1) {  // last batch landed: settle to the normal interactive state
+          mkAnimTimer = setTimeout(() => { if (mapEl) mapEl.classList.remove("mk-animate"); }, 440);
+        }
+      }, 140 + bi * STEP);   // ~140ms blank beat, then staggered markets
+      uIntroTimers.push(t);
+    });
   }
   // Connector lines: benchmark → each VISIBLE comp target. Comps hidden inside a
   // cluster collapse to a single line to that cluster (and fan out as it expands).
