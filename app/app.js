@@ -809,27 +809,28 @@
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
     if (focusBench && benchMarker) {
-      const openIt = () => {
-        try {
-          const parent = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
-          // If the benchmark is still inside a cluster at the fitted zoom — co-located
-          // towers (Sloane A/B + C share coords) OR near neighbours (Bleury + Concorde,
-          // 260 m apart) — fan the cluster out, then open the popup once the spider legs
-          // settle. With animate:true the spiderfy is animated, so a fixed delay races it
-          // and the popup gets dropped; wait for the "spiderfied" event instead.
-          if (parent && parent !== benchMarker && parent.spiderfy) {
-            let done = false;
-            const fire = () => { if (done) return; done = true; uCluster.off("spiderfied", fire); benchMarker.openPopup(); };
-            uCluster.on("spiderfied", fire);
-            parent.spiderfy();
-            setTimeout(fire, 600);   // fallback if the spiderfied event never arrives
-          } else {
-            benchMarker.openPopup();
-          }
-        } catch (e) {}
+      // A marker hidden inside a cluster can't show a popup — openPopup() is a no-op
+      // until it's exposed. With animate:true both the fly-zoom and the spiderfy are
+      // animated, so any single fixed delay races them and the popup silently drops.
+      // Poll instead: each tick, if the benchmark is de-clustered open it directly,
+      // otherwise spiderfy the cluster it's in; also open the moment a spiderfy lands.
+      // Keeps the whole set framed (no extra zoom) while reliably surfacing the key prop.
+      const isOpen = () => !!(benchMarker.isPopupOpen && benchMarker.isPopupOpen());
+      const reveal = () => {
+        if (isOpen()) return true;
+        let parent = benchMarker;
+        try { parent = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker; } catch (e) {}
+        if (!parent || parent === benchMarker) { try { benchMarker.openPopup(); } catch (e) {} return isOpen(); }
+        if (parent.spiderfy) { try { parent.spiderfy(); } catch (e) {} }   // exposes it; popup opens via onShown / next tick
+        return false;
       };
-      if (fly && uMap) uMap.once("moveend", openIt);   // wait for the glide to settle
-      else setTimeout(openIt, 150);
+      const onShown = () => { try { benchMarker.openPopup(); } catch (e) {} };
+      uCluster.on("spiderfied", onShown);
+      let tries = 0;
+      const tick = () => { if (reveal() || tries++ > 8) { uCluster.off("spiderfied", onShown); return; } setTimeout(tick, 220); };
+      const start = () => setTimeout(tick, fly ? 80 : 150);
+      if (fly && uMap) uMap.once("moveend", start);   // wait for the glide to settle, then poll
+      else start();
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
   }
