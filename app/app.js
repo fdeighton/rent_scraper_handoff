@@ -407,7 +407,12 @@
     $nav.innerHTML = html;
     $nav.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
     $nav.querySelectorAll('[data-action="new-analysis"]').forEach((b) => (b.onclick = openNewAnalysisModal));
-    $nav.querySelectorAll('[data-action="expand-sidebar"]').forEach((b) => (b.onclick = () => setSidebarOpen(true)));
+    $nav.querySelectorAll('[data-action="expand-sidebar"]').forEach((b) => (b.onclick = () => {
+      setSidebarOpen(true);
+      // snap to the first analysis when expanding from the collapsed rail
+      // (unless you're already viewing one — then just reveal the list)
+      if (!location.hash.includes("/analysis/") && D.analyses[0]) location.hash = `#/analysis/${D.analyses[0].id}`;
+    }));
   }
   // Collapse/expand the sidebar (in-memory; not persisted — always open on load).
   function setSidebarOpen(open) {
