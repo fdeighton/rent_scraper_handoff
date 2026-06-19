@@ -757,7 +757,7 @@
   // (view toggle / bucket / search / city / navigation) rebuilds the layer.
   function popupHtml(b) {
     const sum = D.summary[b.id];
-    const photo = b.photo ? `<img class="pop-photo" src="${esc(b.photo)}" onerror="this.style.display='none'"/>` : "";
+    const photo = `<div class="pop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(b.photo)}" loading="lazy" onerror="this.style.display='none'"/>` : ""}</div>`;
     const badges = [b.assetType, b.yearBuilt ? "Built " + b.yearBuilt : null, b.unitCount ? b.unitCount + " units" : null]
       .filter(Boolean).map((x) => `<span class="badge">${esc(x)}</span>`).join("");
     const stats = sum && sum.weighted
@@ -1519,7 +1519,7 @@
     rows += `<tr class="group-row"><td class="rowlabel">Property</td><td colspan="${cols.length}"></td></tr>`;
     rows += rowMeta("", (c) => {
       const b = c.b;
-      const ph = b.photo ? `<img class="prop-photo" src="${esc(b.photo)}" onerror="this.style.display='none'"/>` : "";
+      const ph = `<div class="prop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(b.photo)}" onerror="this.style.display='none'"/>` : ""}</div>`;
       return `${ph}<div class="prop-name ${c.bench ? "bench" : ""}">${esc(b.name)}</div>`;
     });
     rows += rowMeta("Address", (c) => `<span class="sub">${esc(c.b.address || "—")}${c.b.city ? "<br/>" + esc(c.b.city) + ", " + esc(c.b.province || "") : ""}</span>`);
@@ -1638,7 +1638,7 @@
     function renderTable() {
       const rows = sortRows(rowsForType());
       $("#um-count").textContent = `(${rows.length} of ${all.length})`;
-      if (!rows.length) { $("#um-table").innerHTML = '<div class="empty">No individual listings recorded.</div>'; return; }
+      if (!rows.length) { $("#um-table").innerHTML = `<div class="empty">${icon("list")}<br/>No individual listings in this snapshot.</div>`; return; }
       const head = COLS.map((c) => `<th class="um-th" data-s="${c.k}">${c.label}<span class="um-sorti">${arrow(c.k)}</span></th>`).join("");
       const body = rows.map((u) => `<tr>
         <td>${TYPE_LABEL[u.type] || u.type}</td>
@@ -2755,7 +2755,7 @@
       });
     });
     const histTable = `<div class="card"><div class="card__title">${icon("chart")} Historical Rental Market Data</div>
-      ${q.length ? `<table class="hist"><thead><tr><th>Quarter</th><th>Active listings</th><th>Avg size (sf)</th><th>Avg rent</th><th>Avg PSF</th></tr></thead><tbody>${qrows}</tbody></table>` : '<div class="empty">No history.</div>'}
+      ${q.length ? `<table class="hist"><thead><tr><th>Quarter</th><th>Active listings</th><th>Avg size (sf)</th><th>Avg rent</th><th>Avg PSF</th></tr></thead><tbody>${qrows}</tbody></table>` : `<div class="empty">${icon("chart")}<br/>No quarterly history yet.</div>`}
     </div>`;
 
     // per-snapshot detail (by date) for expanding each scrape-history row
@@ -2763,7 +2763,7 @@
     (D.snapshots[id] || []).forEach((s) => (snapByDate[s.date] = s));
     const scrapeDetail = (h, det) => {
       let html = `<div class="sh-detail">`;
-      html += `<div class="sh-inc"><span class="sh-lbl">Incentive</span>${h.incentives ? esc(h.incentives) : '<span class="sub">None captured</span>'}</div>`;
+      html += `<div class="sh-inc"><span class="sh-lbl">Incentive</span>${h.incentives ? esc(h.incentives) : '<span class="sub">None advertised</span>'}</div>`;
       if (det && det.weighted) {
         const w = det.weighted;
         html += `<div class="sh-stats"><span><b class="tnum">${w.count}</b> units</span><span><b class="tnum">${money(w.avgRent)}</b> avg rent</span><span><b class="tnum">${psf(w.avgPsf)}</b> avg PSF</span><span><b class="tnum">${w.avgSqft ? w.avgSqft.toLocaleString() : "—"}</b> avg sf</span></div>`;
@@ -2799,7 +2799,7 @@
           <span class="sh-caret">${icon("chevron-down")}</span>
         </div>
         <div class="sh-panel" data-panel="${i}">${scrapeDetail(h, det)}</div>`;
-      }).join("") || '<div class="empty">No scrapes recorded.</div>'}
+      }).join("") || `<div class="empty">${icon("clock")}<br/>No scrapes recorded yet.</div>`}
       </div></div>`;
 
     $view.innerHTML = `
@@ -2910,17 +2910,26 @@
     $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
   }
 
+  let routeCur = null;
   function route() {
     const h = location.hash || "#/universe";
+    // Detect a tab switch within the same analysis so we can crossfade just the tab
+    // body (and keep scroll), instead of re-fading the whole page including the header.
+    const am = h.match(/^#\/analysis\/([^/]+)(?:\/(\w+))?/);
+    const pm = (routeCur || "").match(/^#\/analysis\/([^/]+)/);
+    const tabSwitch = !!(am && pm && am[1] === pm[1] && routeCur !== h);
+    routeCur = h;
     destroyMap();
     renderNav();
-    window.scrollTo(0, 0);
-    const m = h.match(/^#\/analysis\/([^/]+)(?:\/(\w+))?/);
+    if (!tabSwitch) window.scrollTo(0, 0);
     if (h.startsWith("#/universe")) renderUniverse();
-    else if (m) renderAnalysis(m[1], m[2]);
+    else if (am) renderAnalysis(am[1], am[2]);
     else if (h.startsWith("#/building/")) renderBuilding(h.split("/")[2]);
     else renderUniverse();
-    playViewEnter();
+    if (tabSwitch) {
+      const tb = document.getElementById("tabbody");
+      if (tb && !prefersReduced) { tb.classList.remove("tab-fade"); void tb.offsetWidth; tb.classList.add("tab-fade"); }
+    } else playViewEnter();
     initSegmenteds($view);
     animateCounts($view);
   }
