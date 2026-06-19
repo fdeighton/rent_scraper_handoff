@@ -812,12 +812,17 @@
       const openIt = () => {
         try {
           const parent = uCluster.getVisibleParent ? uCluster.getVisibleParent(benchMarker) : benchMarker;
-          // If the benchmark is still inside a cluster at the fitted zoom (e.g. Sloane
-          // Tower A/B + Tower C share coords and never de-cluster), fan it out directly.
-          // (zoomToShowLayer's callback never fires with the cluster's animate:false.)
+          // If the benchmark is still inside a cluster at the fitted zoom — co-located
+          // towers (Sloane A/B + C share coords) OR near neighbours (Bleury + Concorde,
+          // 260 m apart) — fan the cluster out, then open the popup once the spider legs
+          // settle. With animate:true the spiderfy is animated, so a fixed delay races it
+          // and the popup gets dropped; wait for the "spiderfied" event instead.
           if (parent && parent !== benchMarker && parent.spiderfy) {
+            let done = false;
+            const fire = () => { if (done) return; done = true; uCluster.off("spiderfied", fire); benchMarker.openPopup(); };
+            uCluster.on("spiderfied", fire);
             parent.spiderfy();
-            setTimeout(() => benchMarker.openPopup(), 160);   // let the spider legs settle, then open
+            setTimeout(fire, 600);   // fallback if the spiderfied event never arrives
           } else {
             benchMarker.openPopup();
           }
