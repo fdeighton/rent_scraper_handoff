@@ -287,6 +287,10 @@ button { font-family: inherit; cursor: pointer; }
    during the stagger delay, frees transform for :hover after. */
 #bu-map.mk-animate .mk, #bu-map.mk-animate .mk-cluster { animation: mkIn .28s var(--ease) backwards; }
 @keyframes mkIn { from { opacity: 0; transform: translateY(-6px) scale(.85); } to { opacity: 1; transform: none; } }
+/* View-entry intro: hold every marker invisible while the layer renders so the map
+   starts blank; playMapIntro() then assigns staggered mkIn animations (centre-out)
+   and drops this class once they've all landed. */
+#bu-map.mk-intro .mk, #bu-map.mk-intro .mk-cluster { opacity: 0; }
 .leaflet-marker-icon .mk { transition: transform .12s var(--ease); }
 .leaflet-marker-icon:hover .mk { transform: scale(1.12); }
 

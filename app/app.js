@@ -773,12 +773,24 @@
       <a class="pop-btn" href="#/building/${b.id}">View building →</a>
     </div>`;
   }
-  function setUniverseMarkers(focusBench, fly) {
+  function setUniverseMarkers(focusBench, fly, intro) {
     if (!uCluster) return;
-    // Enable the entrance animation only for this load (initial render / set change /
-    // search). It's removed shortly after so zoom-driven cluster splits don't replay it.
     const mapEl = document.getElementById("bu-map");
-    if (mapEl) { mapEl.classList.add("mk-animate"); clearTimeout(mkAnimTimer); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
+    // Intro only on the full universe view (no compare set anchored) — a bucket entry
+    // is about surfacing its benchmark, not a blank-map populate.
+    const doIntro = !!(intro && mapEl && !prefersReduced && (!buState.bucket || buState.bucket === "__all"));
+    if (doIntro) {
+      // View-entry intro: hold every marker/cluster invisible (mk-intro) as the layer
+      // renders so the map reads as blank, then bloom them in from the centre outward
+      // (playMapIntro) for a deliberate "populate to final state" reveal.
+      mapEl.classList.add("mk-intro");
+      mapEl.classList.remove("mk-animate"); clearTimeout(mkAnimTimer);
+    } else if (mapEl) {
+      // Lighter per-load fade for in-place updates (search / bucket change). Removed
+      // shortly after so zoom-driven cluster splits don't replay it.
+      mapEl.classList.remove("mk-intro");
+      mapEl.classList.add("mk-animate"); clearTimeout(mkAnimTimer); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900);
+    }
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
     if (uLines) uLines.clearLayers();
@@ -804,8 +816,9 @@
     uBenchMarker = benchMarker; uCompMarkers = compMarkers;   // for cluster-aware connector lines
     if (pts.length) {
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
-      else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
+      else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });   // intro: place instantly, then bloom
     } else uMap.setView([43.7, -79.4], 11);
+    if (doIntro) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
     if (focusBench && benchMarker) {
@@ -833,6 +846,27 @@
       else start();
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
+  }
+  // View-entry intro: bloom the rendered markers/clusters onto the (held-blank) map,
+  // centre outward, so the listings appear to populate incrementally to the final
+  // state. Animates the INNER .mk/.mk-cluster (the Leaflet wrapper owns positioning),
+  // then drops the mk-intro hold so everything settles to its natural resting state.
+  function playMapIntro(mapEl) {
+    if (!mapEl) return;
+    const els = Array.prototype.slice.call(mapEl.querySelectorAll(".mk, .mk-cluster"));
+    if (!els.length) { mapEl.classList.remove("mk-intro"); return; }
+    const r = mapEl.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const cdist = (el) => { const b = el.getBoundingClientRect(); return Math.hypot(b.left + b.width / 2 - cx, b.top + b.height / 2 - cy); };
+    els.sort((a, b) => cdist(a) - cdist(b));   // nearest-to-centre first → blooms outward
+    const step = els.length > 14 ? 50 : 70;
+    const dur = 460;
+    els.forEach((el, i) => { el.style.animation = `mkIn ${dur}ms var(--ease) ${i * step}ms backwards`; });
+    clearTimeout(mkAnimTimer);
+    mkAnimTimer = setTimeout(() => {     // after the last marker lands, release the hold + inline styles
+      els.forEach((el) => { el.style.animation = ""; });
+      mapEl.classList.remove("mk-intro");
+    }, els.length * step + dur + 80);
   }
   // Connector lines: benchmark → each VISIBLE comp target. Comps hidden inside a
   // cluster collapse to a single line to that cluster (and fan out as it expands).
@@ -875,7 +909,7 @@
     const redraw = () => setTimeout(drawLines, 0);
     uMap.on("zoomend moveend", redraw);
     uCluster.on("spiderfied unspiderfied animationend", redraw);
-    setUniverseMarkers(true);  // focus the benchmark popup on (re)entry / bucket select
+    setUniverseMarkers(true, false, true);  // view entry: incremental populate intro + focus benchmark
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
     wireMapToolbar();
   }
