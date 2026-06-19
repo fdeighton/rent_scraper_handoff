@@ -859,8 +859,11 @@
       ? L.markerClusterGroup({ iconCreateFunction: clusterIcon, maxClusterRadius: 48, showCoverageOnHover: false, spiderfyOnMaxZoom: true, removeOutsideVisibleBounds: false, animate: false })
       : L.layerGroup();
     uMap.addLayer(uCluster);
-    uMap.on("zoomend", drawLines);                       // re-aim connector lines as clusters form/break
-    uCluster.on("spiderfied unspiderfied", drawLines);
+    // re-aim connector lines as clusters form/break — deferred a tick so
+    // markercluster has recomputed visible parents before we read them.
+    const redraw = () => setTimeout(drawLines, 0);
+    uMap.on("zoomend moveend", redraw);
+    uCluster.on("spiderfied unspiderfied animationend", redraw);
     setUniverseMarkers(true);  // focus the benchmark popup on (re)entry / bucket select
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
     wireMapToolbar();
