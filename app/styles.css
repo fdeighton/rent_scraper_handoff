@@ -104,6 +104,10 @@ button { font-family: inherit; cursor: pointer; }
 .sidebar.collapsed .sidebar__section { display: none; }
 .sidebar.collapsed .nav-item { justify-content: center; gap: 0; padding: var(--sp-2); }
 .sidebar.collapsed .nav-item__label, .sidebar.collapsed .nav-tag { display: none; }
+/* collapsed shows one "Analyses" icon; expanded shows the full list */
+.nav-collapsed-only { display: none; }
+.sidebar.collapsed .nav-collapsed-only { display: flex; }
+.sidebar.collapsed .nav-expanded-only { display: none; }
 .sidebar__section {
   font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
   color: #8d95b5; margin: var(--sp-5) var(--sp-3) var(--sp-2);

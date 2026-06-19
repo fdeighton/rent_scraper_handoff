@@ -390,18 +390,33 @@
   // ============================================================== Sidebar ===
   function renderNav() {
     const route = location.hash || "#/universe";
+    const inAnalysis = route.includes("/analysis/");
     let html = `<button class="nav-item ${route.startsWith("#/universe") ? "active" : ""}" data-go="#/universe" title="Building Universe">
         ${icon("globe")}<span class="nav-item__label">Building Universe</span></button>`;
+    // collapsed rail shows ONE "Analyses" icon (not every analysis) — clicking it
+    // expands the sidebar to reveal the full list. Hidden when expanded.
+    html += `<button class="nav-item nav-collapsed-only ${inAnalysis ? "active" : ""}" data-action="expand-sidebar" title="Analyses">
+        ${icon("list")}<span class="nav-item__label">Analyses</span></button>`;
     html += `<div class="sidebar__section">Analyses</div>`;
     for (const a of D.analyses) {
       const active = route.includes("/analysis/" + a.id);
-      html += `<button class="nav-item ${active ? "active" : ""}" data-go="#/analysis/${a.id}" title="${esc(a.name)}">
+      html += `<button class="nav-item nav-expanded-only ${active ? "active" : ""}" data-go="#/analysis/${a.id}" title="${esc(a.name)}">
           ${icon("building")}<span class="nav-item__label">${esc(a.name)}</span>${a.custom ? '<span class="nav-tag">custom</span>' : ""}</button>`;
     }
-    html += `<button class="nav-item" data-action="new-analysis" title="New Analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
+    html += `<button class="nav-item nav-expanded-only" data-action="new-analysis" title="New Analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
     $nav.innerHTML = html;
     $nav.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
     $nav.querySelectorAll('[data-action="new-analysis"]').forEach((b) => (b.onclick = openNewAnalysisModal));
+    $nav.querySelectorAll('[data-action="expand-sidebar"]').forEach((b) => (b.onclick = () => setSidebarOpen(true)));
+  }
+  // Collapse/expand the sidebar (in-memory; not persisted — always open on load).
+  function setSidebarOpen(open) {
+    const sb = document.getElementById("sidebar");
+    if (!sb) return;
+    sb.classList.toggle("collapsed", !open);
+    const tg = document.getElementById("sb-toggle");
+    if (tg) { tg.title = open ? "Collapse sidebar" : "Expand sidebar"; tg.setAttribute("aria-label", tg.title); }
+    if (uMap) setTimeout(() => { try { uMap.invalidateSize(); } catch (e) {} }, 200); // map fills new width
   }
 
   // ===================================================== Building Universe ===
@@ -2586,14 +2601,8 @@
   (function wireSidebar() {
     const sb = document.getElementById("sidebar"), tg = document.getElementById("sb-toggle");
     if (!sb || !tg) return;
-    const apply = (open) => {
-      sb.classList.toggle("collapsed", !open);
-      tg.innerHTML = icon("chevron-left");
-      tg.title = open ? "Collapse sidebar" : "Expand sidebar";
-      tg.setAttribute("aria-label", tg.title);
-      if (uMap) setTimeout(() => { try { uMap.invalidateSize(); } catch (e) {} }, 200); // map fills new width
-    };
-    apply(true);                                              // default open every load
-    tg.onclick = () => apply(sb.classList.contains("collapsed"));
+    tg.innerHTML = icon("chevron-left");
+    tg.onclick = () => setSidebarOpen(sb.classList.contains("collapsed"));
+    setSidebarOpen(true);                                     // default open every load
   })();
 })();
