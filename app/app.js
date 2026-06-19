@@ -2585,14 +2585,20 @@
       overlay.addEventListener("mouseleave", () => trendHoverLeave(cache));
     }
 
-    // Axis bounds — keep the current fit while the data still fits inside it, so a
-    // toggle that doesn't change a line leaves it exactly in place (no rescale).
+    // Axis bounds — fit tightly to the *visible* series so they fill the plot. We keep
+    // the current fit when the data still fits inside it (a toggle that doesn't move an
+    // extreme leaves the axis exactly in place — no distracting micro-rescale), BUT if
+    // the visible data would now occupy under ~80% of the current span — e.g. you hide an
+    // outlier like a far-above-cluster benchmark — we rescale tighter to reclaim the empty
+    // space. The axis morph animates the zoom smoothly either way.
     let tYMin, tYMax;
-    if (reuse && cache.fitMin != null && dMin >= cache.fitMin && dMax <= cache.fitMax) {
+    const padY = (dMax - dMin) * 0.12 || dMax * 0.1;
+    const fitLo = Math.max(0, dMin - padY), fitHi = dMax + padY;
+    if (reuse && cache.fitMin != null && dMin >= cache.fitMin && dMax <= cache.fitMax
+        && (fitHi - fitLo) >= (cache.fitMax - cache.fitMin) * 0.8) {
       tYMin = cache.fitMin; tYMax = cache.fitMax;
     } else {
-      const padY = (dMax - dMin) * 0.12 || dMax * 0.1;
-      tYMin = Math.max(0, dMin - padY); tYMax = dMax + padY;
+      tYMin = fitLo; tYMax = fitHi;
     }
     cache.fitMin = tYMin; cache.fitMax = tYMax;
     if (cache.yMin == null) { cache.yMin = tYMin; cache.yMax = tYMax; }  // first paint: no axis morph
