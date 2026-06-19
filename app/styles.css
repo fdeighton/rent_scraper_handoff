@@ -287,6 +287,10 @@ button { font-family: inherit; cursor: pointer; }
    during the stagger delay, frees transform for :hover after. */
 #bu-map.mk-animate .mk, #bu-map.mk-animate .mk-cluster { animation: mkIn .34s var(--ease) backwards; }
 @keyframes mkIn { from { opacity: 0; transform: translateY(-6px) scale(.85); } to { opacity: 1; transform: none; } }
+/* View-entry intro: hold markers invisible while the layer renders, then playMapIntro
+   grows each bubble up to size (mkGrow) and ticks its count up. Hold dropped after. */
+#bu-map.mk-intro .mk, #bu-map.mk-intro .mk-cluster { opacity: 0; }
+@keyframes mkGrow { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
 .leaflet-marker-icon .mk { transition: transform .12s var(--ease); }
 .leaflet-marker-icon:hover .mk { transform: scale(1.12); }
 

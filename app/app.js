@@ -785,11 +785,12 @@
     // is about surfacing its benchmark, not a blank-map populate.
     const doIntro = !!(intro && mapEl && !prefersReduced && (!buState.bucket || buState.bucket === "__all"));
     if (mapEl) {
-      // mk-animate drives the one-time fade/scale entrance (#bu-map.mk-animate .mk).
-      // It's only present during an intentional load window so zoom-driven cluster
-      // splits/merges never replay it. Intro manages it per batch in populateIntro.
-      mapEl.classList.remove("mk-animate"); clearTimeout(mkAnimTimer);
-      if (!doIntro) { mapEl.classList.add("mk-animate"); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
+      // mk-animate = the light one-time fade for in-place updates. mk-intro = hold the
+      // markers invisible until playMapIntro grows the bubbles in + ticks their counts.
+      // Both only present during an intentional load window, never on zoom split/merge.
+      mapEl.classList.remove("mk-animate", "mk-intro"); clearTimeout(mkAnimTimer);
+      if (doIntro) mapEl.classList.add("mk-intro");
+      else { mapEl.classList.add("mk-animate"); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
     }
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
@@ -821,8 +822,8 @@
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
       else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });
     } else uMap.setView([43.7, -79.4], 11);
-    if (doIntro) populateIntro(mapEl, made);                  // blank → batched, staggered by city
-    else uCluster.addLayers(made.map((x) => x.m));            // normal: add all at once
+    uCluster.addLayers(made.map((x) => x.m));                 // add all at once
+    if (doIntro) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));   // then grow bubbles + tick counts
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
     if (focusBench && benchMarker) {
@@ -851,30 +852,50 @@
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
   }
-  // View-entry intro: the "rental intelligence layer initializing" reveal. The base
-  // map is already framed and the marker layer is empty; we add the buildings in
-  // batches grouped by market/city, each batch fading/scaling in once via mk-animate.
-  // Geographic grouping means each city's cluster forms from its own batch without
-  // disturbing already-placed clusters. Timers are tracked (uIntroTimers) so a search
-  // / filter / toggle mid-intro cancels cleanly. Self-heals to the full state.
-  function populateIntro(mapEl, made) {
-    if (!mapEl || !made.length) { if (mapEl) mapEl.classList.remove("mk-animate"); return; }
-    const groups = new Map();   // city → markers (preserve build order within a city)
-    made.forEach((x) => { const k = x.city || "·"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x.m); });
-    const batches = Array.from(groups.values()).sort((a, b) => b.length - a.length);   // biggest market first
-    // Stagger sized to a fixed budget so the total intro stays ~0.7–1.2s at any market count.
-    const STEP = batches.length > 1 ? Math.max(80, Math.min(170, Math.round(560 / (batches.length - 1)))) : 0;
-    mapEl.classList.add("mk-animate");   // keep the entrance fade live for the whole sequence
-    batches.forEach((batch, bi) => {
-      const t = setTimeout(() => {
-        if (!uCluster) return;
-        uCluster.addLayers(batch);       // bulk add → one render → one fade-in for this market
-        if (bi === batches.length - 1) {  // last batch landed: settle to the normal interactive state
-          mkAnimTimer = setTimeout(() => { if (mapEl) mapEl.classList.remove("mk-animate"); }, 440);
-        }
-      }, 140 + bi * STEP);   // ~140ms blank beat, then staggered markets
-      uIntroTimers.push(t);
+  // View-entry intro: hold the layer invisible (mk-intro), then grow each cluster
+  // bubble up to size while its number ticks up (0 → final count, easeOutCubic);
+  // standalone markers simply grow/fade in. Ends in the normal interactive state.
+  // Count timers are tracked (uIntroTimers) so a search / filter / toggle mid-intro
+  // cancels cleanly; the hold is released after the longest animation lands.
+  function playMapIntro(mapEl) {
+    if (!mapEl) return;
+    const clusters = Array.prototype.slice.call(mapEl.querySelectorAll(".mk-cluster"));
+    const singles = Array.prototype.slice.call(mapEl.querySelectorAll(".leaflet-marker-icon .mk"));
+    if (!clusters.length && !singles.length) { mapEl.classList.remove("mk-intro"); return; }
+    const GROW = 720;
+    const cd = (els) => { const r = mapEl.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      els.sort((a, b) => { const A = a.getBoundingClientRect(), B = b.getBoundingClientRect();
+        return Math.hypot(A.left - cx, A.top - cy) - Math.hypot(B.left - cx, B.top - cy); }); };
+    cd(clusters); cd(singles);                                  // centre-out reveal order
+    // both-fill keeps each bubble at its final state once it lands (early ones don't snap
+    // back to the mk-intro hold); the inline anim is cleared at settle, restoring :hover.
+    singles.forEach((el, i) => { el.style.animation = `mkGrow 460ms var(--ease) ${Math.min(i, 12) * 40}ms both`; });
+    let maxDelay = 0;
+    clusters.forEach((el, i) => {
+      const delay = Math.min(i, 12) * 55; maxDelay = Math.max(maxDelay, delay);
+      el.style.animation = `mkGrow ${GROW}ms var(--ease) ${delay}ms both`;
+      const numEl = el.querySelector("div");
+      const target = numEl ? (parseInt(numEl.textContent, 10) || 0) : 0;
+      if (numEl && target > 0) {
+        numEl.textContent = "0";
+        const t = setTimeout(() => {                            // start ticking when this bubble begins to grow
+          const t0 = performance.now();
+          const tick = (now) => {
+            const p = Math.min(1, (now - t0) / GROW);
+            const e = 1 - Math.pow(1 - p, 3);                   // easeOutCubic
+            numEl.textContent = String(Math.round(target * e));
+            if (p < 1) requestAnimationFrame(tick); else numEl.textContent = String(target);
+          };
+          requestAnimationFrame(tick);
+        }, delay);
+        uIntroTimers.push(t);
+      }
     });
+    clearTimeout(mkAnimTimer);
+    mkAnimTimer = setTimeout(() => {                            // settle: drop the hold first, then inline anims
+      mapEl.classList.remove("mk-intro");
+      clusters.concat(singles).forEach((el) => { el.style.animation = ""; });
+    }, maxDelay + GROW + 80);
   }
   // Connector lines: benchmark → each VISIBLE comp target. Comps hidden inside a
   // cluster collapse to a single line to that cluster (and fan out as it expands).
