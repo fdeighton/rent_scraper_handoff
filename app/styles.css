@@ -124,11 +124,13 @@ button { font-family: inherit; cursor: pointer; }
 .nav-item:hover { background: var(--navy-600); color: #fff; }
 .nav-item .ic { flex: 0 0 18px; opacity: .85; }
 .nav-item.active { background: var(--navy-600); color: #fff; }
-.nav-item.active::before {
-  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
-  background: var(--orange); border-radius: var(--r-pill);
-}
 .nav-item.active .ic { opacity: 1; color: var(--orange); }
+/* single persistent active indicator (JS-positioned) that glides between items */
+.nav-rail {
+  position: absolute; left: 0; width: 3px; top: 0; height: 0; opacity: 0;
+  background: var(--orange); border-radius: var(--r-pill); pointer-events: none; z-index: 2;
+  transition: top .18s var(--ease), height .18s var(--ease), opacity .12s var(--ease);
+}
 .nav-item__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Main */
@@ -809,5 +811,5 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 .bu-grid--enter .bcard { animation: fzCardIn .42s var(--ease) both; }   /* full renders only, not search/filter */
 @media (prefers-reduced-motion: reduce) {
   #view.view-enter, .bu-grid--enter .bcard { animation: none !important; transform: none !important; }
-  .seg-thumb { transition: none !important; }
+  .seg-thumb, .nav-rail { transition: none !important; }
 }

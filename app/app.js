@@ -405,6 +405,7 @@
     }
     html += `<button class="nav-item nav-expanded-only" data-action="new-analysis" title="New Analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
     $nav.innerHTML = html;
+    positionNavRail(navRailReady); navRailReady = true;   // glide the orange bar to the active item
     $nav.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
     $nav.querySelectorAll('[data-action="new-analysis"]').forEach((b) => (b.onclick = openNewAnalysisModal));
     $nav.querySelectorAll('[data-action="expand-sidebar"]').forEach((b) => (b.onclick = () => {
@@ -422,6 +423,30 @@
     const tg = document.getElementById("sb-toggle");
     if (tg) { tg.title = open ? "Collapse sidebar" : "Expand sidebar"; tg.setAttribute("aria-label", tg.title); }
     if (uMap) setTimeout(() => { try { uMap.invalidateSize(); } catch (e) {} }, 200); // map fills new width
+    positionNavRail(false);                                    // item positions shift; re-place instantly…
+    setTimeout(() => positionNavRail(false), 220);             // …and again once the width settles
+  }
+
+  // Single persistent orange active-bar that glides to the active nav item. The
+  // bar lives outside #nav (which is rebuilt each route) so it survives re-renders.
+  let navRailReady = false;
+  function positionNavRail(animate) {
+    const sb = document.getElementById("sidebar");
+    if (!sb) return;
+    let rail = sb.querySelector(".nav-rail");
+    if (!rail) { rail = document.createElement("div"); rail.className = "nav-rail"; sb.appendChild(rail); }
+    const actives = [...sb.querySelectorAll("#nav .nav-item.active")];
+    const active = actives.find((el) => el.offsetParent !== null) || actives[0];  // the VISIBLE active (collapsed vs expanded)
+    if (!active) { rail.style.opacity = "0"; return; }
+    const sr = sb.getBoundingClientRect(), ar = active.getBoundingClientRect();
+    const place = () => {
+      rail.style.left = (ar.left - sr.left) + "px";
+      rail.style.top = (ar.top - sr.top + 8) + "px";
+      rail.style.height = Math.max(12, ar.height - 16) + "px";
+      rail.style.opacity = "1";
+    };
+    if (animate && !prefersReduced) { place(); }
+    else { rail.style.transition = "none"; place(); void rail.offsetWidth; rail.style.transition = ""; }
   }
 
   // ===================================================== Building Universe ===
@@ -2665,7 +2690,8 @@
     animateCounts($view);
   }
   window.addEventListener("hashchange", route);
-  window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); });
+  window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); else positionNavRail(false); });
+  $nav.addEventListener("scroll", () => positionNavRail(false));   // keep the rail aligned if the nav scrolls
   loadCustomBuildings();
   loadCustomAnalyses();
   // Always land on Building Universe on open/refresh, regardless of a persisted hash.
