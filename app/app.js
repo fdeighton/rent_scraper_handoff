@@ -766,7 +766,7 @@
   }
   function buCard(b, i) {
     const sum = D.summary[b.id];
-    const delay = `style="animation-delay:${Math.min(i || 0, 14) * 18}ms"`;   // staggered entrance (capped)
+    const delay = `style="animation-delay:${Math.min(i || 0, 16) * 32}ms"`;   // staggered entrance (capped)
     const photo = `<div class="bcard__ph">${icon("building")}</div>` +
       (b.photo ? `<img src="${esc(b.photo)}" alt="" loading="lazy" onerror="this.style.display='none'"/>` : "");
     const badges = [];
