@@ -1641,23 +1641,20 @@
     rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">Latest ${fmtDate(labelDate)} · “was” &amp; Δ vs ${baseLabel}${snapHint}</td></tr>`;
 
     // one metric cell — clickable to drill into the individual listings behind the average.
-    // Line 1 = rent (with size beside it) + its Δ; line 2 = $/sf + its Δ (so each Δ is
-    // self-labeling). Every token is nowrap and the rows flex-wrap, so a tight column wraps
-    // between tokens instead of overflowing into the next cell. Faint footer = "was" baseline.
+    // Three slash-paired lines: rent / $/sf  →  Δrent / Δ$sf  →  size / units.
     const metricCell = (c, cur, prev, type) => {
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
-      const dR = delta(cur.avgRent, prev && prev.avgRent);          // paired with rent
-      const dP = deltaPsf(cur.avgPsf, prev && prev.avgPsf);         // paired with $/sf
-      const size = cur.avgSqft ? `<div class="metric-size tnum">${cur.avgSqft.toLocaleString()} sf</div>` : "";
-      const wasParts = [];
-      if (prev && prev.avgRent != null) wasParts.push(money(prev.avgRent));
-      if (prev && prev.avgPsf != null) wasParts.push(psf(prev.avgPsf) + "/sf");
-      const was = wasParts.length ? `<div class="metric-was tnum">was ${wasParts.join(" / ")}</div>` : "";
+      const slash = '<span class="m-slash">/</span>';
+      const dParts = [delta(cur.avgRent, prev && prev.avgRent), deltaPsf(cur.avgPsf, prev && prev.avgPsf)].filter(Boolean);
+      const deltaLine = dParts.length ? `<div class="metric-delta">${dParts.join(slash)}</div>` : "";
+      const sizeParts = [];
+      if (cur.avgSqft) sizeParts.push(`${cur.avgSqft.toLocaleString()} sf`);
+      if (cur.count != null) sizeParts.push(`${cur.count} unit${cur.count === 1 ? "" : "s"}`);
+      const sizeLine = sizeParts.length ? `<div class="metric-size tnum">${sizeParts.join(slash)}</div>` : "";
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
-        <div class="metric tnum"><span class="m-rent">${money(cur.avgRent)}</span>${dR}</div>
-        <div class="metric-psf tnum"><span>${psf(cur.avgPsf)}/sf</span>${dP}</div>
-        ${size}
-        ${was}
+        <div class="metric tnum">${money(cur.avgRent)}${slash}${psf(cur.avgPsf)}</div>
+        ${deltaLine}
+        ${sizeLine}
       </td>`;
     };
 
