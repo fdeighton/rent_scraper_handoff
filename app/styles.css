@@ -516,6 +516,10 @@ table.comp thead th {
 .snap-btn .ic { color: var(--navy-600); }
 .snap-btn .ic:last-child { width: 14px; height: 14px; }
 .snap-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-lg); overflow: hidden; }
+.snap-menu--float { position: fixed; top: 0; left: 0; z-index: 2100; }   /* band-button popup — escapes the table's overflow clipping */
+/* inline date pickers in the section bands */
+.band-btn { padding: 4px 10px !important; font-size: 12px !important; text-transform: none; letter-spacing: 0; }
+.band-note { font-size: 11px; font-weight: 400; color: var(--grey); text-transform: none; letter-spacing: 0; margin-left: 10px; }
 .snap-menu[hidden] { display: none; }
 .snap-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 13px; color: var(--navy); font-variant-numeric: tabular-nums; }
 .snap-opt:hover { background: var(--row-hover); }
