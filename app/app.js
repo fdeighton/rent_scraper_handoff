@@ -864,14 +864,21 @@
       };
       const onShown = () => { try { benchMarker.openPopup(); } catch (e) {} };
       uCluster.on("spiderfied", onShown);
-      let tries = 0;
+      let tries = 0, reopened = 0, revealActive = true;
       const tick = () => { if (reveal() || tries++ > 10) { uCluster.off("spiderfied", onShown); return; } setTimeout(tick, 200); };
+      // Backstop: if the card auto-collapses right after opening (a trailing zoom from the
+      // glide can unspiderfy the cluster and drop the spider-leg marker's popup — seen on
+      // Quartier des Spectacles / Cabbagetown), reveal it once more. Bounded to the snap
+      // window so a genuine user close afterwards is still honoured.
+      const onClose = () => { if (revealActive && reopened++ < 1) { tries = 0; setTimeout(tick, 140); } };
+      benchMarker.on("popupclose", onClose);
+      setTimeout(() => { revealActive = false; benchMarker.off("popupclose", onClose); }, 1800);
       let started = false;
-      const start = () => { if (started) return; started = true; setTimeout(tick, fly ? 60 : 150); };
+      const start = () => { if (started) return; started = true; setTimeout(tick, fly ? 180 : 150); };
       // Prefer to poll once the glide settles, but flyToBounds emits no moveend when the
       // target bounds ~= the current view (e.g. hopping between two nearby Toronto sets),
       // which left the benchmark popup unopened. Fall back to a timer so it always runs.
-      if (fly && uMap) { uMap.once("moveend", start); setTimeout(start, 750); }
+      if (fly && uMap) { uMap.once("moveend", start); setTimeout(start, 800); }
       else start();
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
