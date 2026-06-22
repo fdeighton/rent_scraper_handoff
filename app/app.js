@@ -574,6 +574,7 @@
   };
   const SORTERS = {
     name: (a, b) => a.name.localeCompare(b.name),
+    name_desc: (a, b) => b.name.localeCompare(a.name),
     rent_desc: _byNum(rentOf, "desc"),
     rent_asc: _byNum(rentOf, "asc"),
     psf_desc: _byNum(psfOf, "desc"),
@@ -619,7 +620,7 @@
     const fromVals = (head, key) => [["__all", head]].concat(distinctVals(key).map((v) => [v, v]));
     const fromMap = (head, map) => [["__all", head]].concat(Object.entries(map).map(([k, v]) => [k, v.label]));
     const sortOpts = [
-      ["name", "Name (A–Z)"], ["rent_desc", "Avg rent (high→low)"], ["rent_asc", "Avg rent (low→high)"],
+      ["name", "Name (A–Z)"], ["name_desc", "Name (Z–A)"], ["rent_desc", "Avg rent (high→low)"], ["rent_asc", "Avg rent (low→high)"],
       ["psf_desc", "Avg PSF (high→low)"], ["psf_asc", "Avg PSF (low→high)"],
       ["year_desc", "Year built (newest)"], ["year_asc", "Year built (oldest)"],
       ["units_desc", "Units (most)"], ["units_asc", "Units (fewest)"],
