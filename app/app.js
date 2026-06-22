@@ -1639,6 +1639,53 @@
     return `<table class="comp"${style}>${colGroup}<thead><tr><th class="rowlabel">Metric</th>${colHead}</tr></thead><tbody>${rows}</tbody></table>`;
   }
 
+  // ---- Comp table: floating building-name header --------------------------------
+  // The single-scroll layout can't keep the thead sticky in pure CSS (the horizontal-
+  // scroll wrapper isn't the page's vertical scroll container), so we clone the header
+  // into a fixed bar that appears once the real one scrolls above the viewport. Its
+  // horizontal scroll is synced to the table (incl. grab-drag) and the sticky left
+  // metric column is preserved for free since the clone is a .comp table too.
+  let compStickyHead = null, compStickyWrap = null;
+  function teardownCompSticky() {
+    if (compStickyHead && compStickyHead.parentNode) compStickyHead.parentNode.removeChild(compStickyHead);
+    compStickyHead = null; compStickyWrap = null;
+  }
+  function buildCompSticky(wrap) {
+    teardownCompSticky();
+    const table = wrap && wrap.querySelector("table.comp");
+    const thead = table && table.querySelector("thead");
+    if (!thead) return;
+    const cg = table.querySelector("colgroup");
+    const host = document.createElement("div");
+    host.id = "comp-stickyhead";
+    host.innerHTML = `<table class="comp" style="width:${table.offsetWidth}px;margin:0;table-layout:fixed">${cg ? cg.outerHTML : ""}${thead.outerHTML}</table>`;
+    document.body.appendChild(host);
+    // lock each clone column to the real header cell's measured width → pixel-perfect align
+    const realThs = thead.querySelectorAll("th"), cloneThs = host.querySelectorAll("thead th");
+    realThs.forEach((th, i) => { const c = cloneThs[i]; if (c) { const w = th.offsetWidth + "px"; c.style.width = w; c.style.minWidth = w; c.style.maxWidth = w; } });
+    host.addEventListener("click", (e) => {   // forward the × remove to the real button's handler
+      const rm = e.target.closest(".th-rm");
+      if (!rm) return;
+      e.stopPropagation();
+      const realRm = wrap.querySelector(`.th-rm[data-rm="${rm.dataset.rm}"]`);
+      if (realRm) realRm.click();
+    });
+    compStickyHead = host; compStickyWrap = wrap;
+    updateCompSticky();
+  }
+  function updateCompSticky() {
+    if (!compStickyHead) return;
+    if (!compStickyWrap || !compStickyWrap.isConnected) { teardownCompSticky(); return; }
+    const r = compStickyWrap.getBoundingClientRect();
+    const hh = compStickyHead.offsetHeight || 44;
+    const show = r.top < 0 && r.bottom > hh + 8;   // real header scrolled off, table still in view
+    compStickyHead.style.display = show ? "block" : "none";
+    if (!show) return;
+    compStickyHead.style.left = r.left + "px";
+    compStickyHead.style.width = r.width + "px";
+    compStickyHead.scrollLeft = compStickyWrap.scrollLeft;
+  }
+
   // Drill-down: the individual listings that rolled up into a clicked cell.
   // Unit-backup modal: filter tabs by unit type, a sortable per-unit table, and
   // a summary-by-unit-type table — opened by clicking a cell in the comp table.
@@ -1923,6 +1970,10 @@
         const td = e.target.closest("td[data-bid]");
         if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
       };
+      // keep the floating header's horizontal position locked to the table (covers the
+      // scrollbar, trackpad, and grab-drag, which all move wrap.scrollLeft)
+      wrap.addEventListener("scroll", () => { if (compStickyHead) compStickyHead.scrollLeft = wrap.scrollLeft; });
+      buildCompSticky(wrap);   // floating building-name header once the real one scrolls off
     }
 
     const bin = document.querySelector("#tabbody .dropbin");
@@ -3046,6 +3097,8 @@
     }
   }
   window.addEventListener("scroll", updateToTop, { passive: true });
+  window.addEventListener("scroll", updateCompSticky, { passive: true });
+  window.addEventListener("resize", () => { if (compStickyWrap && compStickyWrap.isConnected) buildCompSticky(compStickyWrap); });
 
   let routeCur = null, savedUniverseScroll = null, savedMapView = null, wantUniverseRestore = false, universeInstant = false;
   function route() {
@@ -3078,6 +3131,7 @@
     if (universeInstant && savedMapView && buState.view === "map") mapRestoreView = savedMapView;
     routeCur = h;
     destroyMap();
+    teardownCompSticky();   // renderSummary rebuilds it for the comp tab; other pages stay clear
     renderNav();
     if (!tabSwitch && restoreScroll == null) window.scrollTo(0, 0);
     if (h.startsWith("#/universe")) renderUniverse();

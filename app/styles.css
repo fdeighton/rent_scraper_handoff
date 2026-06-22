@@ -381,13 +381,19 @@ table.comp thead th {
 /* Remove-comp × is pinned to the right edge, vertically centered — identical
    placement whether the building name is one line or two. Symmetric side padding
    on every data header keeps the building name centered in its cell. */
-.comp-wrap thead th { position: relative; text-align: center; vertical-align: middle; }
-.comp-wrap thead th.col-bench, .comp-wrap thead th.col-rm { padding-left: 20px; padding-right: 20px; }
-.comp-wrap thead th .th-rm { position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+.comp-wrap thead th, #comp-stickyhead thead th { position: relative; text-align: center; vertical-align: middle; }
+.comp-wrap thead th.col-bench, .comp-wrap thead th.col-rm,
+#comp-stickyhead thead th.col-bench, #comp-stickyhead thead th.col-rm { padding-left: 20px; padding-right: 20px; }
+.comp-wrap thead th .th-rm, #comp-stickyhead thead th .th-rm { position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
   border: none; background: rgba(255,255,255,.16); color: #fff;
   width: 16px; height: 16px; line-height: 15px; border-radius: 50%; font-size: 12px; padding: 0; cursor: pointer;
   transition: background .12s var(--ease); }
-.comp-wrap thead th .th-rm:hover { background: var(--orange); }
+.comp-wrap thead th .th-rm:hover, #comp-stickyhead thead th .th-rm:hover { background: var(--orange); }
+
+/* Floating clone of the building-name header — pins to the top of the viewport once the
+   real header scrolls off; scrollLeft kept in sync with the table (JS). */
+#comp-stickyhead { position: fixed; top: 0; z-index: 40; overflow: hidden; display: none; box-shadow: 0 8px 14px -8px rgba(6,16,49,.4); }
+#comp-stickyhead table.comp { margin: 0; }
 .comp .group-row td {
   background: #f3f4f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
   color: var(--navy-600); font-weight: 600; text-align: left;
