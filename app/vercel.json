@@ -8,6 +8,10 @@
       "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     },
     {
+      "source": "/data/units/:file",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    },
+    {
       "source": "/(app.js|xlsx.js|styles.css|config.js)",
       "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
     },

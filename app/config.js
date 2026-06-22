@@ -15,4 +15,10 @@
 window.COMP_CONFIG = {
   dataSource: "inline",
   dataUrl: "", // e.g. "/api/comp-data"
+
+  // Per-building individual-listing files (the heavy ~half of the data, split out and
+  // lazy-loaded on demand). Served as data/units/<building-id>.json by default. Point this
+  // at a backend route if you serve them elsewhere. Requires HTTP (fetch is blocked on
+  // file://) — the app degrades gracefully (drill-downs show "unavailable") when it can't.
+  unitsBase: "data/units",
 };

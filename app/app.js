@@ -1687,12 +1687,42 @@
   }
 
   // Drill-down: the individual listings that rolled up into a clicked cell.
+  // Per-building unit rows are lazy-loaded (data/units/<bid>.json) and cached, so the
+  // initial payload stays lean. Resolves to { date: [unit rows] }; on any failure
+  // (offline / file:// / 404) it resolves to {} so the UI degrades gracefully.
+  const _unitsCache = {};
+  function loadUnits(bid) {
+    if (_unitsCache[bid]) return _unitsCache[bid];
+    const cfg = window.COMP_CONFIG || {};
+    const base = cfg.unitsBase || "data/units";
+    _unitsCache[bid] = fetch(`${base}/${encodeURIComponent(bid)}.json`, { headers: { Accept: "application/json" }, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : {}))
+      .catch(() => ({}));
+    return _unitsCache[bid];
+  }
+  // Individual-listings table for the scrape-history detail panels.
+  function unitsTableHtml(rows) {
+    const us = rows.slice().sort((a, b) => (UNIT_TYPES.indexOf(a.type) - UNIT_TYPES.indexOf(b.type)) || ((b.rent || 0) - (a.rent || 0)));
+    const uRows = us.map((u) => `<tr>
+      <td class="sh-type">${TYPE_LABEL[u.type] || esc(u.type)}</td>
+      <td class="tnum">${u.bath != null ? u.bath : "—"}</td>
+      <td class="tnum">${u.sqft != null ? u.sqft.toLocaleString() : "—"}</td>
+      <td class="tnum">${money(u.rent)}</td>
+      <td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td>
+      <td class="sh-note">${u.note ? esc(u.note) : "—"}</td></tr>`).join("");
+    return `<div class="sh-subhead">Individual listings <span>${us.length}</span></div>
+      <table class="sh-tbl sh-units"><colgroup><col/><col/><col/><col/><col/><col/></colgroup>
+      <thead><tr><th>Unit type</th><th>Bath</th><th>SF</th><th>Rent</th><th>PSF</th><th>Notes</th></tr></thead>
+      <tbody>${uRows}</tbody></table>`;
+  }
+
   // Unit-backup modal: filter tabs by unit type, a sortable per-unit table, and
   // a summary-by-unit-type table — opened by clicking a cell in the comp table.
-  function openUnitsModal(bid, type, snapDate) {
+  async function openUnitsModal(bid, type, snapDate) {
     const b = bld(bid); if (!b) return;
     const snap = snapshotAt(bid, snapDate).cur;
-    const all = (snap && Array.isArray(snap.units)) ? snap.units.slice() : [];
+    const map = snap ? await loadUnits(bid) : {};
+    const all = (snap && map[snap.date]) ? map[snap.date].slice() : [];
     const typesPresent = UNIT_TYPES.filter((t) => all.some((u) => u.type === t));
     const st = {
       type: (type && type !== "__all" && all.some((u) => u.type === type)) ? type : "__all",
@@ -2931,19 +2961,9 @@
       if (det && det.weighted) {
         const w = det.weighted;
         html += `<div class="sh-stats"><span><b class="tnum">${w.count}</b> units</span><span><b class="tnum">${money(w.avgRent)}</b> avg rent</span><span><b class="tnum">${psf(w.avgPsf)}</b> avg PSF</span><span><b class="tnum">${w.avgSqft ? w.avgSqft.toLocaleString() : "—"}</b> avg sf</span></div>`;
-        if (det.units && det.units.length) {
-          const us = det.units.slice().sort((a, b) => (UNIT_TYPES.indexOf(a.type) - UNIT_TYPES.indexOf(b.type)) || ((b.rent || 0) - (a.rent || 0)));
-          const uRows = us.map((u) => `<tr>
-            <td class="sh-type">${TYPE_LABEL[u.type] || esc(u.type)}</td>
-            <td class="tnum">${u.bath != null ? u.bath : "—"}</td>
-            <td class="tnum">${u.sqft != null ? u.sqft.toLocaleString() : "—"}</td>
-            <td class="tnum">${money(u.rent)}</td>
-            <td class="tnum">${u.psf != null ? psf(u.psf) : "—"}</td>
-            <td class="sh-note">${u.note ? esc(u.note) : "—"}</td></tr>`).join("");
-          html += `<div class="sh-subhead">Individual listings <span>${us.length}</span></div>
-            <table class="sh-tbl sh-units"><colgroup><col/><col/><col/><col/><col/><col/></colgroup>
-            <thead><tr><th>Unit type</th><th>Bath</th><th>SF</th><th>Rent</th><th>PSF</th><th>Notes</th></tr></thead>
-            <tbody>${uRows}</tbody></table>`;
+        if (det.hasUnits) {
+          // listings live in a lazy per-building file — slot is filled by loadUnits() below
+          html += `<div class="sh-uslot" data-date="${det.date}"><div class="sub" style="margin-top:4px">${icon("clock")} Loading listings…</div></div>`;
         } else {
           html += `<div class="sub" style="margin-top:4px">Individual listings retained for the 8 most recent scrapes.</div>`;
         }
@@ -3018,6 +3038,15 @@
       if (!panel) return;
       r.classList.toggle("open", panel.classList.toggle("open"));   // smooth grid-row accordion (CSS)
     }));
+    // fill the lazy individual-listing slots once this building's unit file loads
+    const slots = $view.querySelectorAll(".sh-uslot");
+    if (slots.length) loadUnits(id).then((map) => {
+      $view.querySelectorAll(".sh-uslot").forEach((slot) => {
+        const rows = map[slot.dataset.date];
+        slot.innerHTML = (rows && rows.length) ? unitsTableHtml(rows)
+          : `<div class="sub" style="margin-top:4px">Individual listings unavailable.</div>`;
+      });
+    });
   }
 
   // ============================================================== Router =====
