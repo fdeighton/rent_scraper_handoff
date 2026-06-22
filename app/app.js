@@ -68,6 +68,13 @@
     const pct = prev ? (Math.abs(d / prev) * 100).toFixed(1) : "0.0";
     return `<span class="delta ${cls}">$${Math.abs(Math.round(d)).toLocaleString()} (${pct}%)</span>`;
   }
+  // PSF delta — cents precision (rent's whole-dollar rounding would read as "$0").
+  function deltaPsf(cur, prev) {
+    if (cur == null || prev == null) return "";
+    const d = cur - prev;
+    if (Math.abs(d) < 0.005) return `<span class="delta flat">$0.00</span>`;
+    return `<span class="delta ${d > 0 ? "up" : "down"}">$${Math.abs(d).toFixed(2)}</span>`;
+  }
 
   // ========================================== New Analysis (create flow) ====
   // Great-circle distance in metres — mirrors schema.sql haversine_distance().
@@ -1635,7 +1642,7 @@
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
         <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
         ${was}
-        <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf</div>
+        <div class="sub tnum">${psf(cur.avgPsf)}/sf${deltaPsf(cur.avgPsf, prev && prev.avgPsf)} · ${cur.avgSqft || "—"} sf</div>
       </td>`;
     };
 
