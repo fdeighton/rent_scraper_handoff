@@ -1658,11 +1658,16 @@
     const cg = table.querySelector("colgroup");
     const host = document.createElement("div");
     host.id = "comp-stickyhead";
-    host.innerHTML = `<table class="comp" style="width:${table.offsetWidth}px;margin:0;table-layout:fixed">${cg ? cg.outerHTML : ""}${thead.outerHTML}</table>`;
+    host.innerHTML = `<table class="comp" style="margin:0;table-layout:fixed">${cg ? cg.outerHTML : ""}${thead.outerHTML}</table>`;
     document.body.appendChild(host);
-    // lock each clone column to the real header cell's measured width → pixel-perfect align
-    const realThs = thead.querySelectorAll("th"), cloneThs = host.querySelectorAll("thead th");
-    realThs.forEach((th, i) => { const c = cloneThs[i]; if (c) { const w = th.offsetWidth + "px"; c.style.width = w; c.style.minWidth = w; c.style.maxWidth = w; } });
+    // Lock each column to the live header cell's measured width via the <col> elements —
+    // authoritative under table-layout:fixed — so the clone's columns match the body exactly
+    // and the header text wraps the same way (col widths drive; th content wraps within).
+    const realThs = thead.querySelectorAll("th"), cloneCols = host.querySelectorAll("colgroup col");
+    let total = 0;
+    realThs.forEach((th, i) => { const w = th.getBoundingClientRect().width; total += w; if (cloneCols[i]) cloneCols[i].style.width = w + "px"; });
+    const ct = host.querySelector("table.comp");
+    if (ct && total) ct.style.width = total + "px";
     host.addEventListener("click", (e) => {   // forward the × remove to the real button's handler
       const rm = e.target.closest(".th-rm");
       if (!rm) return;
