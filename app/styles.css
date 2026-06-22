@@ -382,6 +382,10 @@ table.comp thead th {
    placement whether the building name is one line or two. Symmetric side padding
    on every data header keeps the building name centered in its cell. */
 .comp-wrap thead th, #comp-stickyhead thead th { position: relative; text-align: center; vertical-align: middle; }
+/* …but the position:relative above must NOT override the sticky left metric column. In the
+   clone the rule is an ID selector that outranks `.comp .rowlabel`, so restore sticky here
+   (and on the wrap for parity) or the METRIC cell scrolls off with the data columns. */
+.comp-wrap thead th.rowlabel, #comp-stickyhead thead th.rowlabel { position: sticky; left: 0; }
 .comp-wrap thead th.col-bench, .comp-wrap thead th.col-rm,
 #comp-stickyhead thead th.col-bench, #comp-stickyhead thead th.col-rm { padding-left: 20px; padding-right: 20px; }
 .comp-wrap thead th .th-rm, #comp-stickyhead thead th .th-rm { position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
