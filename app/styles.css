@@ -353,7 +353,8 @@ button { font-family: inherit; cursor: pointer; }
    page owns vertical scroll (one cohesive scrollbar). overflow-y:hidden + no max-height
    means the wrapper grows to the full table height, so nothing is clipped vertically.
    The sticky left metric column still holds during horizontal scroll. */
-.comp-wrap { overflow-x: auto; overflow-y: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+.comp-wrap { overflow-x: auto; overflow-y: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); cursor: grab; }
+.comp-wrap.dragging, .comp-wrap.dragging * { cursor: grabbing !important; user-select: none; }   /* grab-and-drag pan */
 table.comp { border-collapse: collapse; table-layout: fixed; font-size: 13px; margin: 0 auto; }
 /* fixed column widths → equal data columns; incentive/address text wraps instead of stretching one column */
 table.comp col.c-label { width: 160px; }

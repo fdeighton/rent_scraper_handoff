@@ -1893,7 +1893,25 @@
 
     const wrap = document.querySelector("#tabbody .comp-wrap");
     if (wrap) {
+      // grab-and-drag to pan the wide table horizontally (mouse only — touch keeps native
+      // swipe scrolling). A small threshold distinguishes a drag from a click so cell
+      // clicks (drill-in) and the remove-× still fire on a real click.
+      let dragging = false, moved = false, sx = 0, sl = 0;
+      wrap.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || (e.pointerType && e.pointerType !== "mouse")) return;
+        dragging = true; moved = false; sx = e.clientX; sl = wrap.scrollLeft;
+      });
+      wrap.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - sx;
+        if (!moved && Math.abs(dx) > 4) { moved = true; wrap.classList.add("dragging"); try { wrap.setPointerCapture(e.pointerId); } catch (_) {} }
+        if (moved) wrap.scrollLeft = sl - dx;
+      });
+      const endDrag = () => { dragging = false; wrap.classList.remove("dragging"); };
+      wrap.addEventListener("pointerup", endDrag);
+      wrap.addEventListener("pointercancel", endDrag);
       wrap.onclick = (e) => {
+        if (moved) { moved = false; return; }   // swallow the click that ends a drag
         const rm = e.target.closest(".th-rm");
         if (rm) {
           e.stopPropagation();
@@ -1905,7 +1923,6 @@
         const td = e.target.closest("td[data-bid]");
         if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
       };
-      wrap.addEventListener("scroll", () => wrap.classList.toggle("scrolled", wrap.scrollTop > 0));   // sticky-header shadow
     }
 
     const bin = document.querySelector("#tabbody .dropbin");
