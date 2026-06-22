@@ -506,7 +506,9 @@
   // ===================================================== Building Universe ===
   let buState = { q: "", view: "list", city: "__all", bucket: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" };
   let uMap = null, uCluster = null, uLines = null, uBenchMarker = null, uCompMarkers = [], mkAnimTimer = null;
-  let mapRestoreView = null;   // {center, zoom} to restore on a back-arrow return to the map (vs the default fit)
+  let mapRestoreView = null;   // {center, zoom, spider} to restore on a back-arrow return (vs the default fit)
+  let uMarkerById = {};        // bid -> marker for the current render (used to re-find a cluster to spiderfy)
+  let uSpiderfied = null;      // the currently spiderfied (fanned-out) cluster, tracked via cluster events
   let uIntroTimers = [];   // pending batched-intro timers, cleared before any re-render so a
                            // mid-intro search/filter/toggle cancels cleanly and renders the final state.
   function clearIntroTimers() { uIntroTimers.forEach((t) => clearTimeout(t)); uIntroTimers = []; }
@@ -629,7 +631,7 @@
   function destroyMap() {
     clearIntroTimers();
     if (uMap) { try { uMap.remove(); } catch (e) {} }
-    uMap = null; uCluster = null; uLines = null;
+    uMap = null; uCluster = null; uLines = null; uSpiderfied = null; uMarkerById = {};
   }
   function renderUniverse() {
     destroyMap();
@@ -803,10 +805,13 @@
     let benchMarker = null;
     const compMarkers = [];
     const made = [];   // built-but-not-yet-added markers (so the intro can populate in batches)
+    uMarkerById = {};
 
     list.forEach((b, i) => {
       if (b.lat == null || b.lng == null) return;
       const m = window.L.marker([b.lat, b.lng], { icon: markerIcon(benchSet.has(b.id), i) });
+      m._bid = b.id;                 // tag so a back-arrow restore can re-find a marker → its cluster
+      uMarkerById[b.id] = m;
       m.bindTooltip(tipHtml(b), { direction: "top", offset: [0, -16], className: "mk-tip", opacity: 1 });
       m.bindPopup(popupHtml(b), {
         className: "mk-pop", closeButton: true, closeOnClick: false, autoClose: true,
@@ -823,14 +828,28 @@
     // Back-arrow restore: drop straight onto the exact pan/zoom the user left, skipping
     // the default fit, the populate intro, and the benchmark auto-focus (all of which
     // would move the map). Otherwise frame the view normally.
+    let restoreSpider = null;
     if (restoringMap) {
       uMap.setView(mapRestoreView.center, mapRestoreView.zoom, { animate: false });
+      restoreSpider = mapRestoreView.spider || null;   // re-open the cluster that was fanned out
       mapRestoreView = null;
     } else if (pts.length) {
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
       else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });
     } else uMap.setView([43.7, -79.4], 11);
     uCluster.addLayers(made.map((x) => x.m));                 // add all at once
+    if (restoreSpider && restoreSpider.length) {
+      // re-spiderfy the cluster the user had expanded: find one of its markers, get its
+      // visible parent, and fan it out (only if still clustered at this zoom).
+      setTimeout(() => {
+        try {
+          const bid = restoreSpider.find((id) => uMarkerById[id]);
+          const m = bid && uMarkerById[bid];
+          const parent = (m && uCluster && uCluster.getVisibleParent) ? uCluster.getVisibleParent(m) : null;
+          if (parent && parent !== m && parent.spiderfy) parent.spiderfy();
+        } catch (e) {}
+      }, 60);
+    }
     if (doIntro && !restoringMap) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));   // then grow bubbles + tick counts
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
@@ -946,6 +965,9 @@
     const redraw = () => setTimeout(drawLines, 0);
     uMap.on("zoomend moveend", redraw);
     uCluster.on("spiderfied unspiderfied animationend", redraw);
+    // remember which cluster is fanned out so a back-arrow return can re-open it
+    uCluster.on("spiderfied", (e) => { uSpiderfied = e.cluster; });
+    uCluster.on("unspiderfied", () => { uSpiderfied = null; });
     setUniverseMarkers(true, false, !universeInstant);  // view entry: populate intro (skipped on back-arrow restore)
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
     wireMapToolbar();
@@ -2961,7 +2983,9 @@
     if (h.startsWith("#/building/")) {
       const fromU = !!(prev && prev.startsWith("#/universe"));
       savedUniverseScroll = fromU ? window.scrollY : null;
-      savedMapView = (fromU && uMap && buState.view === "map") ? { center: uMap.getCenter(), zoom: uMap.getZoom() } : null;
+      savedMapView = (fromU && uMap && buState.view === "map")
+        ? { center: uMap.getCenter(), zoom: uMap.getZoom(), spider: uSpiderfied ? uSpiderfied.getAllChildMarkers().map((m) => m._bid).filter(Boolean) : null }
+        : null;
     }
     // Restore only when the building's back arrow brought us here (not sidebar/other nav).
     const restoreScroll = (h.startsWith("#/universe") && wantUniverseRestore && savedUniverseScroll != null) ? savedUniverseScroll : null;
