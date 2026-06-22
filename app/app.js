@@ -1965,6 +1965,7 @@
       dd.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = () => {
         snapState[a.id] = o.dataset.d;
         renderSummary(a, cols);
+        animateCounts(document.getElementById("tabbody"));   // replay the KPI count-up on snapshot change
       }));
     }
 
