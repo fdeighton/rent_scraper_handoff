@@ -324,6 +324,7 @@ button { font-family: inherit; cursor: pointer; }
   border: 1.5px solid rgba(255,255,255,.85);
   border-radius: 50%; box-shadow: 0 2px 8px rgba(11,18,42,.4);
   font: 600 16px/1 'Poppins', sans-serif;
+  z-index: 5;   /* sit above the header photo (img is z-index:1) instead of behind it */
   transition: background .12s var(--ease), transform .12s var(--ease); }
 .leaflet-popup.mk-pop a.leaflet-popup-close-button:hover { background: var(--orange); color: #fff; transform: scale(1.1); }
 .pop { padding: var(--sp-3) var(--sp-4) var(--sp-4); width: 232px; color: var(--navy); font-family: 'Poppins', sans-serif; }
