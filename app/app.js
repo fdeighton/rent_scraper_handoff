@@ -693,7 +693,7 @@
       Object.assign(buState, { q: "", city: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" });
       renderUniverse();
     };
-    if (buState.view === "list") refreshGrid(true);   // initial render: stagger the cards in
+    if (buState.view === "list") refreshGrid(!universeInstant);   // stagger in, unless this is a back-arrow restore
 
     if (buState.view === "map" && hasLeaflet) wireMap(filtered);
     initSegmenteds($view);   // glide the List/Map pill on direct re-renders
@@ -938,7 +938,7 @@
     const redraw = () => setTimeout(drawLines, 0);
     uMap.on("zoomend moveend", redraw);
     uCluster.on("spiderfied unspiderfied animationend", redraw);
-    setUniverseMarkers(true, false, true);  // view entry: incremental populate intro + focus benchmark
+    setUniverseMarkers(true, false, !universeInstant);  // view entry: populate intro (skipped on back-arrow restore)
     setTimeout(() => uMap && uMap.invalidateSize(), 60);
     wireMapToolbar();
   }
@@ -2937,7 +2937,7 @@
     $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
   }
 
-  let routeCur = null, savedUniverseScroll = null, wantUniverseRestore = false;
+  let routeCur = null, savedUniverseScroll = null, wantUniverseRestore = false, universeInstant = false;
   function route() {
     const h = location.hash || "#/universe";
     const prev = routeCur;
@@ -2953,6 +2953,10 @@
     // Restore only when the building's back arrow brought us here (not sidebar/other nav).
     const restoreScroll = (h.startsWith("#/universe") && wantUniverseRestore && savedUniverseScroll != null) ? savedUniverseScroll : null;
     wantUniverseRestore = false;
+    // On a back-arrow restore, render the universe statically (no card stagger, no map
+    // intro, no page fade) so it reappears instantly at the saved spot — feels like you
+    // never left, instead of re-animating for a beat.
+    universeInstant = restoreScroll != null;
     routeCur = h;
     destroyMap();
     renderNav();
@@ -2965,7 +2969,8 @@
     if (tabSwitch) {
       const tb = document.getElementById("tabbody");
       if (tb && !prefersReduced) { tb.classList.remove("tab-fade"); void tb.offsetWidth; tb.classList.add("tab-fade"); }
-    } else playViewEnter();
+    } else if (!universeInstant) playViewEnter();
+    universeInstant = false;   // one render only
     initSegmenteds($view);
     animateCounts($view);
   }
