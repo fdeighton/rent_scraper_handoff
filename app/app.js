@@ -2006,7 +2006,7 @@
          </div>`
       : "";
     document.getElementById("tabbody").innerHTML =
-      picker + kpiStrip(a, cols, primary) + `<div class="comp-wrap">${compTableHtml(cols, undefined, primary, 160 + cols.length * 150, false, base)}</div>` + removedBinHtml(a);
+      picker + kpiStrip(a, cols, primary) + `<div class="comp-wrap">${compTableHtml(cols, undefined, primary, 168 + cols.length * 178, false, base)}</div>` + removedBinHtml(a);
 
     // both dropdowns; only one open at a time, closes on outside click
     const closeMenus = () => $view.querySelectorAll(".snap-menu").forEach((m) => (m.hidden = true));
