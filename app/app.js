@@ -1628,17 +1628,16 @@
     rows += rowMeta("Asset type", (c) => esc(c.b.assetType || "—"));
     rows += rowMeta("Distance to site", (c) => (c.bench ? "Benchmark" : c.distance != null ? c.distance + " m" : "—"));
 
-    // incentives (for the selected snapshot)
-    rows += `<tr class="incentive-row"><td class="rowlabel">Incentives</td>${cols.map((c) => {
-      const s = sm[c.b.id].cur;
-      return `<td class="${c.bench ? "col-bench" : ""}">${s && s.incentives ? esc(s.incentives) : '<span class="sub">None advertised</span>'}</td>`;
-    }).join("")}</tr>`;
-
-    // snapshot group: the primary run; Δ measured vs the baseline (shown in full below)
+    // snapshot group: the primary run; Δ measured vs the baseline (shown in full below).
+    // Incentives sit just under this band (with the run they belong to), not up in Property.
     const labelDate = snapDate || cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
     const baseLabel = baselineDate ? fmtDate(baselineDate) : "prior scrape";
     const snapHint = pdf ? "" : " · click a cell to see its listings";
     rows += `<tr class="group-row"><td class="rowlabel">${baselineDate ? "Latest scrape" : "Snapshot"}</td><td colspan="${cols.length}">As of ${fmtDate(labelDate)} · Δ vs ${baseLabel}${snapHint}</td></tr>`;
+    rows += `<tr class="incentive-row"><td class="rowlabel">Incentives</td>${cols.map((c) => {
+      const s = sm[c.b.id].cur;
+      return `<td class="${c.bench ? "col-bench" : ""}">${s && s.incentives ? esc(s.incentives) : '<span class="sub">None advertised</span>'}</td>`;
+    }).join("")}</tr>`;
 
     // one metric cell — clickable to drill into the individual listings behind the average.
     // Three slash-paired lines: rent / $/sf  →  Δrent / Δ$sf  →  size / units.
