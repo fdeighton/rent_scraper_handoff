@@ -400,7 +400,7 @@ table.comp thead th {
 #comp-stickyhead table.comp { margin: 0; }
 .comp .group-row td {
   background: #f3f4f8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--navy-600); font-weight: 600; text-align: left;
+  color: var(--navy-600); font-weight: 600; text-align: left; vertical-align: middle;
 }
 .comp .group-row .rowlabel { background: #f3f4f8; }
 /* Snapshot/property description: centered, clean sentence case (the SNAPSHOT
