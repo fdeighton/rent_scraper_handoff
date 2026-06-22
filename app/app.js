@@ -1634,15 +1634,15 @@
       return `<td class="${c.bench ? "col-bench" : ""}">${s && s.incentives ? esc(s.incentives) : '<span class="sub">None advertised</span>'}</td>`;
     }).join("")}</tr>`;
 
-    // snapshot group: latest is the primary; Δ + "was" are measured vs the baseline run
+    // snapshot group: the primary run; Δ measured vs the baseline (shown in full below)
     const labelDate = snapDate || cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
     const baseLabel = baselineDate ? fmtDate(baselineDate) : "prior scrape";
     const snapHint = pdf ? "" : " · click a cell to see its listings";
-    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">Latest ${fmtDate(labelDate)} · “was” &amp; Δ vs ${baseLabel}${snapHint}</td></tr>`;
+    rows += `<tr class="group-row"><td class="rowlabel">${baselineDate ? "Latest scrape" : "Snapshot"}</td><td colspan="${cols.length}">As of ${fmtDate(labelDate)} · Δ vs ${baseLabel}${snapHint}</td></tr>`;
 
     // one metric cell — clickable to drill into the individual listings behind the average.
     // Three slash-paired lines: rent / $/sf  →  Δrent / Δ$sf  →  size / units.
-    const metricCell = (c, cur, prev, type) => {
+    const metricCell = (c, cur, prev, type, snapForDrill) => {
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
       const slash = '<span class="m-slash">/</span>';
       const dParts = [delta(cur.avgRent, prev && prev.avgRent), deltaPsf(cur.avgPsf, prev && prev.avgPsf)].filter(Boolean);
@@ -1651,8 +1651,8 @@
       if (cur.avgSqft) sizeParts.push(`${cur.avgSqft.toLocaleString()} sf`);
       if (cur.count != null) sizeParts.push(`${cur.count} unit${cur.count === 1 ? "" : "s"}`);
       const sizeLine = sizeParts.length ? `<div class="metric-size tnum">${sizeParts.join(slash)}</div>` : "";
-      return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
-        <div class="metric tnum">${money(cur.avgRent)}${slash}${psf(cur.avgPsf)}</div>
+      return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${snapForDrill || labelDate || ""}">
+        <div class="metric tnum">${money(cur.avgRent)}${slash}${psf(cur.avgPsf)}<span class="m-sf">/sf</span></div>
         ${deltaLine}
         ${sizeLine}
       </td>`;
@@ -1668,6 +1668,25 @@
     rows += `<tr class="wavg"><td class="rowlabel">Weighted average</td>${cols.map((c) =>
       metricCell(c, sm[c.b.id].cur && sm[c.b.id].cur.weighted, sm[c.b.id].prev && sm[c.b.id].prev.weighted, "__all")
     ).join("")}</tr>`;
+
+    // Previous-scrape section — the baseline run, same columns, NO deltas (it IS the
+    // baseline). Appended as rows in the same table so columns align exactly. Cells use
+    // prev=null so metricCell renders rent / $sf + size / units with no Δ.
+    if (baselineDate) {
+      rows += `<tr class="group-row group-row--prev"><td class="rowlabel">Previous scrape</td><td colspan="${cols.length}">As of ${fmtDate(baselineDate)} · baseline for the Δ above</td></tr>`;
+      rows += `<tr class="incentive-row"><td class="rowlabel">Incentives</td>${cols.map((c) => {
+        const s = sm[c.b.id].prev;
+        return `<td class="${c.bench ? "col-bench" : ""}">${s && s.incentives ? esc(s.incentives) : '<span class="sub">None advertised</span>'}</td>`;
+      }).join("")}</tr>`;
+      for (const t of types) {
+        rows += `<tr><td class="rowlabel">${TYPE_LABEL[t]}</td>${cols.map((c) =>
+          metricCell(c, sm[c.b.id].prev && sm[c.b.id].prev.byType[t], null, t, baselineDate)
+        ).join("")}</tr>`;
+      }
+      rows += `<tr class="wavg"><td class="rowlabel">Weighted average</td>${cols.map((c) =>
+        metricCell(c, sm[c.b.id].prev && sm[c.b.id].prev.weighted, null, "__all", baselineDate)
+      ).join("")}</tr>`;
+    }
 
     const colGroup = `<colgroup><col class="c-label"/>${cols.map(() => '<col class="c-data"/>').join("")}</colgroup>`;
     const style = minWidth ? ` style="min-width:${minWidth}px"` : "";

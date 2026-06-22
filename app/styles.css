@@ -422,6 +422,8 @@ table.comp thead th {
 .comp .metric-delta .delta { margin-left: 0; }
 .comp .metric-size { font-size: 11px; font-weight: 400; color: var(--grey); white-space: nowrap; margin-top: 3px; }
 .comp .m-slash { color: var(--border); font-weight: 400; margin: 0 5px; }   /* faint pairing separator */
+.comp .metric .m-sf { font-size: 11px; font-weight: 400; color: var(--grey); }   /* "/sf" unit after the PSF number */
+.comp .group-row--prev td { background: #eef0f5; color: var(--navy); }   /* previous-scrape band — a touch darker than the Snapshot band */
 .comp td .sub.tnum { white-space: nowrap; }  /* keep "$/sf · sqft" on one line → uniform row heights */
 .comp .wavg td { font-weight: 600; border-top: 2px solid var(--navy); }
 /* clickable data cells → drill into individual listings */
