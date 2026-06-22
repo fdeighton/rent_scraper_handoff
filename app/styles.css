@@ -397,7 +397,7 @@ table.comp thead th {
    label cell stays the uppercase tag). On-screen only — the PDF keeps its band. */
 .comp-wrap .group-row td:not(.rowlabel) { text-align: center; text-transform: none; letter-spacing: .01em; font-weight: 500; color: var(--grey); }
 .comp .prop-photo { width: 56px; height: 56px; border-radius: var(--r-md); object-fit: cover; background: var(--navy-800); }
-.comp .prop-media { position: relative; width: 56px; height: 56px; border-radius: var(--r-md); overflow: hidden; background: var(--navy-800); margin: 0 auto 6px; }
+.comp .prop-media { position: relative; isolation: isolate; width: 56px; height: 56px; border-radius: var(--r-md); overflow: hidden; background: var(--navy-800); margin: 0 auto 6px; }   /* isolate so the img z-index stays contained and can't paint over the sticky label column */
 .comp .prop-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; display: block; }
 .comp .prop-media .ph .ic { width: 22px; height: 22px; }
 .comp .prop-name { font-weight: 600; font-size: 14px; }
