@@ -1646,9 +1646,10 @@
       const slash = '<span class="m-slash">/</span>';
       const dParts = [delta(cur.avgRent, prev && prev.avgRent), deltaPsf(cur.avgPsf, prev && prev.avgPsf)].filter(Boolean);
       const deltaLine = dParts.length ? `<div class="metric-delta">${dParts.join(slash)}</div>` : "";
+      // units on the left (under rent), size on the right (under $/sf — they pair naturally)
       const sizeParts = [];
-      if (cur.avgSqft) sizeParts.push(`${cur.avgSqft.toLocaleString()} sf`);
       if (cur.count != null) sizeParts.push(`${cur.count} unit${cur.count === 1 ? "" : "s"}`);
+      if (cur.avgSqft) sizeParts.push(`${cur.avgSqft.toLocaleString()} sf`);
       const sizeLine = sizeParts.length ? `<div class="metric-size tnum">${sizeParts.join(slash)}</div>` : "";
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${snapForDrill || labelDate || ""}">
         <div class="metric tnum">${money(cur.avgRent)}${slash}${psf(cur.avgPsf)}<span class="m-sf">/sf</span></div>
