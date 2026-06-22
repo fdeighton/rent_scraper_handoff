@@ -2018,8 +2018,15 @@
     const r = btn.getBoundingClientRect();
     menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px";
     menu.style.top = (r.bottom + 4) + "px";
-    menu.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = (e) => { e.stopPropagation(); menu.remove(); onPick(o.dataset.d); }));
-    setTimeout(() => document.addEventListener("click", function close() { menu.remove(); document.removeEventListener("click", close); }, { once: true }), 0);
+    // close on outside click, and on scroll/resize — otherwise the fixed menu detaches from
+    // its button and "flies" with the viewport as the page scrolls.
+    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+    menu.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = (e) => { e.stopPropagation(); onPick(o.dataset.d); close(); }));
+    setTimeout(() => {
+      document.addEventListener("click", close);
+      window.addEventListener("scroll", close, true);   // capture → catches the page or any inner scroller
+      window.addEventListener("resize", close);
+    }, 0);
   }
 
   function renderSummary(a, cols) {
