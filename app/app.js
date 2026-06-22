@@ -1119,12 +1119,16 @@
     // ignore a remembered date that no longer exists (e.g., after a seed regen)
     return (sel && ds.includes(sel)) ? sel : (ds[0] || null);
   };
-  // Latest is always the primary view; the user picks an OLDER snapshot as the comparison
-  // baseline (the Δ and the faint "was" value are measured against it). Default = prior scrape.
+  // The user picks the PRIMARY snapshot (selectedSnap, default latest) and an OLDER snapshot
+  // as the comparison baseline (the Δ and the faint "was" value are measured against it).
+  // Baseline options are whatever is older than the chosen primary; default = the next older.
   const cmpState = {};   // analysisId -> chosen baseline snapshot date
+  const baselineOpts = (a) => {
+    const ds = runDates(a), pi = ds.indexOf(selectedSnap(a));
+    return pi >= 0 ? ds.slice(pi + 1) : ds.slice(1);
+  };
   const compareBaseline = (a) => {
-    const opts = runDates(a).slice(1);   // every snapshot older than the latest
-    const sel = cmpState[a.id];
+    const opts = baselineOpts(a), sel = cmpState[a.id];
     return (sel && opts.includes(sel)) ? sel : (opts[0] || null);
   };
 
@@ -1981,35 +1985,40 @@
   }
 
   function renderSummary(a, cols) {
-    const dates = runDates(a);            // newest first
-    const latest = dates[0];
-    const opts = dates.slice(1);          // older snapshots = valid comparison baselines
-    const base = compareBaseline(a);
-    const menu = opts.map((d, i) => `<button class="snap-opt ${d === base ? "active" : ""}" data-d="${d}">${fmtDate(d)}${i === 0 ? " · prior" : ""}</button>`).join("");
-    const picker = (latest && opts.length)
+    const dates = runDates(a);              // newest first
+    const primary = selectedSnap(a);        // chosen primary snapshot (default: latest)
+    const base = compareBaseline(a);        // chosen baseline (default: next older than primary)
+    const bOpts = baselineOpts(a);          // snapshots older than the primary
+    const pMenu = dates.map((d, i) => `<button class="snap-opt ${d === primary ? "active" : ""}" data-d="${d}">${fmtDate(d)}${i === 0 ? " · latest" : ""}</button>`).join("");
+    const bMenu = bOpts.map((d, i) => `<button class="snap-opt ${d === base ? "active" : ""}" data-d="${d}">${fmtDate(d)}${i === 0 ? " · prior" : ""}</button>`).join("");
+    const picker = dates.length
       ? `<div class="snap-bar">
-           <span class="snap-cap">Latest snapshot</span>
-           <span class="snap-latest">${fmtDate(latest)}</span>
-           <span class="snap-vs">compared to</span>
+           <span class="snap-cap">Snapshot</span>
            <div class="snap-dd">
-             <button class="snap-btn" id="snap-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(base)}</span>${icon("chevron-down")}</button>
-             <div class="snap-menu" id="snap-menu" hidden>${menu}</div>
+             <button class="snap-btn" id="snap-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(primary)}</span>${icon("chevron-down")}</button>
+             <div class="snap-menu" id="snap-menu" hidden>${pMenu}</div>
            </div>
+           ${bOpts.length ? `<span class="snap-vs">compared to</span>
+           <div class="snap-dd">
+             <button class="snap-btn" id="cmp-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(base)}</span>${icon("chevron-down")}</button>
+             <div class="snap-menu" id="cmp-menu" hidden>${bMenu}</div>
+           </div>` : ""}
          </div>`
       : "";
     document.getElementById("tabbody").innerHTML =
-      picker + kpiStrip(a, cols) + `<div class="comp-wrap">${compTableHtml(cols, undefined, null, 160 + cols.length * 150, false, base)}</div>` + removedBinHtml(a);
+      picker + kpiStrip(a, cols, primary) + `<div class="comp-wrap">${compTableHtml(cols, undefined, primary, 160 + cols.length * 150, false, base)}</div>` + removedBinHtml(a);
 
-    const btn = document.getElementById("snap-btn");
-    const dd = document.getElementById("snap-menu");
-    if (btn && dd) {
-      btn.onclick = (e) => { e.stopPropagation(); dd.hidden = !dd.hidden; };
-      document.addEventListener("click", () => { dd.hidden = true; }, { once: true });
-      dd.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = () => {
-        cmpState[a.id] = o.dataset.d;       // change the comparison baseline; latest stays primary
-        renderSummary(a, cols);
-      }));
-    }
+    // both dropdowns; only one open at a time, closes on outside click
+    const closeMenus = () => $view.querySelectorAll(".snap-menu").forEach((m) => (m.hidden = true));
+    const wireDD = (btnId, menuId, onPick) => {
+      const btn = document.getElementById(btnId), dd = document.getElementById(menuId);
+      if (!btn || !dd) return;
+      btn.onclick = (e) => { e.stopPropagation(); const open = dd.hidden; closeMenus(); dd.hidden = !open; if (!dd.hidden) document.addEventListener("click", closeMenus, { once: true }); };
+      dd.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = (e) => { e.stopPropagation(); closeMenus(); onPick(o.dataset.d); }));
+    };
+    // primary change re-ticks the KPIs (values change); baseline change leaves them (no re-tick)
+    wireDD("snap-btn", "snap-menu", (d) => { snapState[a.id] = d; renderSummary(a, cols); animateCounts(document.getElementById("tabbody")); });
+    wireDD("cmp-btn", "cmp-menu", (d) => { cmpState[a.id] = d; renderSummary(a, cols); });
 
     const wrap = document.querySelector("#tabbody .comp-wrap");
     if (wrap) {
