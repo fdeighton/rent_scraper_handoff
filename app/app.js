@@ -509,6 +509,7 @@
   let mapRestoreView = null;   // {center, zoom, spider} to restore on a back-arrow return (vs the default fit)
   let uMarkerById = {};        // bid -> marker for the current render (used to re-find a cluster to spiderfy)
   let uSpiderfied = null;      // the currently spiderfied (fanned-out) cluster, tracked via cluster events
+  let uOpenPopupBid = null;    // bid of the marker whose popup card is currently open
   let uIntroTimers = [];   // pending batched-intro timers, cleared before any re-render so a
                            // mid-intro search/filter/toggle cancels cleanly and renders the final state.
   function clearIntroTimers() { uIntroTimers.forEach((t) => clearTimeout(t)); uIntroTimers = []; }
@@ -631,7 +632,7 @@
   function destroyMap() {
     clearIntroTimers();
     if (uMap) { try { uMap.remove(); } catch (e) {} }
-    uMap = null; uCluster = null; uLines = null; uSpiderfied = null; uMarkerById = {};
+    uMap = null; uCluster = null; uLines = null; uSpiderfied = null; uMarkerById = {}; uOpenPopupBid = null;
   }
   function renderUniverse() {
     destroyMap();
@@ -817,8 +818,10 @@
         className: "mk-pop", closeButton: true, closeOnClick: false, autoClose: true,
         minWidth: 232, maxWidth: 264, offset: [0, -12],
       });
-      // hide the hover hint while the persistent popup is open for this marker
-      m.on("popupopen", () => m.closeTooltip());
+      // hide the hover hint while the persistent popup is open; track which card is open
+      // so a back-arrow return to the map can reopen it.
+      m.on("popupopen", () => { m.closeTooltip(); uOpenPopupBid = b.id; });
+      m.on("popupclose", () => { if (uOpenPopupBid === b.id) uOpenPopupBid = null; });
       if (anchor && b.id === anchor.id) benchMarker = m;
       else if (anchor) compMarkers.push(m);
       pts.push([b.lat, b.lng]);
@@ -828,28 +831,18 @@
     // Back-arrow restore: drop straight onto the exact pan/zoom the user left, skipping
     // the default fit, the populate intro, and the benchmark auto-focus (all of which
     // would move the map). Otherwise frame the view normally.
-    let restoreSpider = null;
+    let restoreSpider = null, restorePopupBid = null;
     if (restoringMap) {
       uMap.setView(mapRestoreView.center, mapRestoreView.zoom, { animate: false });
       restoreSpider = mapRestoreView.spider || null;   // re-open the cluster that was fanned out
+      restorePopupBid = mapRestoreView.popup || null;  // reopen the popup card that was open
       mapRestoreView = null;
     } else if (pts.length) {
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
       else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });
     } else uMap.setView([43.7, -79.4], 11);
     uCluster.addLayers(made.map((x) => x.m));                 // add all at once
-    if (restoreSpider && restoreSpider.length) {
-      // re-spiderfy the cluster the user had expanded: find one of its markers, get its
-      // visible parent, and fan it out (only if still clustered at this zoom).
-      setTimeout(() => {
-        try {
-          const bid = restoreSpider.find((id) => uMarkerById[id]);
-          const m = bid && uMarkerById[bid];
-          const parent = (m && uCluster && uCluster.getVisibleParent) ? uCluster.getVisibleParent(m) : null;
-          if (parent && parent !== m && parent.spiderfy) parent.spiderfy();
-        } catch (e) {}
-      }, 60);
-    }
+    if (restoreSpider || restorePopupBid) setTimeout(() => restoreMapState(restoreSpider, restorePopupBid), 60);
     if (doIntro && !restoringMap) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));   // then grow bubbles + tick counts
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
@@ -878,6 +871,33 @@
       else start();
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
+  }
+  // Back-arrow return to the map: re-create the interactive state the user left — the
+  // fanned-out (spiderfied) cluster and the open popup card. Each finds its marker via
+  // uMarkerById, exposes it (spiderfy if still clustered), and opens; a short poll rides
+  // out the spiderfy animation. No-ops cleanly if a marker is gone or already individual.
+  function restoreMapState(spiderBids, popupBid) {
+    if (spiderBids && spiderBids.length) {
+      try {
+        const bid = spiderBids.find((id) => uMarkerById[id]);
+        const m = bid && uMarkerById[bid];
+        const p = (m && uCluster && uCluster.getVisibleParent) ? uCluster.getVisibleParent(m) : null;
+        if (p && p !== m && p.spiderfy) p.spiderfy();
+      } catch (e) {}
+    }
+    const pm = popupBid && uMarkerById[popupBid];
+    if (pm) {
+      let tries = 0;
+      const open = () => {
+        if (!uCluster || (pm.isPopupOpen && pm.isPopupOpen())) return;
+        let p = pm;
+        try { p = uCluster.getVisibleParent ? uCluster.getVisibleParent(pm) : pm; } catch (e) {}
+        if (!p || p === pm) { try { pm.openPopup(); } catch (e) {} return; }   // exposed → open the card
+        if (p.spiderfy) { try { p.spiderfy(); } catch (e) {} }                 // still clustered → fan out, retry
+        if (tries++ < 8) setTimeout(open, 150);
+      };
+      open();
+    }
   }
   // View-entry intro: hold the layer invisible (mk-intro), then grow each cluster
   // bubble up to size while its number ticks up (0 → final count, easeOutCubic);
@@ -2984,7 +3004,7 @@
       const fromU = !!(prev && prev.startsWith("#/universe"));
       savedUniverseScroll = fromU ? window.scrollY : null;
       savedMapView = (fromU && uMap && buState.view === "map")
-        ? { center: uMap.getCenter(), zoom: uMap.getZoom(), spider: uSpiderfied ? uSpiderfied.getAllChildMarkers().map((m) => m._bid).filter(Boolean) : null }
+        ? { center: uMap.getCenter(), zoom: uMap.getZoom(), spider: uSpiderfied ? uSpiderfied.getAllChildMarkers().map((m) => m._bid).filter(Boolean) : null, popup: uOpenPopupBid }
         : null;
     }
     // Restore only when the building's back arrow brought us here (not sidebar/other nav).
