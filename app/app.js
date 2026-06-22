@@ -5,7 +5,7 @@
 ============================================================================= */
 (function () {
   "use strict";
-  const D = window.COMP_DATA;
+  let D = null;   // the dataset — populated by loadData() at boot (inline data.js or a backend URL)
   const $view = document.getElementById("view");
   const $nav = document.getElementById("nav");
 
@@ -3102,6 +3102,7 @@
 
   let routeCur = null, savedUniverseScroll = null, savedMapView = null, wantUniverseRestore = false, universeInstant = false;
   function route() {
+    if (!D) return;   // ignore navigation until the dataset has loaded
     const h = location.hash || "#/universe";
     const prev = routeCur;
     // Detect a tab switch within the same analysis so we can crossfade just the tab
@@ -3151,19 +3152,50 @@
   window.addEventListener("hashchange", route);
   window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); else positionNavRail(false); });
   $nav.addEventListener("scroll", () => positionNavRail(false));   // keep the rail aligned if the nav scrolls
-  loadCustomBuildings();
-  loadCustomAnalyses();
-  // Always land on Building Universe on open/refresh, regardless of a persisted hash.
-  if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
-  route();
 
-  // Collapsible sidebar. Always starts OPEN on load (state is in-memory only, not
-  // persisted) and survives in-app navigation since it lives outside #nav.
+  // Collapsible sidebar (data-independent) — wired immediately so the toggle works even
+  // while the dataset is loading. Always starts OPEN (in-memory only, not persisted).
   (function wireSidebar() {
     const sb = document.getElementById("sidebar"), tg = document.getElementById("sb-toggle");
     if (!sb || !tg) return;
     tg.innerHTML = icon("chevron-left");
     tg.onclick = () => setSidebarOpen(sb.classList.contains("collapsed"));
-    setSidebarOpen(true);                                     // default open every load
+    setSidebarOpen(true);
   })();
+
+  // ---- Data source + boot ---------------------------------------------------
+  // ONE seam for where the dataset comes from, configured in config.js (window.COMP_CONFIG):
+  //   dataSource "inline" → window.COMP_DATA (the generated data.js; default, offline-friendly)
+  //   dataSource "url"    → fetch the SAME rollup JSON from a backend at dataUrl
+  // Everything downstream reads through `D`, so swapping the source needs no view changes —
+  // a live backend just has to return the shape build_data.py emits.
+  function loadData() {
+    const cfg = window.COMP_CONFIG || {};
+    if (cfg.dataSource === "url" && cfg.dataUrl) {
+      return fetch(cfg.dataUrl, { headers: { Accept: "application/json" }, cache: "no-store" })
+        .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+    }
+    return Promise.resolve(window.COMP_DATA || null);   // inline (default)
+  }
+  function dataState(html) { if ($view) $view.innerHTML = `<div class="card" style="max-width:520px;margin:48px auto"><div class="empty">${html}</div></div>`; }
+  function boot() {
+    loadCustomBuildings();
+    loadCustomAnalyses();
+    // Always land on Building Universe on open/refresh, regardless of a persisted hash.
+    if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
+    route();
+  }
+  function start() {
+    dataState(`${icon("clock")}<br/>Loading comp data…`);
+    loadData().then((data) => {
+      if (!data) throw new Error("No dataset found (check config.js / data.js).");
+      D = data;
+      boot();
+    }).catch((err) => {
+      dataState(`${icon("globe")}<br/>Couldn't load comp data.<br/><span class="sub">${esc(String((err && err.message) || err))}</span><div style="margin-top:14px"><button class="btn btn--accent" id="data-retry">Retry</button></div>`);
+      const rb = document.getElementById("data-retry");
+      if (rb) rb.onclick = start;
+    });
+  }
+  start();
 })();
