@@ -1648,14 +1648,15 @@
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
       const dR = delta(cur.avgRent, prev && prev.avgRent);          // paired with rent
       const dP = deltaPsf(cur.avgPsf, prev && prev.avgPsf);         // paired with $/sf
-      const size = cur.avgSqft ? `<span class="m-sz">${cur.avgSqft.toLocaleString()} sf</span>` : "";
+      const size = cur.avgSqft ? `<div class="metric-size tnum">${cur.avgSqft.toLocaleString()} sf</div>` : "";
       const wasParts = [];
       if (prev && prev.avgRent != null) wasParts.push(money(prev.avgRent));
       if (prev && prev.avgPsf != null) wasParts.push(psf(prev.avgPsf) + "/sf");
       const was = wasParts.length ? `<div class="metric-was tnum">was ${wasParts.join(" / ")}</div>` : "";
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
-        <div class="metric tnum"><span class="m-rent">${money(cur.avgRent)}</span>${size}${dR}</div>
+        <div class="metric tnum"><span class="m-rent">${money(cur.avgRent)}</span>${dR}</div>
         <div class="metric-psf tnum"><span>${psf(cur.avgPsf)}/sf</span>${dP}</div>
+        ${size}
         ${was}
       </td>`;
     };

@@ -418,8 +418,9 @@ table.comp thead th {
    wraps between tokens (never mid-number) instead of overflowing into the next cell. */
 .comp .metric { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 0 6px; line-height: 1.25; }
 .comp .metric .m-rent { font-weight: 700; font-size: 15px; letter-spacing: -.01em; white-space: nowrap; }
-.comp .metric .m-sz { font-size: 11px; font-weight: 400; color: var(--grey); white-space: nowrap; }
 .comp .metric.muted .m-rent { color: var(--grey); font-weight: 400; }
+/* size on its own centered line, below rent & $/sf, just above the "was" divider */
+.comp .metric-size { font-size: 11px; font-weight: 400; color: var(--grey); white-space: nowrap; margin-top: 3px; }
 /* $/sf line — its Δ is paired here so it reads clearly as the PSF change (rent's Δ is above) */
 .comp .metric-psf { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 0 6px; font-size: 12.5px; font-weight: 500; color: var(--navy-600); margin-top: 2px; line-height: 1.2; }
 .comp .metric-psf > span { white-space: nowrap; }
