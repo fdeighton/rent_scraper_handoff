@@ -506,6 +506,7 @@
   // ===================================================== Building Universe ===
   let buState = { q: "", view: "list", city: "__all", bucket: "__all", assetType: "__all", owner: "__all", era: "__all", rentBand: "__all", psfBand: "__all", sort: "name" };
   let uMap = null, uCluster = null, uLines = null, uBenchMarker = null, uCompMarkers = [], mkAnimTimer = null;
+  let mapRestoreView = null;   // {center, zoom} to restore on a back-arrow return to the map (vs the default fit)
   let uIntroTimers = [];   // pending batched-intro timers, cleared before any re-render so a
                            // mid-intro search/filter/toggle cancels cleanly and renders the final state.
   function clearIntroTimers() { uIntroTimers.forEach((t) => clearTimeout(t)); uIntroTimers = []; }
@@ -816,17 +817,22 @@
       made.push({ m, city: b.city || "" });
     });
     uBenchMarker = benchMarker; uCompMarkers = compMarkers;   // for cluster-aware connector lines
-    // Frame the final view first. Under intro, place it instantly onto a still-empty
-    // layer so the base map reads as blank before the data layer populates.
-    if (pts.length) {
+    // Back-arrow restore: drop straight onto the exact pan/zoom the user left, skipping
+    // the default fit, the populate intro, and the benchmark auto-focus (all of which
+    // would move the map). Otherwise frame the view normally.
+    const restoringMap = !!(mapRestoreView && uMap);
+    if (restoringMap) {
+      uMap.setView(mapRestoreView.center, mapRestoreView.zoom, { animate: false });
+      mapRestoreView = null;
+    } else if (pts.length) {
       if (fly) uMap.flyToBounds(pts, { padding: [50, 50], maxZoom: 15, duration: 0.6 });   // glide to the new set
       else uMap.fitBounds(pts, { padding: [50, 50], maxZoom: 15, animate: !doIntro });
     } else uMap.setView([43.7, -79.4], 11);
     uCluster.addLayers(made.map((x) => x.m));                 // add all at once
-    if (doIntro) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));   // then grow bubbles + tick counts
+    if (doIntro && !restoringMap) requestAnimationFrame(() => requestAnimationFrame(() => playMapIntro(mapEl)));   // then grow bubbles + tick counts
     // when a compare set is selected, open the benchmark popup to start
     // (de-cluster it first if needed); normal click/collapse rules apply after
-    if (focusBench && benchMarker) {
+    if (focusBench && benchMarker && !restoringMap) {
       // A marker hidden inside a cluster can't show a popup — openPopup() is a no-op
       // until it's exposed. With animate:true both the fly-zoom and the spiderfy are
       // animated, so any single fixed delay races them and the popup silently drops.
@@ -2937,7 +2943,7 @@
     $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
   }
 
-  let routeCur = null, savedUniverseScroll = null, wantUniverseRestore = false, universeInstant = false;
+  let routeCur = null, savedUniverseScroll = null, savedMapView = null, wantUniverseRestore = false, universeInstant = false;
   function route() {
     const h = location.hash || "#/universe";
     const prev = routeCur;
@@ -2946,17 +2952,24 @@
     const am = h.match(/^#\/analysis\/([^/]+)(?:\/(\w+))?/);
     const pm = (prev || "").match(/^#\/analysis\/([^/]+)/);
     const tabSwitch = !!(am && pm && am[1] === pm[1] && prev !== h);
-    // Universe → building: stash the universe's scroll (window.scrollY is still the
-    // outgoing page here). Reaching a building any other way clears it, so a restore only
-    // ever applies to a building opened directly from the universe.
-    if (h.startsWith("#/building/")) savedUniverseScroll = (prev && prev.startsWith("#/universe")) ? window.scrollY : null;
+    // Universe → building: stash the universe's scroll, and (if on the map) its exact
+    // pan/zoom — both read here while the outgoing page is still live, before destroyMap.
+    // Reaching a building any other way clears them, so a restore only ever applies to a
+    // building opened directly from the universe.
+    if (h.startsWith("#/building/")) {
+      const fromU = !!(prev && prev.startsWith("#/universe"));
+      savedUniverseScroll = fromU ? window.scrollY : null;
+      savedMapView = (fromU && uMap && buState.view === "map") ? { center: uMap.getCenter(), zoom: uMap.getZoom() } : null;
+    }
     // Restore only when the building's back arrow brought us here (not sidebar/other nav).
     const restoreScroll = (h.startsWith("#/universe") && wantUniverseRestore && savedUniverseScroll != null) ? savedUniverseScroll : null;
     wantUniverseRestore = false;
     // On a back-arrow restore, render the universe statically (no card stagger, no map
     // intro, no page fade) so it reappears instantly at the saved spot — feels like you
-    // never left, instead of re-animating for a beat.
+    // never left, instead of re-animating for a beat. On the map, also drop onto the saved
+    // pan/zoom (mapRestoreView, consumed by setUniverseMarkers) instead of the default fit.
     universeInstant = restoreScroll != null;
+    if (universeInstant && savedMapView && buState.view === "map") mapRestoreView = savedMapView;
     routeCur = h;
     destroyMap();
     renderNav();
@@ -2965,7 +2978,7 @@
     else if (am) renderAnalysis(am[1], am[2]);
     else if (h.startsWith("#/building/")) renderBuilding(h.split("/")[2]);
     else renderUniverse();
-    if (restoreScroll != null) { window.scrollTo(0, restoreScroll); savedUniverseScroll = null; }   // back to the exact spot
+    if (restoreScroll != null) { window.scrollTo(0, restoreScroll); savedUniverseScroll = null; savedMapView = null; mapRestoreView = null; }   // back to the exact spot
     if (tabSwitch) {
       const tb = document.getElementById("tabbody");
       if (tb && !prefersReduced) { tb.classList.remove("tab-fade"); void tb.offsetWidth; tb.classList.add("tab-fade"); }
