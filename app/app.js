@@ -2018,13 +2018,15 @@
     const r = btn.getBoundingClientRect();
     menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px";
     menu.style.top = (r.bottom + 4) + "px";
-    // close on outside click, and on scroll/resize — otherwise the fixed menu detaches from
-    // its button and "flies" with the viewport as the page scrolls.
-    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+    // close on outside click + resize, and on PAGE scroll (otherwise the fixed menu detaches
+    // from its button and "flies"). Scrolling INSIDE the menu (its own list) must not close it.
+    let onScroll;
+    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", close); };
+    onScroll = (e) => { if (!menu.contains(e.target)) close(); };
     menu.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = (e) => { e.stopPropagation(); onPick(o.dataset.d); close(); }));
     setTimeout(() => {
       document.addEventListener("click", close);
-      window.addEventListener("scroll", close, true);   // capture → catches the page or any inner scroller
+      window.addEventListener("scroll", onScroll, true);   // capture → page scroll closes; menu scroll doesn't
       window.addEventListener("resize", close);
     }, 0);
   }
