@@ -315,15 +315,17 @@ button { font-family: inherit; cursor: pointer; }
 .leaflet-popup.mk-pop .leaflet-popup-content-wrapper { border-radius: var(--r-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--border); padding: 0; }
 .leaflet-popup.mk-pop .leaflet-popup-content { margin: 0; }
 .leaflet-popup.mk-pop .leaflet-popup-tip { background: var(--surface); box-shadow: var(--shadow-md); }
-/* Floating white close chip so it reads cleanly over the header photo */
+/* Floating close chip — solid navy with a white ring + shadow so it stays clearly
+   visible over any header photo (light skies, façades) instead of washing out. */
 .leaflet-popup.mk-pop a.leaflet-popup-close-button {
-  top: 8px; right: 8px; width: 22px; height: 22px; padding: 0;
+  top: 8px; right: 8px; width: 26px; height: 26px; padding: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,.92); color: var(--navy);
-  border-radius: 50%; box-shadow: var(--shadow-sm);
-  font: 400 16px/1 'Poppins', sans-serif;
-}
-.leaflet-popup.mk-pop a.leaflet-popup-close-button:hover { background: #fff; color: var(--orange-600); }
+  background: var(--navy); color: #fff;
+  border: 1.5px solid rgba(255,255,255,.85);
+  border-radius: 50%; box-shadow: 0 2px 8px rgba(11,18,42,.4);
+  font: 600 16px/1 'Poppins', sans-serif;
+  transition: background .12s var(--ease), transform .12s var(--ease); }
+.leaflet-popup.mk-pop a.leaflet-popup-close-button:hover { background: var(--orange); color: #fff; transform: scale(1.1); }
 .pop { padding: var(--sp-3) var(--sp-4) var(--sp-4); width: 232px; color: var(--navy); font-family: 'Poppins', sans-serif; }
 /* Popup photo with a building-icon placeholder behind it: shows when there's no
    photo or the image fails to load (img hides on error → placeholder shows). */
