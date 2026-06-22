@@ -865,9 +865,13 @@
       const onShown = () => { try { benchMarker.openPopup(); } catch (e) {} };
       uCluster.on("spiderfied", onShown);
       let tries = 0;
-      const tick = () => { if (reveal() || tries++ > 8) { uCluster.off("spiderfied", onShown); return; } setTimeout(tick, 220); };
-      const start = () => setTimeout(tick, fly ? 80 : 150);
-      if (fly && uMap) uMap.once("moveend", start);   // wait for the glide to settle, then poll
+      const tick = () => { if (reveal() || tries++ > 10) { uCluster.off("spiderfied", onShown); return; } setTimeout(tick, 200); };
+      let started = false;
+      const start = () => { if (started) return; started = true; setTimeout(tick, fly ? 60 : 150); };
+      // Prefer to poll once the glide settles, but flyToBounds emits no moveend when the
+      // target bounds ~= the current view (e.g. hopping between two nearby Toronto sets),
+      // which left the benchmark popup unopened. Fall back to a timer so it always runs.
+      if (fly && uMap) { uMap.once("moveend", start); setTimeout(start, 750); }
       else start();
     }
     setTimeout(drawLines, fly ? 650 : 0);   // draw connector lines once the cluster settles
