@@ -2015,19 +2015,18 @@
     menu.className = "snap-menu snap-menu--float";
     menu.innerHTML = opts.map((o) => `<button class="snap-opt ${o.d === current ? "active" : ""}" data-d="${o.d}">${o.label}</button>`).join("");
     document.body.appendChild(menu);
-    const r = btn.getBoundingClientRect();
-    menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px";
-    menu.style.top = (r.bottom + 4) + "px";
-    // close on outside click + resize, and on PAGE scroll (otherwise the fixed menu detaches
-    // from its button and "flies"). Scrolling INSIDE the menu (its own list) must not close it.
+    // Stay open until a date is picked (or the user clicks away). On scroll/resize we
+    // REPOSITION to track the button rather than close — so it never "flies" off or vanishes.
+    const place = () => { const r = btn.getBoundingClientRect(); menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px"; menu.style.top = (r.bottom + 4) + "px"; };
+    place();
     let onScroll;
-    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", close); };
-    onScroll = (e) => { if (!menu.contains(e.target)) close(); };
+    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", place); };
+    onScroll = (e) => { if (!menu.contains(e.target)) place(); };   // follow the button; do NOT close
     menu.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = (e) => { e.stopPropagation(); onPick(o.dataset.d); close(); }));
     setTimeout(() => {
-      document.addEventListener("click", close);
-      window.addEventListener("scroll", onScroll, true);   // capture → page scroll closes; menu scroll doesn't
-      window.addEventListener("resize", close);
+      document.addEventListener("click", close);                   // click away to dismiss
+      window.addEventListener("scroll", onScroll, true);           // capture → reposition on any scroll
+      window.addEventListener("resize", place);
     }, 0);
   }
 
