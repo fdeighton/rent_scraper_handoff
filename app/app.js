@@ -68,12 +68,13 @@
     const pct = prev ? (Math.abs(d / prev) * 100).toFixed(1) : "0.0";
     return `<span class="delta ${cls}">$${Math.abs(Math.round(d)).toLocaleString()} (${pct}%)</span>`;
   }
-  // PSF delta — cents precision (rent's whole-dollar rounding would read as "$0").
+  // PSF delta — cents precision (rent's whole-dollar rounding would read as "$0"), $ + %.
   function deltaPsf(cur, prev) {
     if (cur == null || prev == null) return "";
     const d = cur - prev;
-    if (Math.abs(d) < 0.005) return `<span class="delta flat">$0.00</span>`;
-    return `<span class="delta ${d > 0 ? "up" : "down"}">$${Math.abs(d).toFixed(2)}</span>`;
+    if (Math.abs(d) < 0.005) return `<span class="delta flat">$0.00 (0.0%)</span>`;
+    const pct = prev ? (Math.abs(d / prev) * 100).toFixed(1) : "0.0";
+    return `<span class="delta ${d > 0 ? "up" : "down"}">$${Math.abs(d).toFixed(2)} (${pct}%)</span>`;
   }
 
   // ========================================== New Analysis (create flow) ====
@@ -1635,14 +1636,24 @@
     const snapHint = pdf ? "" : " · click a cell to see its listings";
     rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">Latest ${fmtDate(labelDate)} · “was” &amp; Δ vs ${baseLabel}${snapHint}</td></tr>`;
 
-    // one metric cell — clickable to drill into the individual listings behind the average
+    // one metric cell — clickable to drill into the individual listings behind the average.
+    // Tiers: current values big up top (rent, then PSF · size) → both deltas ($ and %) →
+    // the smaller "was" baseline (rent · PSF).
     const metricCell = (c, cur, prev, type) => {
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
-      const was = (prev && prev.avgRent != null) ? `<div class="metric-was tnum">was ${money(prev.avgRent)}</div>` : "";
+      const dR = delta(cur.avgRent, prev && prev.avgRent);
+      const dP = deltaPsf(cur.avgPsf, prev && prev.avgPsf);
+      const deltas = (dR || dP)
+        ? `<div class="metric-delta"><span class="md-r">${dR}</span><span class="md-p">${dP}</span></div>`
+        : "";
+      const was = (prev && (prev.avgRent != null || prev.avgPsf != null))
+        ? `<div class="metric-was tnum">was ${prev.avgRent != null ? money(prev.avgRent) : "—"}${prev.avgPsf != null ? ` · ${psf(prev.avgPsf)}/sf` : ""}</div>`
+        : "";
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
-        <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
+        <div class="metric tnum">${money(cur.avgRent)}</div>
+        <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf</div>
+        ${deltas}
         ${was}
-        <div class="sub tnum">${psf(cur.avgPsf)}/sf${deltaPsf(cur.avgPsf, prev && prev.avgPsf)} · ${cur.avgSqft || "—"} sf</div>
       </td>`;
     };
 
