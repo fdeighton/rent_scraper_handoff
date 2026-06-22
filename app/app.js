@@ -1641,23 +1641,20 @@
     rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">Latest ${fmtDate(labelDate)} · “was” &amp; Δ vs ${baseLabel}${snapHint}</td></tr>`;
 
     // one metric cell — clickable to drill into the individual listings behind the average.
-    // Tiers: current values big up top (rent, then PSF · size) → both deltas ($ and %) →
-    // the smaller "was" baseline (rent · PSF).
+    // Each Δ is paired with the value it describes (rent on line 1, $/sf on line 2) so it's
+    // self-labeling; a faint footer carries size + the "was" baseline.
     const metricCell = (c, cur, prev, type) => {
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
-      const dR = delta(cur.avgRent, prev && prev.avgRent);
-      const dP = deltaPsf(cur.avgPsf, prev && prev.avgPsf);
-      const deltas = (dR || dP)
-        ? `<div class="metric-delta"><span class="md-r">${dR}</span><span class="md-p">${dP}</span></div>`
-        : "";
-      const was = (prev && (prev.avgRent != null || prev.avgPsf != null))
-        ? `<div class="metric-was tnum">was ${prev.avgRent != null ? money(prev.avgRent) : "—"}${prev.avgPsf != null ? ` · ${psf(prev.avgPsf)}/sf` : ""}</div>`
-        : "";
+      const dR = delta(cur.avgRent, prev && prev.avgRent);          // paired with rent
+      const dP = deltaPsf(cur.avgPsf, prev && prev.avgPsf);         // paired with $/sf
+      const foot = [];
+      if (cur.avgSqft) foot.push(`${cur.avgSqft.toLocaleString()} sf`);
+      if (prev && prev.avgRent != null) foot.push(`was ${money(prev.avgRent)}${prev.avgPsf != null ? ` / ${psf(prev.avgPsf)}/sf` : ""}`);
+      else if (prev && prev.avgPsf != null) foot.push(`was ${psf(prev.avgPsf)}/sf`);
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
-        <div class="metric tnum">${money(cur.avgRent)}</div>
-        <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf</div>
-        ${deltas}
-        ${was}
+        <div class="metric tnum">${money(cur.avgRent)}${dR}</div>
+        <div class="metric-psf tnum">${psf(cur.avgPsf)}/sf${dP}</div>
+        ${foot.length ? `<div class="metric-was tnum">${foot.join(" · ")}</div>` : ""}
       </td>`;
     };
 
