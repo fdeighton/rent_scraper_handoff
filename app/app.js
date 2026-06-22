@@ -2827,7 +2827,7 @@
     $view.innerHTML = `
       <div class="page-head">
         <div class="page-head__main">
-          <div class="eyebrow"><a href="#/universe" style="color:var(--info)">${icon("chevron-left")} Building Universe</a></div>
+          <div class="eyebrow"><a href="#/universe" id="b-back" style="color:var(--info)">${icon("chevron-left")} Building Universe</a></div>
         </div>
         ${b.custom ? `<div class="page-actions"><button class="btn" id="b-remove">Remove building</button></div>` : ""}
       </div>
@@ -2848,6 +2848,11 @@
       ${histTable}
       <div style="height:24px"></div>
       ${scrapeHist}`;
+
+    // Back arrow: flag a scroll-restore so returning to the universe lands exactly where
+    // the user left it (only this arrow — sidebar / other nav stays a fresh top render).
+    const bk = document.getElementById("b-back");
+    if (bk) bk.onclick = () => { wantUniverseRestore = true; };   // href still navigates to #/universe
 
     const brm = document.getElementById("b-remove");
     if (brm) brm.onclick = () => confirmModal({
@@ -2932,22 +2937,31 @@
     $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
   }
 
-  let routeCur = null;
+  let routeCur = null, savedUniverseScroll = null, wantUniverseRestore = false;
   function route() {
     const h = location.hash || "#/universe";
+    const prev = routeCur;
     // Detect a tab switch within the same analysis so we can crossfade just the tab
     // body (and keep scroll), instead of re-fading the whole page including the header.
     const am = h.match(/^#\/analysis\/([^/]+)(?:\/(\w+))?/);
-    const pm = (routeCur || "").match(/^#\/analysis\/([^/]+)/);
-    const tabSwitch = !!(am && pm && am[1] === pm[1] && routeCur !== h);
+    const pm = (prev || "").match(/^#\/analysis\/([^/]+)/);
+    const tabSwitch = !!(am && pm && am[1] === pm[1] && prev !== h);
+    // Universe → building: stash the universe's scroll (window.scrollY is still the
+    // outgoing page here). Reaching a building any other way clears it, so a restore only
+    // ever applies to a building opened directly from the universe.
+    if (h.startsWith("#/building/")) savedUniverseScroll = (prev && prev.startsWith("#/universe")) ? window.scrollY : null;
+    // Restore only when the building's back arrow brought us here (not sidebar/other nav).
+    const restoreScroll = (h.startsWith("#/universe") && wantUniverseRestore && savedUniverseScroll != null) ? savedUniverseScroll : null;
+    wantUniverseRestore = false;
     routeCur = h;
     destroyMap();
     renderNav();
-    if (!tabSwitch) window.scrollTo(0, 0);
+    if (!tabSwitch && restoreScroll == null) window.scrollTo(0, 0);
     if (h.startsWith("#/universe")) renderUniverse();
     else if (am) renderAnalysis(am[1], am[2]);
     else if (h.startsWith("#/building/")) renderBuilding(h.split("/")[2]);
     else renderUniverse();
+    if (restoreScroll != null) { window.scrollTo(0, restoreScroll); savedUniverseScroll = null; }   // back to the exact spot
     if (tabSwitch) {
       const tb = document.getElementById("tabbody");
       if (tb && !prefersReduced) { tb.classList.remove("tab-fade"); void tb.offsetWidth; tb.classList.add("tab-fade"); }
