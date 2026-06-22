@@ -1088,14 +1088,15 @@
   // ---- Historical snapshot selection ---------------------------------------
   const snapState = {}; // analysisId -> selected snapshot date (YYYY-MM-DD)
 
-  // Run dates offered in the picker = the benchmark's recent snapshot dates
-  // (newest first); fall back to the union of comp dates if no benchmark history.
+  // Run dates offered in the picker = the benchmark's stored snapshot dates (newest
+  // first); fall back to the union of comp dates if no benchmark history. Show all stored
+  // (≤15) so the earliest scrape is selectable — and correctly has no older baseline.
   function runDates(a) {
     const snaps = D.snapshots || {};
-    if (a.benchmark && snaps[a.benchmark] && snaps[a.benchmark].length) return snaps[a.benchmark].map((s) => s.date).slice(0, 8);
+    if (a.benchmark && snaps[a.benchmark] && snaps[a.benchmark].length) return snaps[a.benchmark].map((s) => s.date).slice(0, 15);
     const set = new Set();
     a.comps.forEach((c) => (snaps[c.building] || []).forEach((s) => set.add(s.date)));
-    return [...set].sort().reverse().slice(0, 8);
+    return [...set].sort().reverse().slice(0, 15);
   }
   // A building's snapshot as of `date` (the most recent on/before it) + the one before, for Δ.
   function snapshotAt(id, date) {
@@ -1597,14 +1598,14 @@
   }
 
   // Shared comp-table markup (used by the on-screen Summary and the PDF report).
-  // snapDate = the primary run to show (default: latest summary). baselineDate = the run the
-  // Δ and the faint "was" value compare against (default: the immediately prior scrape).
+  // snapDate = the primary run to show. baselineDate = the run the Δ compares against.
+  // Deltas are shown ONLY against an explicit baseline — with no baseline (e.g. the earliest
+  // selectable snapshot) prev is null, so the inaugural run correctly shows no Δ.
   function compTableHtml(cols, types, snapDate, minWidth, pdf, baselineDate) {
     types = types || presentTypes(cols);
     const sm = {};
     cols.forEach((c) => {
-      const s = colSnap(c.b.id, snapDate);   // cur = primary (latest), prev = immediate prior
-      sm[c.b.id] = { cur: s.cur, prev: baselineDate ? snapshotAt(c.b.id, baselineDate).cur : s.prev };
+      sm[c.b.id] = { cur: colSnap(c.b.id, snapDate).cur, prev: baselineDate ? snapshotAt(c.b.id, baselineDate).cur : null };
     });
     const colHead = cols.map(({ b, bench }) => {
       const rm = !pdf && !bench;
@@ -1673,9 +1674,9 @@
     ).join("")}</tr>`;
 
     // Previous-scrape section — the baseline run, same columns, NO deltas (it IS the
-    // baseline). Appended as rows in the same table so columns align exactly. Cells use
-    // prev=null so metricCell renders rent / $sf + size / units with no Δ.
-    if (baselineDate) {
+    // baseline). On-screen only (keeps the PDF compact); appended as rows in the same table
+    // so columns align exactly. Cells use prev=null → rent / $sf + size / units, no Δ.
+    if (!pdf && baselineDate) {
       const prevBand = pdf
         ? `As of ${fmtDate(baselineDate)} · baseline for the Δ above`
         : `<button class="snap-btn band-btn" id="cmp-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(baselineDate)}</span>${icon("chevron-down")}</button><span class="band-note">baseline for the Δ above</span>`;
@@ -2256,15 +2257,16 @@
     const benchCol = cols.find((c) => c.bench);
     const compCols = cols.filter((c) => !c.bench);
     const types = presentTypes(cols);
+    const baseDate = compareBaseline(a);   // deltas in the report match the chosen baseline (no Δ if none)
     const CHUNK = 3; // benchmark + 3 comps = 4 cols → fits Letter width without clipping in print
     let out = "";
     if (!compCols.length) {
-      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types, snapDate, undefined, true)}</div>` : "";
+      out = benchCol ? `<div class="rp-tablewrap">${compTableHtml([benchCol], types, snapDate, undefined, true, baseDate)}</div>` : "";
     } else {
       for (let i = 0; i < compCols.length; i += CHUNK) {
         const pageCols = benchCol ? [benchCol, ...compCols.slice(i, i + CHUNK)] : compCols.slice(i, i + CHUNK);
         const start = i + 1, end = Math.min(i + CHUNK, compCols.length);
-        out += `<div class="rp-tablewrap" data-start="${start}" data-end="${end}" data-total="${compCols.length}">${compTableHtml(pageCols, types, snapDate, undefined, true)}</div>`;
+        out += `<div class="rp-tablewrap" data-start="${start}" data-end="${end}" data-total="${compCols.length}">${compTableHtml(pageCols, types, snapDate, undefined, true, baseDate)}</div>`;
       }
     }
     return out;
