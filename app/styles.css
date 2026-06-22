@@ -416,6 +416,7 @@ table.comp thead th {
 .comp .incentive-row .rowlabel { background: var(--warning-soft); text-align: left; }
 .comp .metric { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .comp .metric.muted { color: var(--grey); font-weight: 400; }
+.comp .metric-was { font-size: 11px; font-weight: 400; color: var(--grey); white-space: nowrap; margin-top: 1px; }   /* faint baseline ("was $X") under the current value */
 .comp td .sub.tnum { white-space: nowrap; }  /* keep "$/sf · sqft" on one line → uniform row heights */
 .comp .wavg td { font-weight: 600; border-top: 2px solid var(--navy); }
 /* clickable data cells → drill into individual listings */
@@ -500,6 +501,8 @@ table.comp thead th {
 /* Historical snapshot picker */
 .snap-bar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .snap-cap { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--grey); }
+.snap-latest { font-size: 14px; font-weight: 600; color: var(--navy); font-variant-numeric: tabular-nums; }
+.snap-vs { font-size: 12px; color: var(--grey); }
 .snap-dd { position: relative; }
 .snap-btn { display: inline-flex; align-items: center; gap: var(--sp-2); padding: 7px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--navy); font-size: 13px; font-weight: 600; }
 .snap-btn:hover { background: #f3f4f8; }

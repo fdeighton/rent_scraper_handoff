@@ -1111,6 +1111,14 @@
     // ignore a remembered date that no longer exists (e.g., after a seed regen)
     return (sel && ds.includes(sel)) ? sel : (ds[0] || null);
   };
+  // Latest is always the primary view; the user picks an OLDER snapshot as the comparison
+  // baseline (the Δ and the faint "was" value are measured against it). Default = prior scrape.
+  const cmpState = {};   // analysisId -> chosen baseline snapshot date
+  const compareBaseline = (a) => {
+    const opts = runDates(a).slice(1);   // every snapshot older than the latest
+    const sel = cmpState[a.id];
+    return (sel && opts.includes(sel)) ? sel : (opts[0] || null);
+  };
 
   // ---- Add existing universe buildings to an analysis's comp set -----------
   function addCompsToAnalysis(a, ids) {
@@ -1577,10 +1585,15 @@
   }
 
   // Shared comp-table markup (used by the on-screen Summary and the PDF report).
-  // snapDate selects which historical run to show (default: latest summary).
-  function compTableHtml(cols, types, snapDate, minWidth, pdf) {
+  // snapDate = the primary run to show (default: latest summary). baselineDate = the run the
+  // Δ and the faint "was" value compare against (default: the immediately prior scrape).
+  function compTableHtml(cols, types, snapDate, minWidth, pdf, baselineDate) {
     types = types || presentTypes(cols);
-    const sm = {}; cols.forEach((c) => (sm[c.b.id] = colSnap(c.b.id, snapDate)));
+    const sm = {};
+    cols.forEach((c) => {
+      const s = colSnap(c.b.id, snapDate);   // cur = primary (latest), prev = immediate prior
+      sm[c.b.id] = { cur: s.cur, prev: baselineDate ? snapshotAt(c.b.id, baselineDate).cur : s.prev };
+    });
     const colHead = cols.map(({ b, bench }) => {
       const rm = !pdf && !bench;
       return `<th class="${bench ? "col-bench" : ""}${rm ? " col-rm" : ""}">${esc(b.name)}${bench ? " ★" : ""}${rm ? `<button class="th-rm" data-rm="${b.id}" title="Remove ${esc(b.name)} from this set" aria-label="Remove ${esc(b.name)}">×</button>` : ""}</th>`;
@@ -1609,16 +1622,19 @@
       return `<td class="${c.bench ? "col-bench" : ""}">${s && s.incentives ? esc(s.incentives) : '<span class="sub">None advertised</span>'}</td>`;
     }).join("")}</tr>`;
 
-    // snapshot group (selected run)
+    // snapshot group: latest is the primary; Δ + "was" are measured vs the baseline run
     const labelDate = snapDate || cols.map((c) => D.summary[c.b.id] && D.summary[c.b.id].date).filter(Boolean).sort().reverse()[0];
+    const baseLabel = baselineDate ? fmtDate(baselineDate) : "prior scrape";
     const snapHint = pdf ? "" : " · click a cell to see its listings";
-    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">As of ${fmtDate(labelDate)} · gross rent, $/sf, avg size, vs prior scrape Δ${snapHint}</td></tr>`;
+    rows += `<tr class="group-row"><td class="rowlabel">Snapshot</td><td colspan="${cols.length}">Latest ${fmtDate(labelDate)} · “was” &amp; Δ vs ${baseLabel}${snapHint}</td></tr>`;
 
     // one metric cell — clickable to drill into the individual listings behind the average
     const metricCell = (c, cur, prev, type) => {
       if (!cur) return `<td class="${c.bench ? "col-bench" : ""}"><span class="sub">—</span></td>`;
+      const was = (prev && prev.avgRent != null) ? `<div class="metric-was tnum">was ${money(prev.avgRent)}</div>` : "";
       return `<td class="${c.bench ? "col-bench" : ""} td-click" data-bid="${c.b.id}" data-type="${type}" data-snap="${labelDate || ""}">
         <div class="metric tnum">${money(cur.avgRent)}${delta(cur.avgRent, prev && prev.avgRent)}</div>
+        ${was}
         <div class="sub tnum">${psf(cur.avgPsf)}/sf · ${cur.avgSqft || "—"} sf</div>
       </td>`;
     };
@@ -1947,20 +1963,24 @@
   }
 
   function renderSummary(a, cols) {
-    const dates = runDates(a);
-    const sel = selectedSnap(a);
-    const menu = dates.map((d, i) => `<button class="snap-opt ${d === sel ? "active" : ""}" data-d="${d}">${fmtDate(d)}${i === 0 ? " · latest" : ""}</button>`).join("");
-    const picker = dates.length
+    const dates = runDates(a);            // newest first
+    const latest = dates[0];
+    const opts = dates.slice(1);          // older snapshots = valid comparison baselines
+    const base = compareBaseline(a);
+    const menu = opts.map((d, i) => `<button class="snap-opt ${d === base ? "active" : ""}" data-d="${d}">${fmtDate(d)}${i === 0 ? " · prior" : ""}</button>`).join("");
+    const picker = (latest && opts.length)
       ? `<div class="snap-bar">
-           <span class="snap-cap">Historical snapshot</span>
+           <span class="snap-cap">Latest snapshot</span>
+           <span class="snap-latest">${fmtDate(latest)}</span>
+           <span class="snap-vs">compared to</span>
            <div class="snap-dd">
-             <button class="snap-btn" id="snap-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(sel)}</span>${icon("chevron-down")}</button>
+             <button class="snap-btn" id="snap-btn" aria-haspopup="true">${icon("calendar")}<span>${fmtDate(base)}</span>${icon("chevron-down")}</button>
              <div class="snap-menu" id="snap-menu" hidden>${menu}</div>
            </div>
          </div>`
       : "";
     document.getElementById("tabbody").innerHTML =
-      picker + kpiStrip(a, cols, sel) + `<div class="comp-wrap">${compTableHtml(cols, undefined, sel, 160 + cols.length * 150)}</div>` + removedBinHtml(a);
+      picker + kpiStrip(a, cols) + `<div class="comp-wrap">${compTableHtml(cols, undefined, null, 160 + cols.length * 150, false, base)}</div>` + removedBinHtml(a);
 
     const btn = document.getElementById("snap-btn");
     const dd = document.getElementById("snap-menu");
@@ -1968,9 +1988,8 @@
       btn.onclick = (e) => { e.stopPropagation(); dd.hidden = !dd.hidden; };
       document.addEventListener("click", () => { dd.hidden = true; }, { once: true });
       dd.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = () => {
-        snapState[a.id] = o.dataset.d;
+        cmpState[a.id] = o.dataset.d;       // change the comparison baseline; latest stays primary
         renderSummary(a, cols);
-        animateCounts(document.getElementById("tabbody"));   // replay the KPI count-up on snapshot change
       }));
     }
 
