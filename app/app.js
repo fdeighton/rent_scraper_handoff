@@ -579,8 +579,17 @@
     psf_desc: _byNum(psfOf, "desc"),
     psf_asc: _byNum(psfOf, "asc"),
     year_desc: _byNum((b) => b.yearBuilt, "desc"),
+    year_asc: _byNum((b) => b.yearBuilt, "asc"),
     units_desc: _byNum((b) => b.unitCount, "desc"),
+    units_asc: _byNum((b) => b.unitCount, "asc"),
     recent: (a, b) => (b.lastScrape || "").localeCompare(a.lastScrape || "") || a.name.localeCompare(b.name),
+    recent_asc: (a, b) => {
+      // never-scraped sort last in both orientations; otherwise oldest scrape first
+      if (!a.lastScrape && !b.lastScrape) return a.name.localeCompare(b.name);
+      if (!a.lastScrape) return 1;
+      if (!b.lastScrape) return -1;
+      return a.lastScrape.localeCompare(b.lastScrape) || a.name.localeCompare(b.name);
+    },
   };
   function distinctVals(key) {
     const set = new Set();
@@ -612,7 +621,9 @@
     const sortOpts = [
       ["name", "Name (A–Z)"], ["rent_desc", "Avg rent (high→low)"], ["rent_asc", "Avg rent (low→high)"],
       ["psf_desc", "Avg PSF (high→low)"], ["psf_asc", "Avg PSF (low→high)"],
-      ["year_desc", "Year built (newest)"], ["units_desc", "Units (most)"], ["recent", "Recently scraped"],
+      ["year_desc", "Year built (newest)"], ["year_asc", "Year built (oldest)"],
+      ["units_desc", "Units (most)"], ["units_asc", "Units (fewest)"],
+      ["recent", "Recently scraped"], ["recent_asc", "Least recently scraped"],
     ];
     const dirty = buDirty();
     return `<div class="bu-filters">
