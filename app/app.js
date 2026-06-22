@@ -785,13 +785,16 @@
     // Intro only on the full universe view (no compare set anchored) — a bucket entry
     // is about surfacing its benchmark, not a blank-map populate.
     const doIntro = !!(intro && mapEl && !prefersReduced && (!buState.bucket || buState.bucket === "__all"));
+    // Back-arrow return to the map: restore the exact pan/zoom and show markers with NO
+    // entrance animation — the user was just here, so any fade reads as a needless redraw.
+    const restoringMap = !!(mapRestoreView && uMap);
     if (mapEl) {
       // mk-animate = the light one-time fade for in-place updates. mk-intro = hold the
       // markers invisible until playMapIntro grows the bubbles in + ticks their counts.
       // Both only present during an intentional load window, never on zoom split/merge.
       mapEl.classList.remove("mk-animate", "mk-intro"); clearTimeout(mkAnimTimer);
       if (doIntro) mapEl.classList.add("mk-intro");
-      else { mapEl.classList.add("mk-animate"); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
+      else if (!restoringMap) { mapEl.classList.add("mk-animate"); mkAnimTimer = setTimeout(() => mapEl.classList.remove("mk-animate"), 900); }
     }
     const { list, benchSet, anchor } = bucketBuildings();
     uCluster.clearLayers();
@@ -820,7 +823,6 @@
     // Back-arrow restore: drop straight onto the exact pan/zoom the user left, skipping
     // the default fit, the populate intro, and the benchmark auto-focus (all of which
     // would move the map). Otherwise frame the view normally.
-    const restoringMap = !!(mapRestoreView && uMap);
     if (restoringMap) {
       uMap.setView(mapRestoreView.center, mapRestoreView.zoom, { animate: false });
       mapRestoreView = null;
