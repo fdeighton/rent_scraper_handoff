@@ -403,9 +403,10 @@ table.comp thead th {
   color: var(--navy-600); font-weight: 600; text-align: left; vertical-align: middle;
 }
 .comp .group-row .rowlabel { background: #f3f4f8; }
-/* Snapshot/property description: centered, clean sentence case (the SNAPSHOT
-   label cell stays the uppercase tag). On-screen only — the PDF keeps its band. */
-.comp-wrap .group-row td:not(.rowlabel) { text-align: center; text-transform: none; letter-spacing: .01em; font-weight: 500; color: var(--grey); }
+/* Band content (inline date picker + note): left-aligned so it sits right after the
+   section label instead of floating centered. Sentence case, not the uppercase tag. */
+.comp-wrap .group-row td:not(.rowlabel) { text-align: left; text-transform: none; letter-spacing: .01em; font-weight: 500; color: var(--grey); }
+.comp-wrap .group-row td:not(.rowlabel) .band-btn { vertical-align: middle; }
 .comp .prop-photo { width: 56px; height: 56px; border-radius: var(--r-md); object-fit: cover; background: var(--navy-800); }
 .comp .prop-media { position: relative; isolation: isolate; width: 56px; height: 56px; border-radius: var(--r-md); overflow: hidden; background: var(--navy-800); margin: 0 auto 6px; }   /* isolate so the img z-index stays contained and can't paint over the sticky label column */
 .comp .prop-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; display: block; }
