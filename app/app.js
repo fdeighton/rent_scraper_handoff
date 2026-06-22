@@ -701,6 +701,7 @@
 
     if (buState.view === "map" && hasLeaflet) wireMap(filtered);
     initSegmenteds($view);   // glide the List/Map pill on direct re-renders
+    updateToTop();           // hide the back-to-top button when flipping to map / re-filtering
   }
 
   // ---- Map (Leaflet + CartoDB Positron, branded markers) -------------------
@@ -2998,6 +2999,25 @@
     $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
   }
 
+  // Back-to-top: a floating button on the Building Universe *list* that appears once you've
+  // scrolled past the first screen and glides you back to the top.
+  let toTopBtn = null;
+  function updateToTop() {
+    const onListUniverse = (location.hash || "#/universe").startsWith("#/universe") && buState.view === "list";
+    const show = onListUniverse && window.scrollY > window.innerHeight * 0.75;
+    if (show && !toTopBtn) {
+      toTopBtn = document.createElement("button");
+      toTopBtn.className = "to-top"; toTopBtn.setAttribute("aria-label", "Back to top"); toTopBtn.title = "Back to top";
+      toTopBtn.innerHTML = icon("chevron-left");
+      toTopBtn.onclick = () => window.scrollTo({ top: 0, behavior: prefersReduced ? "auto" : "smooth" });
+      document.body.appendChild(toTopBtn);
+      requestAnimationFrame(() => toTopBtn && toTopBtn.classList.add("show"));
+    } else if (toTopBtn) {
+      toTopBtn.classList.toggle("show", show);
+    }
+  }
+  window.addEventListener("scroll", updateToTop, { passive: true });
+
   let routeCur = null, savedUniverseScroll = null, savedMapView = null, wantUniverseRestore = false, universeInstant = false;
   function route() {
     const h = location.hash || "#/universe";
@@ -3043,6 +3063,7 @@
     universeInstant = false;   // one render only
     initSegmenteds($view);
     animateCounts($view);
+    updateToTop();   // show/hide the back-to-top button for this page + scroll position
   }
   window.addEventListener("hashchange", route);
   window.addEventListener("resize", () => { if ((location.hash || "").includes("/trends")) route(); else positionNavRail(false); });

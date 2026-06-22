@@ -895,6 +895,19 @@ table.hist tr.qsub td:first-child { padding-left: 28px; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(10px); } }
 
+/* Back-to-top: appears on the universe list once you're scrolled past the first screen */
+.to-top { position: fixed; right: 24px; bottom: 24px; z-index: 1500;
+  width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--navy); color: #fff; box-shadow: var(--shadow-lg);
+  opacity: 0; transform: translateY(10px) scale(.9); pointer-events: none;
+  transition: opacity .18s var(--ease), transform .18s var(--ease), background .12s var(--ease); }
+.to-top.show { opacity: 1; transform: none; pointer-events: auto; }
+.to-top:hover { background: var(--orange); transform: translateY(-2px); }
+.to-top:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255,78,49,.4), var(--shadow-lg); }
+.to-top .ic { width: 20px; height: 20px; }
+.to-top .ic svg { transform: rotate(90deg); }   /* chevron-left → points up */
+
 @media (prefers-reduced-motion: reduce) {
   .mk, .mk-cluster, .toast { animation: none !important; }
   .mk--bench::after { animation: none !important; opacity: 0 !important; }
