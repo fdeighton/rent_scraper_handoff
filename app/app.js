@@ -1338,7 +1338,7 @@
     // ======================= SHEET 1 — COMP ANALYSIS =======================
     const s1 = wb.addSheet("Comp Analysis");
     // Distance lives at the far right, formatted like the vs-Subject column.
-    const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "vs Subj rent", "vs Subj $/sf", "Distance (m)"];
+    const PCOLS = ["Building", "Rank", "Unit Type", "Avg Rent ($/mo)", "Δ Rent ($)", "Δ Rent (%)", "Avg PSF ($/sf)", "Avg Size (sf)", "vs Subject (Rent)", "vs Subject ($/sf)", "Distance (m)"];
     const NCOL = PCOLS.length;
 
     // measure the widest content per column
@@ -1380,8 +1380,8 @@
       clamp(Math.max(wDp, headerW("rent (%)")), 54, 110),
       clamp(Math.max(wPsf, headerW("Avg PSF")), 60, 120),
       clamp(Math.max(wSize, headerW("Avg size")), 58, 120),
-      clamp(Math.max(wVs, headerW("Subj rent")), 64, 120),
-      clamp(Math.max(wVsP, headerW("Subj $/sf")), 64, 120),
+      clamp(Math.max(wVs, headerW("Subject")), 64, 120),
+      clamp(Math.max(wVsP, headerW("Subject")), 64, 120),
       clamp(Math.max(wDist, headerW("Distance")), 66, 120),
     ];
     PW.forEach((w, i) => s1.setCol(i, w));
