@@ -227,6 +227,7 @@ def main():
                 continue
             series.append({
                 "date": s["date"],
+                "incentives": s["incentives"],
                 "avgRent": w["avgRent"],
                 "avgPsf": w["avgPsf"],
                 "byType": {t: {"avgRent": by[t]["avgRent"], "avgPsf": by[t]["avgPsf"], "count": by[t]["count"]} for t in by},

@@ -640,6 +640,9 @@ svg.linechart { width: 100%; height: 420px; display: block; }
 .trend-cross { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 4; opacity: .62; }
 html[data-theme="dark"] .trend-cross { opacity: .82; }
 .trend-cross-dot { stroke: #fff; stroke-width: 1.5; }
+.trend-event { fill: var(--surface); stroke-width: 1.8; vector-effect: non-scaling-stroke; pointer-events: none; opacity: .92; transition: opacity .12s var(--ease), stroke-width .12s var(--ease), fill .12s var(--ease); }
+html[data-theme="dark"] .trend-event { fill: var(--surface-2); }
+.trend-event--hi, .trend-event--hover { fill: var(--orange-100); stroke-width: 2.6; opacity: 1; }
 .trend-tip { position: absolute; z-index: 20; pointer-events: none; background: var(--navy); color: #fff;
   border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow-md); min-width: 188px; max-width: 280px; }
 .trend-tip .tt-date { font-weight: 600; font-size: 11px; color: var(--on-chrome-soft); margin-bottom: 6px; }
@@ -652,6 +655,9 @@ html[data-theme="dark"] .trend-cross { opacity: .82; }
 .trend-tip .tt-chg.down { color: #ff9b8a; }
 .trend-tip .tt-chg.tt-subj { color: var(--on-chrome-soft); font-style: italic; }
 .trend-tip .tt-hi { font-weight: 700; }
+.trend-tip .tt-event { margin-top: 7px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,0.12); }
+.trend-tip .tt-event-k { color: var(--on-chrome-soft); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.trend-tip .tt-event-v { margin-top: 3px; color: #fff; font-size: 11px; line-height: 1.4; }
 .trend-tip .tt-note { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.12); font-size: 10px; color: var(--on-chrome-muted); font-style: italic; }
 svg .axis text { fill: var(--grey); font-size: 11px; }
 svg .grid line { stroke: var(--border); stroke-dasharray: 3 3; }

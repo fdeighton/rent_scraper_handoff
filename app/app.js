@@ -2734,6 +2734,33 @@
     return "$" + Math.round(v).toLocaleString();
   }
 
+  function trendIncentiveText(value) {
+    return String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+  }
+  function trendIncentiveKey(value) {
+    return trendIncentiveText(value).toLowerCase().replace(/[\u00ae\u2122]/g, "");
+  }
+  function trendIncentiveLabel(value) {
+    return trendIncentiveText(value) || "None advertised";
+  }
+  const trendIncCache = {};
+  function trendPointIncentive(bid, point) {
+    if (!point) return "";
+    if (Object.prototype.hasOwnProperty.call(point, "incentives")) return trendIncentiveText(point.incentives);
+    if (!trendIncCache[bid]) {
+      const map = {};
+      (D.history && D.history[bid] || []).forEach((h) => {
+        const d = h.date ? String(h.date).slice(0, 10) : "";
+        if (d) map[d] = trendIncentiveText(h.incentives);
+      });
+      (D.snapshots && D.snapshots[bid] || []).forEach((s) => {
+        if (s.date) map[s.date] = trendIncentiveText(s.incentives);
+      });
+      trendIncCache[bid] = map;
+    }
+    return trendIncCache[bid][point.date] || "";
+  }
+
   // Sum active listing counts across the selected unit types at one snapshot.
   function activeListingsAt(point, types) {
     let total = 0, seen = false;
@@ -2918,16 +2945,36 @@
     if (!rows.length) { trendHoverLeave(cache); return; }
     rows.sort((a, b) => b.v - a.v);                // highest → lowest
 
+    let eventHit = null, eventDist = Infinity;
+    hv.series.forEach((s) => {
+      const p = s.pts.find((pt) => pt.d === D && pt.incChanged);
+      if (!p) return;
+      const ex = hv.x(p.d), ey = hv.y(p.v);
+      const dist = Math.hypot(ex - svgX, ey - svgY);
+      if (dist <= 14 && dist < eventDist) {
+        eventDist = dist;
+        eventHit = { id: s.id, name: s.name, bench: s.bench, color: s.color, d: p.d, v: p.v, inc: p.inc, y: ey };
+      }
+    });
+
     // nearest line to the cursor (highlight if close enough)
     let near = null, nd = Infinity;
     rows.forEach((r) => { const dd = Math.abs(r.y - svgY); if (dd < nd) { nd = dd; near = r.id; } });
-    const hovered = nd <= 22 ? near : null;
+    const hovered = eventHit ? eventHit.id : (nd <= 22 ? near : null);
 
     // crosshair + point markers
     const cx = hv.x(D);
     let g = `<line class="trend-cross" x1="${cx.toFixed(1)}" y1="${hv.padT}" x2="${cx.toFixed(1)}" y2="${hv.H - hv.padB}"/>`;
     rows.forEach((r) => { g += `<circle class="trend-cross-dot" cx="${cx.toFixed(1)}" cy="${r.y.toFixed(1)}" r="${r.id === hovered ? 5 : 3.5}" fill="${r.color}"/>`; });
+    if (eventHit) {
+      const r = 6.5, x0 = hv.x(eventHit.d), y0 = eventHit.y;
+      g += `<path class="trend-event trend-event--hover" d="M ${x0.toFixed(1)} ${(y0 - r).toFixed(1)} L ${(x0 + r).toFixed(1)} ${y0.toFixed(1)} L ${x0.toFixed(1)} ${(y0 + r).toFixed(1)} L ${(x0 - r).toFixed(1)} ${y0.toFixed(1)} Z" stroke="${eventHit.color}"/>`;
+    }
     cache.hoverG.innerHTML = g;
+    if (cache.linesG) cache.linesG.querySelectorAll(".trend-event").forEach((m) => {
+      const hi = eventHit && m.dataset.bid === eventHit.id && m.dataset.date === eventHit.d;
+      m.classList.toggle("trend-event--hi", !!hi);
+    });
 
     // dim non-hovered lines when near a specific one
     Object.keys(cache.series).forEach((bid) => {
@@ -2952,6 +2999,9 @@
     };
     let html = `<div class="tt-date">${fmtDate(D)}</div>`;
     rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtVs(r)}</span></div>`; });
+    if (eventHit) {
+      html += `<div class="tt-event"><div class="tt-event-k">Incentive changed &middot; ${esc(eventHit.name)}${eventHit.bench ? " &#9733;" : ""}</div><div class="tt-event-v">${esc(trendIncentiveLabel(eventHit.inc))}</div></div>`;
+    }
     if (subjV) html += `<div class="tt-note">( ) = ${countMode ? "listing count delta" : "premium / discount"} vs subject${subjCarried ? " (last obs.)" : ""}</div>`;
     const tip = cache.tip;
     tip.innerHTML = html; tip.hidden = false;
@@ -2970,6 +3020,7 @@
     if (cache.tip) cache.tip.hidden = true;
     Object.keys(cache.series).forEach((bid) => { const rec = cache.series[bid]; if (rec && rec.grp) rec.grp.style.opacity = "1"; });
     if (cache.labelsG) cache.labelsG.querySelectorAll(".end-label").forEach((t) => { t.style.opacity = "1"; t.classList.remove("end-label--hi"); });
+    if (cache.linesG) cache.linesG.querySelectorAll(".trend-event--hi").forEach((m) => m.classList.remove("trend-event--hi"));
   }
 
   function drawChart(a, cols, st) {
@@ -3005,10 +3056,18 @@
     const legendAll = [];
     cols.forEach((c, i) => {
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
-      const pts = (D.trends[c.b.id] || [])
-        .filter((p) => p.date >= st.from && p.date <= st.to)
-        .map((p) => ({ d: p.date, i: xIdx.get(p.date), v: trendValueAt(p, st.metric, st.types) }))
-        .filter((p) => p.v != null && p.i != null);
+      let prevInc = null;
+      const pts = [];
+      (D.trends[c.b.id] || []).slice().sort((p, q) => String(p.date).localeCompare(String(q.date))).forEach((p) => {
+        const inc = trendPointIncentive(c.b.id, p);
+        const incKey = trendIncentiveKey(inc);
+        const incChanged = prevInc != null && incKey !== prevInc;
+        prevInc = incKey;
+        if (p.date < st.from || p.date > st.to) return;
+        const i = xIdx.get(p.date);
+        const v = trendValueAt(p, st.metric, st.types);
+        if (v != null && i != null) pts.push({ d: p.date, i, v, inc, incChanged });
+      });
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
       legendAll.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap, on: st.bsel.has(c.b.id) });
@@ -3130,11 +3189,16 @@
       if (!rec) { // ENTER — create persistent path + dots group
         const path = document.createElementNS(NS, "path"); path.setAttribute("fill", "none");
         const dotsG = document.createElementNS(NS, "g");
+        const eventsG = document.createElementNS(NS, "g");
         const grp = document.createElementNS(NS, "g");
-        grp.appendChild(path); grp.appendChild(dotsG);
+        grp.appendChild(path); grp.appendChild(dotsG); grp.appendChild(eventsG);
         cache.linesG.appendChild(grp);
-        rec = { grp, path, dotsG, cur: null };
+        rec = { grp, path, dotsG, eventsG, cur: null };
         cache.series[s.bid] = rec;
+      }
+      if (!rec.eventsG) {
+        rec.eventsG = document.createElementNS(NS, "g");
+        rec.grp.appendChild(rec.eventsG);
       }
       rec.enter = !rec.cur;          // brand-new series → fade in
       rec.from = rec.cur || s.vmap;  // continue from current display; new ones hold at target while fading in
@@ -3198,6 +3262,13 @@
           dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`;
         });
         rec.dotsG.innerHTML = dots;
+        let events = "";
+        s.pts.forEach((p) => {
+          if (!p.incChanged || !inWindow(p.i)) return;
+          const cx = x(p.d), cy = y(vmapNow[p.d]), r = s.bench ? 5.2 : 4.4;
+          events += `<path class="trend-event" data-bid="${esc(s.bid)}" data-date="${esc(p.d)}" d="M ${cx.toFixed(1)} ${(cy - r).toFixed(1)} L ${(cx + r).toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${(cy + r).toFixed(1)} L ${(cx - r).toFixed(1)} ${cy.toFixed(1)} Z" stroke="${s.color}"/>`;
+        });
+        rec.eventsG.innerHTML = events;
         rec.grp.style.opacity = cache.drawn ? (rec.enter ? String(e) : "1") : "1";   // first paint reveals via clip, not opacity
         rec.cur = vmapNow;
         const labelPt = s.pts.filter((p) => inWindow(p.i)).pop();
