@@ -21,7 +21,8 @@ class Config:
         """Load config from environment variables."""
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_SERVICE_KEY")
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        # Project-scoped key first, then the generic name for backward compatibility.
+        api_key = os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS") or os.environ.get("ANTHROPIC_API_KEY")
 
         missing = []
         if not url:
@@ -29,7 +30,7 @@ class Config:
         if not key:
             missing.append("SUPABASE_SERVICE_KEY")
         if not api_key:
-            missing.append("ANTHROPIC_API_KEY")
+            missing.append("ANTHROPIC_API_KEY_RENT_COMPS")
 
         if missing:
             raise EnvironmentError(

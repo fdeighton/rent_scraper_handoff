@@ -81,9 +81,9 @@ async def run_sqft_discovery(page, url: str):
     print(f"  Floor Plan Sqft Discovery")
     print(f"{'='*70}")
 
-    anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+    anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS") or os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_api_key:
-        print("  ERROR: ANTHROPIC_API_KEY not set in .env — cannot run vision extraction")
+        print("  ERROR: ANTHROPIC_API_KEY_RENT_COMPS not set in .env — cannot run vision extraction")
         return
 
     image_urls = []       # img src URLs to download
