@@ -1287,6 +1287,7 @@
     const rankN = rankable.length;
     const subjRank = benchCol ? rankMap[benchCol.b.id] : null;
     const vsSubject = (rent) => (bRent && rent != null) ? Math.round(((rent - bRent) / bRent) * 100) : null;
+    const vsSubjectPsf = (p) => (bPsf && p != null) ? Math.round(((p - bPsf) / bPsf) * 100) : null;
 
     // ---- build a REAL .xlsx (Open XML / PK-zip) so Excel opens it with no
     // format/extension warning. Two tabs: Comp Analysis + Building Details.
@@ -1337,11 +1338,11 @@
     // ======================= SHEET 1 — COMP ANALYSIS =======================
     const s1 = wb.addSheet("Comp Analysis");
     // Distance lives at the far right, formatted like the vs-Subject column.
-    const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "vs Subject", "Distance (m)"];
+    const PCOLS = ["Building", "Rank", "Unit type", "Avg rent ($/mo)", "Δ rent ($)", "Δ rent (%)", "Avg PSF ($/sf)", "Avg size (sf)", "vs Subj rent", "vs Subj $/sf", "Distance (m)"];
     const NCOL = PCOLS.length;
 
     // measure the widest content per column
-    let wBuild = 0, wRank = 0, wUnit = wpx("Weighted average", 11, true), wRent = 0, wD = 0, wDp = 0, wPsf = 0, wSize = 0, wVs = 0, wDist = 0;
+    let wBuild = 0, wRank = 0, wUnit = wpx("Weighted average", 11, true), wRent = 0, wD = 0, wDp = 0, wPsf = 0, wSize = 0, wVs = 0, wVsP = 0, wDist = 0;
     types.forEach((t) => (wUnit = Math.max(wUnit, wpx(TYPE_LABEL[t], 10, false))));
     ordered.forEach((c) => {
       const { cur, prev } = colSnap(c.b.id, snap);
@@ -1363,7 +1364,10 @@
       });
       if (cur.weighted && cur.weighted.avgRent != null) {
         num(cur.weighted, true);
-        if (!subj) { const vs = vsSubject(cur.weighted.avgRent); if (vs != null) wVs = Math.max(wVs, wpx((vs > 0 ? "+" : "") + vs + "%", 11, true)); }
+        if (!subj) {
+          const vs = vsSubject(cur.weighted.avgRent); if (vs != null) wVs = Math.max(wVs, wpx((vs > 0 ? "+" : "") + vs + "%", 11, true));
+          const vsP = vsSubjectPsf(cur.weighted.avgPsf); if (vsP != null) wVsP = Math.max(wVsP, wpx((vsP > 0 ? "+" : "") + vsP + "%", 11, true));
+        }
         wDist = Math.max(wDist, wpx(subj ? "Benchmark" : (c.distance != null ? fmtN(c.distance) : ""), 11, true));
       }
     });
@@ -1376,7 +1380,8 @@
       clamp(Math.max(wDp, headerW("rent (%)")), 54, 110),
       clamp(Math.max(wPsf, headerW("Avg PSF")), 60, 120),
       clamp(Math.max(wSize, headerW("Avg size")), 58, 120),
-      clamp(Math.max(wVs, headerW("Subject")), 64, 120),
+      clamp(Math.max(wVs, headerW("Subj rent")), 64, 120),
+      clamp(Math.max(wVsP, headerW("Subj $/sf")), 64, 120),
       clamp(Math.max(wDist, headerW("Distance")), 66, 120),
     ];
     PW.forEach((w, i) => s1.setCol(i, w));
@@ -1393,9 +1398,15 @@
       [posn == null ? "—" : (posn > 0 ? "+" : "") + posn + "%", "Subject vs market", posn != null && posn >= 0 ? GREEN : RED],
       [subjRank ? `#${subjRank} / ${rankN}` : "—", "Subject rank", NAVY],
     ];
-    const kpiLabH = kpis.reduce((h, k, i) => Math.max(h, fitH(k[1], PW[2 * i] + PW[2 * i + 1], 8, 11)), 16);
-    s1.row(26); kpis.forEach((k) => s1.cell(k[0], { colspan: 2, s: kpiValA(k[2]), coverS: kpiValC }));
-    s1.row(kpiLabH); kpis.forEach((k) => s1.cell(k[1], { colspan: 2, s: kpiLabA, coverS: kpiLabC }));
+    // distribute the NCOL columns across the KPI cards (handles an odd column count —
+    // the first cards take the remainder so the strip always spans the full table width)
+    const kbase = Math.floor(NCOL / kpis.length), krem = NCOL % kpis.length;
+    const kSpan = kpis.map((_, i) => kbase + (i < krem ? 1 : 0));
+    let kStart = 0; const kStarts = kSpan.map((s) => { const v = kStart; kStart += s; return v; });
+    const kWidth = (i) => PW.slice(kStarts[i], kStarts[i] + kSpan[i]).reduce((a, b) => a + b, 0);
+    const kpiLabH = kpis.reduce((h, k, i) => Math.max(h, fitH(k[1], kWidth(i), 8, 11)), 16);
+    s1.row(26); kpis.forEach((k, i) => s1.cell(k[0], { colspan: kSpan[i], s: kpiValA(k[2]), coverS: kpiValC }));
+    s1.row(kpiLabH); kpis.forEach((k, i) => s1.cell(k[1], { colspan: kSpan[i], s: kpiLabA, coverS: kpiLabC }));
     s1.row(8);
 
     s1.row(20); s1.cell("COMPETITIVE POSITIONING  ·  ranked by weighted rent  ·  weighted averages in bold", { colspan: NCOL, s: sBand });
@@ -1447,12 +1458,16 @@
         s1.cell(dPct == null ? "" : dPct, { t: dPct == null ? "s" : "n", s: cellStyle({ nf: NF_PCT1, color: dPct == null ? col : dCol }) });
         s1.cell(m.avgPsf != null ? +Number(m.avgPsf).toFixed(2) : "", { t: m.avgPsf != null ? "n" : "s", s: cellStyle({ nf: NF_DEC }) });
         s1.cell(m.avgSqft != null ? m.avgSqft : "", { t: m.avgSqft != null ? "n" : "s", s: cellStyle({ nf: NF_INT }) });
-        if (isW) {                                   // vs Subject + Distance: focal weighted row only
-          const vs = subj ? null : vsSubject(m.avgRent);
-          const vsCol = vs == null ? GREY : (vs > 0 ? GREEN : vs < 0 ? RED : GREY);
-          s1.cell(subj || vs == null ? "—" : vs, { t: (subj || vs == null) ? "s" : "n", s: farStyle({ color: vsCol, nf: (subj || vs == null) ? null : NF_VS }) });
+        if (isW) {                                   // vs Subject (rent + $/sf) + Distance: focal weighted row only
+          const vsCell = (v) => {
+            const col = v == null ? GREY : (v > 0 ? GREEN : v < 0 ? RED : GREY);
+            s1.cell(subj || v == null ? "—" : v, { t: (subj || v == null) ? "s" : "n", s: farStyle({ color: col, nf: (subj || v == null) ? null : NF_VS }) });
+          };
+          vsCell(subj ? null : vsSubject(m.avgRent));
+          vsCell(subj ? null : vsSubjectPsf(m.avgPsf));
           s1.cell(dist, { t: typeof dist === "number" ? "n" : "s", s: farStyle({ color: NAVY, nf: typeof dist === "number" ? NF_INT : null }) });
         } else {
+          s1.cell("", { s: cellStyle({}) });
           s1.cell("", { s: cellStyle({}) });
           s1.cell("", { s: cellStyle({}) });
         }
@@ -1460,7 +1475,7 @@
     });
 
     s1.row(6);
-    s1.row(); s1.cell("vs Subject = weighted-avg-rent premium / discount vs benchmark · Rank by weighted avg rent (1 = highest) · Distance to subject (m) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
+    s1.row(); s1.cell("vs Subj = weighted-avg premium / discount vs benchmark (rent and $/sf) · Rank by weighted avg rent (1 = highest) · Distance to subject (m) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
 
     // ===================== SHEET 2 — BUILDING DETAILS ======================
     const s2 = wb.addSheet("Building Details");
