@@ -361,10 +361,10 @@ button { font-family: inherit; cursor: pointer; }
 .city-btn.active { background: var(--navy); color: var(--on-chrome); border-color: var(--navy); }
 .map-legend { margin-left: auto; display: flex; gap: var(--sp-4); font-size: 12px; color: var(--ink-soft); }
 .map-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
-.map-legend .swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+.map-legend .swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #fff; }
 .map-legend .swatch.bench { background: var(--orange); }
 .map-legend .swatch.comp { background: var(--navy); }
-.map-legend .swatch.line { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed var(--navy-600); opacity: .6; }
+.map-legend .swatch.line { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed var(--navy-600); box-shadow: none; opacity: .6; }
 #bu-map { height: 68vh; min-height: 460px; width: 100%; background: var(--map-bg); }
 
 /* Marker pins (handbook brand hierarchy: navy comps, orange benchmark) */
@@ -483,6 +483,7 @@ table.comp thead th {
 .comp thead .rowlabel { background: var(--navy); color: var(--on-chrome); z-index: 3; }
 .comp td.col-bench, .comp th.col-bench { background: var(--bench-bg); }
 .comp thead th.col-bench { color: var(--orange-600); }
+html[data-theme="dark"] .comp thead th.col-bench { background: #3A1D2F; color: var(--orange); }
 /* Remove-comp × is pinned to the right edge, vertically centered — identical
    placement whether the building name is one line or two. Symmetric side padding
    on every data header keeps the building name centered in its cell. */
