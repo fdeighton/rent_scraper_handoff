@@ -363,11 +363,12 @@
     } catch (e) {}
   }
 
-  // ---- Local (Supabase-free) scrapes: run via code/local_server.py, persist in this
-  // browser. Each saved scrape is re-applied into the in-memory dataset on load so the
-  // building page + analyses reflect it. Migrating to Supabase later swaps this store +
-  // ingest for DB writes/reads; the UI is unchanged.
-  const LOCAL_SCRAPE_KEY = "comp_local_scrapes_v1";   // { bid: [ {date, incentives, units:[{type,bath,sqft,rent,psf,note}]} ] }
+  // ---- Local (Supabase-free) scrapes: run + STORE via code/local_server.py, which keeps
+  // them in a local SQLite file. Loaded scrapes are mirrored in memory and re-applied into
+  // the dataset so the building page + analyses reflect them. Migrating to Supabase later
+  // swaps the server's SQLite endpoints for DB writes/reads; this UI is unchanged.
+  let _localScrapes = {};   // in-memory mirror of the SQLite store: { bid: [{date,incentives,units}] }
+  const scrapeApiBase = () => ((window.COMP_CONFIG || {}).scrapeApi || "").replace(/\/$/, "");
   const mapServerUnits = (us) => (us || []).map((u) => ({
     type: u.unit_type, bath: u.bathrooms != null ? String(u.bathrooms) : null,
     sqft: u.square_footage != null ? +u.square_footage : null,
@@ -387,9 +388,8 @@
     UNIT_TYPES.forEach((t) => { const us = priced.filter((u) => u.type === t); if (us.length) { const a = agg(us); byType[t] = { ...a, minRent: Math.round(Math.min(...us.map((u) => u.rent))), maxRent: Math.round(Math.max(...us.map((u) => u.rent))) }; } });
     return { byType, weighted: priced.length ? agg(priced) : null };
   }
-  function localScrapeStore() { try { return JSON.parse(localStorage.getItem(LOCAL_SCRAPE_KEY) || "{}"); } catch (e) { return {}; } }
   function localUnitsFor(bid) {  // { date: units } for loadUnits() to merge in
-    const out = {}; ((localScrapeStore()[bid]) || []).forEach((s) => (out[s.date] = s.units)); return out;
+    const out = {}; ((_localScrapes[bid]) || []).forEach((s) => (out[s.date] = s.units)); return out;
   }
   // Apply one scrape into D (summary/prevSummary/snapshots/trends/history), idempotent by date.
   function applyScrape(b, date, incentives, units) {
@@ -410,23 +410,35 @@
     hist.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
     if (b.lastScrape == null || date > b.lastScrape) b.lastScrape = date;
   }
-  // Re-apply all persisted local scrapes on boot (chronological, so Δ baselines line up).
+  // Fetch all saved scrapes from the SQLite store (via the server) and apply them. Async;
+  // re-renders when they arrive. No-ops gracefully if the server isn't running.
   function loadLocalScrapes() {
-    const store = localScrapeStore();
-    Object.keys(store).forEach((bid) => {
-      const b = bld(bid); if (!b) return;
-      (store[bid] || []).slice().sort((a, c) => (a.date || "").localeCompare(c.date || ""))
-        .forEach((s) => applyScrape(b, s.date, s.incentives, s.units));
-    });
+    const base = scrapeApiBase(); if (!base) return;
+    fetch(base + "/scrapes", { headers: { Accept: "application/json" } })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data) => {
+        _localScrapes = (data && data.scrapes) || {};
+        let any = false;
+        Object.keys(_localScrapes).forEach((bid) => {
+          const b = bld(bid); if (!b) return;
+          any = true;
+          (_localScrapes[bid] || []).slice().sort((a, c) => (a.date || "").localeCompare(c.date || ""))
+            .forEach((s) => applyScrape(b, s.date, s.incentives, s.units));
+        });
+        if (any) { Object.keys(_unitsCache).forEach((k) => delete _unitsCache[k]); route(); }   // reflect applied scrapes
+      })
+      .catch(() => {});   // server down → app stays on seed data
   }
-  // Save a fresh scrape locally + apply it.
+  // Apply a fresh scrape immediately (optimistic), then persist it to the SQLite store.
   function saveLocalScrape(b, date, incentives, units) {
-    const store = localScrapeStore();
-    const arr = (store[b.id] = (store[b.id] || []).filter((s) => s.date !== date));
-    arr.push({ date, incentives: incentives || null, units });
-    try { localStorage.setItem(LOCAL_SCRAPE_KEY, JSON.stringify(store)); } catch (e) {}
-    if (_unitsCache) delete _unitsCache[b.id];   // bust the lazy units cache so the drill-down sees it
+    _localScrapes[b.id] = (_localScrapes[b.id] || []).filter((s) => s.date !== date);
+    _localScrapes[b.id].push({ date, incentives: incentives || null, units });
+    delete _unitsCache[b.id];                 // bust the lazy units cache so the drill-down sees it
     applyScrape(b, date, incentives, units);
+    const base = scrapeApiBase();
+    if (!base) return Promise.reject(new Error("no scrape server configured"));
+    return fetch(base + "/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buildingId: b.id, date, incentives: incentives || null, units }) })
+      .then((r) => { if (!r.ok) return r.json().then((j) => { throw new Error(j.error || ("HTTP " + r.status)); }); });
   }
   function createBuilding(b) {
     const id = "cb-" + Date.now().toString(36);
@@ -3447,12 +3459,18 @@
         out.innerHTML = `<div class="empty" style="margin-top:12px">${icon("globe")}<br/>Scrape failed: ${esc(String((e && e.message) || e))}<br/><span class="sub">Make sure the local server is running: <code>cd code &amp;&amp; python local_server.py</code></span></div>`;
       } finally { runBtn.disabled = false; }
     };
-    if (saveBtn) saveBtn.onclick = () => {
+    if (saveBtn) saveBtn.onclick = async () => {
       if (!lastResult) return;
       const date = new Date().toISOString().slice(0, 10);
-      saveLocalScrape(b, date, lastResult.incentives, lastResult.units);
-      close(); route();
-      toast(`Saved scrape for <b>${esc(b.name)}</b> · ${fmtDate(date)} — stored in this browser`);
+      saveBtn.disabled = true;
+      try {
+        await saveLocalScrape(b, date, lastResult.incentives, lastResult.units);   // applies optimistically, then writes SQLite
+        close(); route();
+        toast(`Saved scrape for <b>${esc(b.name)}</b> · ${fmtDate(date)} — stored in local SQLite`);
+      } catch (e) {
+        close(); route();   // it's already applied in-memory; only the persist failed
+        toast(`Scrape applied, but saving to SQLite failed: ${esc(String((e && e.message) || e))}`);
+      }
     };
   }
 
@@ -3768,11 +3786,11 @@
   function boot() {
     loadCustomBuildings();
     loadScrapeOverrides();
-    loadLocalScrapes();      // re-apply any browser-saved scrapes into the dataset
     loadCustomAnalyses();
     // Always land on Building Universe on open/refresh, regardless of a persisted hash.
     if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
     route();
+    loadLocalScrapes();      // async: pull saved scrapes from local SQLite (via the server), then re-render
   }
   function start() {
     dataState(`${icon("clock")}<br/>Loading comp data…`);

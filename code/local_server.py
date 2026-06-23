@@ -19,7 +19,9 @@ Prereqs:
 import asyncio
 import json
 import os
+import sqlite3
 import sys
+import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -33,6 +35,56 @@ from extractor import RentExtractor      # noqa: E402
 PORT = int(os.environ.get("SCRAPE_PORT", "8787"))
 API_KEY = os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS") or os.environ.get("ANTHROPIC_API_KEY")
 MODEL = os.environ.get("EXTRACTION_MODEL", "claude-sonnet-4-20250514")
+
+# ---- Local SQLite store (saved scrapes) -------------------------------------
+# Real on-disk SQL the frontend reads/writes over HTTP (browsers can't open SQLite
+# directly). One row per (building, date); units stored as JSON. Migrate to Supabase
+# later by repointing these two endpoints at the DB write/read path.
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_scrapes.db")
+_db_lock = threading.Lock()
+
+
+def _conn():
+    c = sqlite3.connect(DB_PATH)
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS scrapes ("
+        "  building_id TEXT NOT NULL,"
+        "  date        TEXT NOT NULL,"
+        "  incentives  TEXT,"
+        "  units       TEXT NOT NULL,"
+        "  created_at  TEXT NOT NULL DEFAULT (datetime('now')),"
+        "  PRIMARY KEY (building_id, date)"
+        ")"
+    )
+    return c
+
+
+def db_save(building_id, date, incentives, units):
+    with _db_lock:
+        c = _conn()
+        try:
+            with c:   # transaction (commit/rollback)
+                c.execute(
+                    "INSERT INTO scrapes (building_id, date, incentives, units) VALUES (?,?,?,?) "
+                    "ON CONFLICT(building_id, date) DO UPDATE SET "
+                    "incentives=excluded.incentives, units=excluded.units, created_at=datetime('now')",
+                    (building_id, date, incentives, json.dumps(units)),
+                )
+        finally:
+            c.close()
+
+
+def db_all():
+    with _db_lock:
+        c = _conn()
+        try:
+            rows = c.execute("SELECT building_id, date, incentives, units FROM scrapes ORDER BY date").fetchall()
+        finally:
+            c.close()
+    out = {}
+    for bid, date, inc, units in rows:
+        out.setdefault(bid, []).append({"date": date, "incentives": inc, "units": json.loads(units)})
+    return out
 
 
 async def run_scrape(url: str, name: str, config: dict) -> dict:
@@ -72,13 +124,38 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
+    def _body(self):
+        try:
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            return json.loads(self.rfile.read(n) or b"{}")
+        except Exception:
+            return None
+
     def do_GET(self):
         if self.path.startswith("/health"):
             self._json(200, {"ok": True, "hasKey": bool(API_KEY)})
+        elif self.path.startswith("/scrapes"):     # all saved scrapes → { bid: [{date,incentives,units}] }
+            try:
+                self._json(200, {"ok": True, "scrapes": db_all()})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
         else:
             self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        if self.path.startswith("/save"):           # persist a scrape to SQLite
+            p = self._body()
+            if p is None:
+                self._json(400, {"ok": False, "error": "bad JSON body"}); return
+            bid, date, units = p.get("buildingId"), p.get("date"), p.get("units")
+            if not bid or not date or units is None:
+                self._json(400, {"ok": False, "error": "buildingId, date, units required"}); return
+            try:
+                db_save(bid, date, p.get("incentives"), units)
+                self._json(200, {"ok": True})
+            except Exception as e:
+                self._json(500, {"ok": False, "error": str(e)})
+            return
         if not self.path.startswith("/scrape"):
             self._json(404, {"ok": False, "error": "not found"})
             return
@@ -112,6 +189,7 @@ if __name__ == "__main__":
     if not API_KEY:
         print("WARNING: ANTHROPIC_API_KEY_RENT_COMPS not found in code/.env — extraction will fail.")
     print(f"Comp Tracker local scrape server → http://localhost:{PORT}")
-    print("  POST /scrape  {url, name, config}    GET /health")
-    print("  No database: returns extracted units; the frontend saves locally. Ctrl+C to stop.")
+    print("  POST /scrape {url,name,config}   POST /save {buildingId,date,incentives,units}")
+    print("  GET  /scrapes   GET /health")
+    print(f"  Saved scrapes → SQLite at {DB_PATH}. Ctrl+C to stop.")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

@@ -14,6 +14,7 @@
 **/debug_screenshots/
 **/logs/
 **/_batches/
+*.db                 # local SQLite store (code/local_scrapes.db)
 
 # Node / Vercel
 node_modules/
