@@ -532,6 +532,8 @@ table.comp thead th {
 .chart-card h3 { font-size: 16px; font-weight: 600; margin: 0 0 var(--sp-4); }
 svg.linechart { width: 100%; height: 420px; display: block; }
 #chart { position: relative; }
+.trend-zoom-overlay { cursor: grab; }
+.trend-zoom-overlay.dragging { cursor: grabbing; }
 .hoverlayer { pointer-events: none; }
 .trend-cross { stroke: var(--navy-600); stroke-width: 1; stroke-dasharray: 4 4; opacity: .55; }
 .trend-cross-dot { stroke: #fff; stroke-width: 1.5; }

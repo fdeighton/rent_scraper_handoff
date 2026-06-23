@@ -2618,13 +2618,13 @@
       const v = e.target.value;
       if (!v) { e.target.value = st.from; return; }                 // ignore a cleared field
       if (v > st.to) { dateErr.textContent = "Start date can't be after the end date."; e.target.value = st.from; return; }
-      dateErr.textContent = ""; st.from = v; toEl.min = v; draw();   // keep To's minimum in sync
+      dateErr.textContent = ""; st.from = v; st.zoom = null; toEl.min = v; draw();   // keep To's minimum in sync
     };
     toEl.onchange = (e) => {
       const v = e.target.value;
       if (!v) { e.target.value = st.to; return; }
       if (v < st.from) { dateErr.textContent = "End date can't be before the start date."; e.target.value = st.to; return; }
-      dateErr.textContent = ""; st.to = v; fromEl.max = v; draw();   // keep From's maximum in sync
+      dateErr.textContent = ""; st.to = v; st.zoom = null; fromEl.max = v; draw();   // keep From's maximum in sync
     };
     document.querySelectorAll("#tc-types input").forEach((cb) => (cb.onchange = () => {
       const t = cb.dataset.t;
@@ -2724,6 +2724,96 @@
     return trendMetricIsCount(metric) ? activeListingsAt(point, types) : weightedAt(point, metric, types);
   }
 
+  function trendClamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  function trendMinSpan(dates) {
+    return Math.min(2, Math.max(1, dates.length - 1));
+  }
+
+  function trendZoomFor(st, dates, datesKey) {
+    const max = Math.max(0, dates.length - 1);
+    if (max <= 0) return { key: datesKey, lo: 0, hi: 0 };
+    if (!st.zoom || st.zoom.key !== datesKey) st.zoom = { key: datesKey, lo: 0, hi: max };
+    return trendSetZoom(st, dates, datesKey, st.zoom.lo, st.zoom.hi);
+  }
+
+  function trendSetZoom(st, dates, datesKey, lo, hi) {
+    const max = Math.max(0, dates.length - 1);
+    if (max <= 0) return (st.zoom = { key: datesKey, lo: 0, hi: 0 });
+    let span = Math.abs(hi - lo);
+    if (span >= max * 0.985) return (st.zoom = { key: datesKey, lo: 0, hi: max });
+    span = trendClamp(span, trendMinSpan(dates), max);
+    lo = Math.min(lo, hi);
+    hi = lo + span;
+    if (lo < 0) { hi -= lo; lo = 0; }
+    if (hi > max) { lo -= hi - max; hi = max; }
+    lo = trendClamp(lo, 0, Math.max(0, max - span));
+    hi = lo + span;
+    return (st.zoom = { key: datesKey, lo, hi });
+  }
+
+  function trendWheelZoom(cache, ev) {
+    const zc = cache.zoomCtl;
+    if (!zc || zc.dates.length < 4) return;
+    const max = zc.dates.length - 1;
+    const cur = trendZoomFor(zc.st, zc.dates, zc.datesKey);
+    const span = cur.hi - cur.lo;
+    if (span >= max - 0.001 && ev.deltaY > 0) return;  // let the page scroll once fully zoomed out
+
+    ev.preventDefault();
+    trendHoverLeave(cache);
+
+    const rect = cache.svg.getBoundingClientRect();
+    const svgX = rect.width ? (ev.clientX - rect.left) / rect.width * zc.W : zc.padL + (zc.W - zc.padL - zc.padR) / 2;
+    const plotW = Math.max(1, zc.W - zc.padL - zc.padR);
+    const anchorT = trendClamp((svgX - zc.padL) / plotW, 0, 1);
+    const anchor = cur.lo + anchorT * span;
+    const wheel = trendClamp(ev.deltaY, -240, 240);
+    const newSpan = span * Math.exp(wheel * 0.0025);
+    const lo = anchor - anchorT * newSpan;
+    trendSetZoom(zc.st, zc.dates, zc.datesKey, lo, lo + newSpan);
+    zc.redraw();
+  }
+
+  function trendPanStart(cache, ev) {
+    const zc = cache.zoomCtl;
+    if (!zc || ev.button !== 0 || zc.dates.length < 4) return;
+    const max = zc.dates.length - 1;
+    const cur = trendZoomFor(zc.st, zc.dates, zc.datesKey);
+    if (cur.hi - cur.lo >= max - 0.001) return;
+    cache.drag = { id: ev.pointerId, x: ev.clientX, lo: cur.lo, hi: cur.hi, moved: false };
+    cache.overlay.classList.add("dragging");
+    trendHoverLeave(cache);
+    try { cache.overlay.setPointerCapture(ev.pointerId); } catch (_) {}
+    ev.preventDefault();
+  }
+
+  function trendPanMove(cache, ev) {
+    const d = cache.drag, zc = cache.zoomCtl;
+    if (!d || !zc || d.id !== ev.pointerId) return;
+    const dx = ev.clientX - d.x;
+    if (!d.moved && Math.abs(dx) < 2) return;
+    d.moved = true;
+    const plotW = Math.max(1, zc.W - zc.padL - zc.padR);
+    const span = d.hi - d.lo;
+    const shift = -(dx / plotW) * span;
+    zc.st.zoomMode = "pan";
+    trendSetZoom(zc.st, zc.dates, zc.datesKey, d.lo + shift, d.hi + shift);
+    zc.redraw();
+    ev.preventDefault();
+  }
+
+  function trendPanEnd(cache, ev) {
+    if (!cache.drag || (ev && cache.drag.id !== ev.pointerId)) return;
+    const zc = cache.zoomCtl;
+    cache.overlay.classList.remove("dragging");
+    try { cache.overlay.releasePointerCapture(cache.drag.id); } catch (_) {}
+    cache.drag = null;
+    if (zc && zc.st.zoomMode === "pan") delete zc.st.zoomMode;
+  }
+
   // Monotone cubic (Fritsch-Carlson) -> cubic Bézier. Smooth, but shape-preserving:
   // the curve passes exactly through every point and cannot overshoot between them
   // (X must be strictly increasing — true here, points are sorted scrape dates).
@@ -2756,6 +2846,7 @@
 
   // Hover crosshair + comparison tooltip for the trend chart.
   function trendHoverMove(cache, ev) {
+    if (cache.drag) return;
     const hv = cache.hover; if (!hv || !hv.series.length) return;
     const rect = cache.svg.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -2860,8 +2951,15 @@
     })();
     if (chartRaf[key]) cancelAnimationFrame(chartRaf[key]);
     if (!dates.length) { chartEl.innerHTML = `<div class="empty">No data in selected range.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
+    const datesKey = dates.join("|");
     const xIdx = new Map(dates.map((d, i) => [d, i]));
-    const x = (d) => padL + (dates.length === 1 ? (W - padL - padR) / 2 : (xIdx.get(d) / (dates.length - 1)) * (W - padL - padR));
+    const z = trendZoomFor(st, dates, datesKey);
+    const zLo = z.lo, zHi = z.hi;
+    const zSpan = Math.max(1, zHi - zLo);
+    const plotW = Math.max(1, W - padL - padR);
+    const x = (d) => padL + (dates.length === 1 ? plotW / 2 : ((xIdx.get(d) - zLo) / zSpan) * plotW);
+    const inWindow = (i) => dates.length === 1 || (i >= zLo - 0.0001 && i <= zHi + 0.0001);
+    const windowDates = dates.filter((_, i) => inWindow(i));
 
     // Every series with data in range, keyed by building id (stable identity). legendAll
     // powers the clickable legend — series toggled off persist as dimmed chips; target is
@@ -2872,8 +2970,8 @@
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
       const pts = (D.trends[c.b.id] || [])
         .filter((p) => p.date >= st.from && p.date <= st.to)
-        .map((p) => ({ d: p.date, v: trendValueAt(p, st.metric, st.types) }))
-        .filter((p) => p.v != null && xIdx.has(p.d));
+        .map((p) => ({ d: p.date, i: xIdx.get(p.date), v: trendValueAt(p, st.metric, st.types) }))
+        .filter((p) => p.v != null && p.i != null);
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
       legendAll.push({ bid: c.b.id, name: c.b.name, bench: c.bench, color, pts, vmap, on: st.bsel.has(c.b.id) });
@@ -2887,11 +2985,12 @@
       tt.textContent = `${trendMetricName(st.metric)} · ${trendScopeLabel(st)}`;
     }
 
-    const allV = []; target.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
+    let allV = [];
+    target.forEach((s) => s.pts.forEach((p) => { if (inWindow(p.i)) allV.push(p.v); }));
+    if (!allV.length) target.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
     const dMin = Math.min(...allV), dMax = Math.max(...allV);
 
     // reuse the SVG scaffold across changes (no remount) when the x-axis is unchanged
-    const datesKey = dates.join("|");
     let cache = chartCache[key];
     const reuse = cache && cache.svg && cache.svg.parentNode === chartEl && cache.datesKey === datesKey;
     if (!reuse) {
@@ -2900,13 +2999,13 @@
       const defs = document.createElementNS(NS, "defs");
       const clip = document.createElementNS(NS, "clipPath"); clip.setAttribute("id", "chartclip-" + key);
       const clipRect = document.createElementNS(NS, "rect");
-      clipRect.setAttribute("x", "0"); clipRect.setAttribute("y", "0"); clipRect.setAttribute("width", String(W)); clipRect.setAttribute("height", String(H));
+      clipRect.setAttribute("x", String(padL)); clipRect.setAttribute("y", String(padT)); clipRect.setAttribute("width", String(plotW)); clipRect.setAttribute("height", String(H - padT - padB));
       clip.appendChild(clipRect); defs.appendChild(clip);
       const gridG = document.createElementNS(NS, "g"); gridG.setAttribute("class", "grid");
       const linesG = document.createElementNS(NS, "g"); linesG.setAttribute("class", "axis"); linesG.setAttribute("clip-path", "url(#chartclip-" + key + ")");
       const labelsG = document.createElementNS(NS, "g"); labelsG.setAttribute("class", "endlabels");
       const hoverG = document.createElementNS(NS, "g"); hoverG.setAttribute("class", "hoverlayer");
-      const overlay = document.createElementNS(NS, "rect"); overlay.setAttribute("fill", "transparent"); overlay.style.cursor = "crosshair";
+      const overlay = document.createElementNS(NS, "rect"); overlay.setAttribute("class", "trend-zoom-overlay"); overlay.setAttribute("fill", "transparent");
       svg.appendChild(defs); svg.appendChild(gridG); svg.appendChild(linesG); svg.appendChild(labelsG); svg.appendChild(hoverG); svg.appendChild(overlay);
       chartEl.style.position = "relative";
       chartEl.replaceChildren(svg);
@@ -2916,6 +3015,12 @@
       cache = chartCache[key] = { svg, gridG, linesG, labelsG, clipRect, drawn: false, hoverG, overlay, tip, series: {}, legend: {}, yMin: null, yMax: null, fitMin: null, fitMax: null, datesKey };
       overlay.addEventListener("mousemove", (ev) => trendHoverMove(cache, ev));
       overlay.addEventListener("mouseleave", () => trendHoverLeave(cache));
+      overlay.addEventListener("wheel", (ev) => trendWheelZoom(cache, ev), { passive: false });
+      overlay.addEventListener("pointerdown", (ev) => trendPanStart(cache, ev));
+      overlay.addEventListener("pointermove", (ev) => trendPanMove(cache, ev));
+      overlay.addEventListener("pointerup", (ev) => trendPanEnd(cache, ev));
+      overlay.addEventListener("pointercancel", (ev) => trendPanEnd(cache, ev));
+      overlay.addEventListener("dblclick", () => { trendSetZoom(st, dates, datesKey, 0, dates.length - 1); drawChart(a, cols, st); });
     }
 
     // Axis bounds — fit tightly to the *visible* series so they fill the plot. We keep
@@ -2927,22 +3032,26 @@
     let tYMin, tYMax;
     const padY = (dMax - dMin) * 0.12 || dMax * 0.1;
     const fitLo = Math.max(0, dMin - padY), fitHi = dMax + padY;
-    if (reuse && cache.fitMin != null && dMin >= cache.fitMin && dMax <= cache.fitMax
+    const viewKey = `${datesKey}:${zLo.toFixed(4)}:${zHi.toFixed(4)}`;
+    if (reuse && cache.viewKey === viewKey && cache.fitMin != null && dMin >= cache.fitMin && dMax <= cache.fitMax
         && (fitHi - fitLo) >= (cache.fitMax - cache.fitMin) * 0.8) {
       tYMin = cache.fitMin; tYMax = cache.fitMax;
     } else {
       tYMin = fitLo; tYMax = fitHi;
     }
-    cache.fitMin = tYMin; cache.fitMax = tYMax;
+    cache.fitMin = tYMin; cache.fitMax = tYMax; cache.viewKey = viewKey;
     if (cache.yMin == null) { cache.yMin = tYMin; cache.yMax = tYMax; }  // first paint: no axis morph
 
     // keep the hover overlay + data current (settled axis used for the crosshair/tooltip)
     cache.svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     cache.overlay.setAttribute("x", padL); cache.overlay.setAttribute("y", padT);
-    cache.overlay.setAttribute("width", Math.max(0, W - padL - padR)); cache.overlay.setAttribute("height", Math.max(0, H - padT - padB));
+    cache.overlay.setAttribute("width", Math.max(0, plotW)); cache.overlay.setAttribute("height", Math.max(0, H - padT - padB));
+    cache.clipRect.setAttribute("x", String(padL)); cache.clipRect.setAttribute("y", String(padT));
+    cache.clipRect.setAttribute("height", String(H - padT - padB));
     const ySettled = (v) => padT + (1 - (v - tYMin) / ((tYMax - tYMin) || 1)) * (H - padT - padB);
+    cache.zoomCtl = { st, dates, datesKey, W, padL, padR, redraw: () => drawChart(a, cols, st) };
     cache.hover = {
-      dates, x, y: ySettled, padT, padB, H, W, metric: st.metric,
+      dates: windowDates.length ? windowDates : dates, x, y: ySettled, padT, padB, H, W, metric: st.metric,
       series: target.map((s) => ({ id: s.bid, name: s.name, bench: s.bench, color: s.color, pts: s.pts, vmap: s.vmap })),
     };
 
@@ -3013,7 +3122,7 @@
     const fromYMin = cache.yMin, fromYMax = cache.yMax;
     const lerp = (p, q, e) => p + (q - p) * e;
     const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOut: glide off the current position, settle gently
-    const DUR = prefersReduced ? 0 : (cache.drawn ? 480 : 760);   // first paint = cinematic left-to-right draw-on
+    const DUR = (prefersReduced || st.zoomMode === "pan") ? 0 : (cache.drawn ? 480 : 760);   // first paint = cinematic left-to-right draw-on
     const fmtY = (v) => fmtTrendValue(st.metric, v, true);
     const labelFmt = (v) => fmtTrendValue(st.metric, v, false);
 
@@ -3025,8 +3134,9 @@
       let grid = "";
       const ticks = 5;
       for (let i = 0; i <= ticks; i++) { const v = yMin + (i / ticks) * (yMax - yMin), yy = y(v); grid += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}"/><text class="axis-label" x="${padL - 10}" y="${yy + 4}" text-anchor="end">${fmtY(v)}</text>`; }
-      const step = Math.ceil(dates.length / 14);
-      dates.forEach((d, i) => { if (i % step === 0 || i === dates.length - 1) grid += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
+      const tickDates = windowDates.length ? windowDates : dates;
+      const step = Math.ceil(tickDates.length / 14);
+      tickDates.forEach((d, i) => { if (i % step === 0 || i === tickDates.length - 1) grid += `<text class="axis-label" x="${x(d)}" y="${H - padB + 20}" text-anchor="middle">${shortDate(d)}</text>`; });
       cache.gridG.innerHTML = grid;
 
       let endLabels = "";
@@ -3048,22 +3158,27 @@
         rec.dotsG.innerHTML = dots;
         rec.grp.style.opacity = cache.drawn ? (rec.enter ? String(e) : "1") : "1";   // first paint reveals via clip, not opacity
         rec.cur = vmapNow;
-        if (coords.length) { const lc = coords[coords.length - 1]; endLabels += `<text class="end-label${s.bench ? " end-label--bench" : ""}" data-bid="${s.bid}" x="${(lc.X + 8).toFixed(1)}" y="${(lc.Y + 3.5).toFixed(1)}" fill="${s.color}">${labelFmt(vmapNow[s.pts[s.pts.length - 1].d])}</text>`; }
+        const labelPt = s.pts.filter((p) => inWindow(p.i)).pop();
+        if (labelPt && vmapNow[labelPt.d] != null) {
+          const lc = { X: x(labelPt.d), Y: y(vmapNow[labelPt.d]) };
+          endLabels += `<text class="end-label${s.bench ? " end-label--bench" : ""}" data-bid="${s.bid}" x="${(lc.X + 8).toFixed(1)}" y="${(lc.Y + 3.5).toFixed(1)}" fill="${s.color}">${labelFmt(vmapNow[labelPt.d])}</text>`;
+        }
       });
       cache.labelsG.innerHTML = endLabels;
       cache.labelsG.style.opacity = cache.drawn ? "1" : String(Math.max(0, (e - 0.6) / 0.4));   // labels fade in as the draw-on finishes
-      cache.clipRect.setAttribute("width", String(cache.drawn ? W : Math.max(0, e * W)));         // left-to-right reveal on first paint
+      cache.clipRect.setAttribute("width", String(cache.drawn ? plotW : Math.max(0, e * plotW))); // left-to-right reveal on first paint
       exits.forEach((rec) => { rec.grp.style.opacity = String(1 - e); });
 
       if (e >= 1) {  // finalize: drop exited series, lock in the full reveal
         exits.forEach((rec) => rec.grp.remove());
         Object.keys(cache.series).forEach((bid) => { if (!want.has(bid)) delete cache.series[bid]; });
         active.forEach((rec) => (rec.enter = false));
-        cache.drawn = true; cache.clipRect.setAttribute("width", String(W)); cache.labelsG.style.opacity = "1";
+        cache.drawn = true; cache.clipRect.setAttribute("width", String(plotW)); cache.labelsG.style.opacity = "1";
       }
     };
 
     renderFrame(0);  // paint at the current position first (no flash)
+    if (DUR <= 0) { renderFrame(1); return; }
     const t0 = performance.now();
     const tick = (now) => { const e = ease(Math.min(1, (now - t0) / DUR)); renderFrame(e); if (e < 1) chartRaf[key] = requestAnimationFrame(tick); };
     chartRaf[key] = requestAnimationFrame(tick);
