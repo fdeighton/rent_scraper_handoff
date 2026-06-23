@@ -38,7 +38,6 @@
   --warning-text: #7A4D0A;
   --danger: #C0392B;
   --map-bg: #EEF0EE;
-  --map-comp: var(--navy);
   --focus-ring: rgba(255,78,49,.28);
   --modal-backdrop: rgba(6,16,49,.5);
   --scroll-thumb: #C2C8DA;
@@ -107,7 +106,6 @@ html[data-theme="dark"] {
   --info: #82AAFF; --info-soft: rgba(42,111,219,.22);
   --danger: #FF8A8A;
   --map-bg: #0B1428;
-  --map-comp: #2F5FB8;
   --placeholder-ink: #334160;
   --focus-ring: rgba(255,78,49,.34);
   --modal-backdrop: rgba(2,7,23,.74);
@@ -365,14 +363,14 @@ button { font-family: inherit; cursor: pointer; }
 .map-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
 .map-legend .swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
 .map-legend .swatch.bench { background: var(--orange); }
-.map-legend .swatch.comp { background: var(--map-comp); }
-.map-legend .swatch.line { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed var(--map-comp); opacity: .72; }
+.map-legend .swatch.comp { background: var(--navy); }
+.map-legend .swatch.line { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed var(--navy-600); opacity: .6; }
 #bu-map { height: 68vh; min-height: 460px; width: 100%; background: var(--map-bg); }
 
 /* Marker pins (handbook brand hierarchy: navy comps, orange benchmark) */
 .mk { display: flex; align-items: center; justify-content: center; border-radius: 50%; box-shadow: var(--shadow-md); border: 2px solid #fff; }
 .mk svg { stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.mk--comp { width: 30px; height: 30px; background: var(--map-comp); }
+.mk--comp { width: 30px; height: 30px; background: var(--navy); }
 .mk--comp svg { width: 15px; height: 15px; }
 .mk--bench { width: 38px; height: 38px; background: var(--orange); position: relative; }
 .mk--bench svg { width: 19px; height: 19px; fill: #fff; stroke: #fff; }
@@ -395,7 +393,7 @@ button { font-family: inherit; cursor: pointer; }
 .leaflet-marker-icon:hover .mk { transform: scale(1.12); }
 
 /* Cluster bubbles — navy circle, white count */
-.mk-cluster { background: var(--map-comp); color: #fff; border: 2px solid #fff; border-radius: 50%;
+.mk-cluster { background: var(--navy); color: #fff; border: 2px solid #fff; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px;
   box-shadow: var(--shadow-md); font-family: 'Poppins', sans-serif; }
 .mk-cluster div { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
@@ -452,6 +450,8 @@ html[data-theme="dark"] .pop-inc { box-shadow: inset 0 0 0 1px rgba(255,209,138,
 .mk-pop .pop-btn { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 12px; background: var(--navy); color: #fff; padding: 9px 12px; border-radius: var(--r-md); font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: .02em; transition: background .12s var(--ease); }
 .mk-pop .pop-btn:hover { background: var(--navy-800); color: #fff; }
 .mk-pop .pop-btn, .mk-pop .pop-btn:visited { color: #fff; }
+html[data-theme="dark"] .mk-pop .pop-btn { background: #14245A; box-shadow: inset 0 0 0 1px rgba(214,223,250,.10), 0 8px 18px rgba(0,0,0,.16); }
+html[data-theme="dark"] .mk-pop .pop-btn:hover { background: #1F2F6F; }
 
 /* ============================================================== Comp Table */
 /* Horizontal-only scroll: the wide table scrolls sideways within the wrapper while the
