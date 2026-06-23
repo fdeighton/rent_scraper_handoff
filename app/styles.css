@@ -580,6 +580,7 @@ svg .axis-label { fill: var(--grey); font-size: 11px; }
 .kv dt { color: var(--grey); }
 .kv dd { margin: 0; font-weight: 500; word-break: break-word; }
 .detail-head { display: flex; gap: var(--sp-5); align-items: flex-start; margin-bottom: var(--sp-5); }
+.detail-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); }
 .detail-media { position: relative; width: 132px; height: 100px; flex: 0 0 132px; border-radius: var(--r-lg); overflow: hidden; background: var(--navy-800); }
 .detail-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 .detail-media .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--navy-800), var(--navy-600)); color: #4d5786; }

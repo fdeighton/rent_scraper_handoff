@@ -308,6 +308,23 @@
   function saveCustomBuildings() {
     try { localStorage.setItem(CUSTOM_B_KEY, JSON.stringify(Object.values(D.buildings).filter((b) => b.custom))); } catch (e) {}
   }
+  // Scrape-setting edits on SEED buildings persist as a small overrides map (custom buildings
+  // already round-trip in full via saveCustomBuildings).
+  const SCRAPE_OVR_KEY = "comp_scrape_overrides_v1";
+  function loadScrapeOverrides() {
+    try {
+      const m = JSON.parse(localStorage.getItem(SCRAPE_OVR_KEY) || "{}");
+      Object.entries(m).forEach(([id, o]) => { const b = D.buildings[id]; if (b) Object.assign(b, o); });
+    } catch (e) {}
+  }
+  function saveScrapeSettings(b) {
+    if (b.custom) { saveCustomBuildings(); return; }   // full object already persisted
+    try {
+      const m = JSON.parse(localStorage.getItem(SCRAPE_OVR_KEY) || "{}");
+      m[b.id] = { scrapeUrl: b.scrapeUrl || null, strategy: b.strategy || null, initialWaitMs: b.initialWaitMs != null ? b.initialWaitMs : null, scroll: b.scroll != null ? b.scroll : null };
+      localStorage.setItem(SCRAPE_OVR_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
   function createBuilding(b) {
     const id = "cb-" + Date.now().toString(36);
     D.buildings[id] = {
@@ -3011,6 +3028,100 @@
     chartRaf[key] = requestAnimationFrame(tick);
   }
 
+  // Edit a building's scrape configuration (URL / strategy / initial wait / scroll).
+  function openScrapeSettingsModal(b) {
+    const stratOpts = STRATEGY_INFO.map((s) => `<option value="${s.value}" ${b.strategy === s.value ? "selected" : ""}>${esc(s.label)}</option>`).join("");
+    const stratDescMap = Object.fromEntries(STRATEGY_INFO.map((s) => [s.value, s.desc]));
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Scrape Settings">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("settings")}</div>
+        <div class="modal__title">Scrape Settings — ${esc(b.name)}</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="field"><label for="ss-url">Scrape URL <span class="sub">(the page that lists available units)</span></label><input type="text" id="ss-url" placeholder="https://…/floorplans" value="${esc(b.scrapeUrl || "")}"/></div>
+        <div class="field"><label for="ss-strat">How should we read this site? <span class="sub">(scrape strategy)</span></label>
+          <select id="ss-strat">${stratOpts}</select>
+          <div class="strat-desc" id="ss-strat-desc">${esc(stratDescMap[b.strategy] || STRATEGY_INFO[0].desc)}</div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ss-wait">Initial wait (ms) <span class="sub">(let the page settle)</span></label><input type="text" id="ss-wait" inputmode="numeric" value="${b.initialWaitMs != null ? b.initialWaitMs : ""}"/></div>
+          <div class="field"><label for="ss-scroll">Scroll the page?</label><select id="ss-scroll"><option value="">—</option><option value="yes" ${b.scroll === true ? "selected" : ""}>Yes</option><option value="no" ${b.scroll === false ? "selected" : ""}>No</option></select></div>
+        </div>
+        <div class="geo-note">Saved in this browser only. Actual scraping runs server-side once API keys are configured; these settings drive the next run.</div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--primary" id="ss-save">Save settings</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+    $("#ss-strat").onchange = () => { $("#ss-strat-desc").textContent = stratDescMap[$("#ss-strat").value] || ""; };
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    $("#ss-save").onclick = () => {
+      const wait = parseInt(String($("#ss-wait").value).replace(/[^\d]/g, ""), 10);
+      b.scrapeUrl = $("#ss-url").value.trim() || null;
+      b.strategy = b.scrapeUrl ? $("#ss-strat").value : null;
+      b.initialWaitMs = isNaN(wait) ? null : wait;
+      b.scroll = { yes: true, no: false }[$("#ss-scroll").value] ?? null;
+      saveScrapeSettings(b);
+      close();
+      route();                       // re-render the Scrape Configuration card
+      toast(`Scrape settings updated for <b>${esc(b.name)}</b>`);
+    };
+    setTimeout(() => $("#ss-url").focus(), 0);
+  }
+
+  // Add this building (as a comp) to one or more existing analyses.
+  function openAddToAnalysisModal(b) {
+    const rows = D.analyses.map((a) => {
+      const inSet = a.benchmark === b.id || a.comps.some((c) => c.building === b.id);
+      const role = a.benchmark === b.id ? "benchmark" : "comp";
+      return `<label class="ci"><input type="checkbox" data-aid="${a.id}" ${inSet ? "checked disabled" : ""}/> <span>${esc(a.name)}</span><span class="city">${inSet ? "already a " + role : ""}</span></label>`;
+    }).join("") || '<div class="empty">No analyses yet — create one from the sidebar.</div>';
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Add to Analysis">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("plus")}</div>
+        <div class="modal__title">Add to Analysis — ${esc(b.name)}</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="field"><label>Add <b>${esc(b.name)}</b> as a comparable to:</label>
+          <div class="checklist" id="ata-list">${rows}</div>
+        </div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--accent" id="ata-add">Add to selected</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    $("#ata-add").onclick = () => {
+      const picks = [...overlay.querySelectorAll("#ata-list input:checked:not(:disabled)")].map((cb) => cb.dataset.aid);
+      if (!picks.length) { close(); return; }
+      picks.forEach((aid) => { const a = analysisById(aid); if (a) addCompsToAnalysis(a, [b.id]); });
+      close();
+      const n = picks.length;
+      const last = analysisById(picks[n - 1]);
+      toast(`Added <b>${esc(b.name)}</b> to ${n === 1 ? `<b>${esc(last.name)}</b>` : n + " analyses"}`, n === 1 ? { action: "Open", onAction: () => { location.hash = "#/analysis/" + last.id; } } : {});
+    };
+  }
+
   // ========================================================= Building Detail =
   function renderBuilding(id) {
     const b = bld(id);
@@ -3104,6 +3215,10 @@
             ${b.unitCount ? `<span class="badge">${b.unitCount} units</span>` : ""}
             ${b.owner ? `<span class="badge badge--orange">${esc(b.owner)}</span>` : ""}
           </div>
+          <div class="detail-actions">
+            <button class="btn" id="b-scrape">${icon("settings")} Scrape Settings</button>
+            <button class="btn btn--accent" id="b-addto">${icon("plus")} Add to Analysis</button>
+          </div>
         </div>
       </div>
       <div class="detail-grid">${cfg}${stats}</div>
@@ -3115,6 +3230,11 @@
     // the user left it (only this arrow — sidebar / other nav stays a fresh top render).
     const bk = document.getElementById("b-back");
     if (bk) bk.onclick = () => { wantUniverseRestore = true; };   // href still navigates to #/universe
+
+    const bScrape = document.getElementById("b-scrape");
+    if (bScrape) bScrape.onclick = () => openScrapeSettingsModal(b);
+    const bAddTo = document.getElementById("b-addto");
+    if (bAddTo) bAddTo.onclick = () => openAddToAnalysisModal(b);
 
     const brm = document.getElementById("b-remove");
     if (brm) brm.onclick = () => confirmModal({
@@ -3309,6 +3429,7 @@
   function dataState(html) { if ($view) $view.innerHTML = `<div class="card" style="max-width:520px;margin:48px auto"><div class="empty">${html}</div></div>`; }
   function boot() {
     loadCustomBuildings();
+    loadScrapeOverrides();
     loadCustomAnalyses();
     // Always land on Building Universe on open/refresh, regardless of a persisted hash.
     if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
