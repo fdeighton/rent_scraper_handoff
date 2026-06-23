@@ -2581,6 +2581,7 @@
         <select id="f-metric">
           <option value="avgPsf" ${st.metric === "avgPsf" ? "selected" : ""}>Average Rent PSF</option>
           <option value="avgRent" ${st.metric === "avgRent" ? "selected" : ""}>Average Gross Rent</option>
+          <option value="activeListings" ${st.metric === "activeListings" ? "selected" : ""}>Active listings</option>
         </select>
         <label>From</label><input type="date" id="f-from" value="${st.from}" min="${minD}" max="${st.to}"/>
         <label>To</label><input type="date" id="f-to" value="${st.to}" min="${st.from}" max="${maxD}"/>
@@ -2603,7 +2604,7 @@
         </div>
       </div>
       <div class="card chart-card">
-        <h3 id="chart-title">${st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent"}</h3>
+        <h3 id="chart-title">${trendMetricName(st.metric)}</h3>
         <div id="chart"></div>
         <div class="legend" id="legend"></div>
       </div>`;
@@ -2673,6 +2674,40 @@
     draw();
   }
 
+  function trendMetricName(metric) {
+    if (metric === "avgPsf") return "Average Rent PSF";
+    if (metric === "activeListings") return "Active listings";
+    return "Average Gross Rent";
+  }
+
+  function trendMetricIsCount(metric) {
+    return metric === "activeListings";
+  }
+
+  function trendScopeLabel(st) {
+    if (!st.types.length) return "—";
+    const names = (st.avail && st.types.length === st.avail.length)
+      ? "all units"
+      : st.types.map((t) => TYPE_LABEL[t] || t).join(" + ");
+    return trendMetricIsCount(st.metric) ? names : `${names} (weighted)`;
+  }
+
+  function fmtTrendValue(metric, v, withUnit) {
+    if (trendMetricIsCount(metric)) return Math.round(v).toLocaleString();
+    if (metric === "avgPsf") return "$" + v.toFixed(2) + (withUnit ? "/sf" : "");
+    return "$" + Math.round(v).toLocaleString();
+  }
+
+  // Sum active listing counts across the selected unit types at one snapshot.
+  function activeListingsAt(point, types) {
+    let total = 0, seen = false;
+    types.forEach((t) => {
+      const bt = point.byType && point.byType[t];
+      if (bt && bt.count != null) { total += bt.count; seen = true; }
+    });
+    return seen ? total : null;
+  }
+
   // Weighted average of `metric` across the selected unit types at one snapshot,
   // weighted by each type's unit count — so each building's line dynamically
   // re-blends as type boxes are toggled (all types checked == all-units weighted).
@@ -2683,6 +2718,10 @@
       if (bt && bt[metric] != null && bt.count) { num += bt[metric] * bt.count; den += bt.count; }
     });
     return den ? num / den : null;
+  }
+
+  function trendValueAt(point, metric, types) {
+    return trendMetricIsCount(metric) ? activeListingsAt(point, types) : weightedAt(point, metric, types);
   }
 
   // Monotone cubic (Fritsch-Carlson) -> cubic Bézier. Smooth, but shape-preserving:
@@ -2728,8 +2767,10 @@
     hv.dates.forEach((d) => { const dd = Math.abs(hv.x(d) - svgX); if (dd < best) { best = dd; D = d; } });
     if (D == null) { trendHoverLeave(cache); return; }
 
-    // value + premium/discount vs the subject (★) at D, for each visible series.
-    // If the subject wasn't scraped at D, carry forward its last observed price.
+    const countMode = trendMetricIsCount(hv.metric);
+
+    // value + comparison vs the subject (★) at D, for each visible series.
+    // If the subject wasn't scraped at D, carry forward its last observed value.
     const benchS = hv.series.find((s) => s.bench);
     let subjV = benchS ? benchS.vmap[D] : null;
     let subjCarried = false;
@@ -2742,7 +2783,9 @@
     hv.series.forEach((s) => {
       const v = s.vmap[D];
       if (v == null) return;                       // no observation here → omit (no $0/NaN)
-      const vs = (!s.bench && subjV) ? Math.round(((v - subjV) / subjV) * 100) : null;
+      const vs = (!s.bench && subjV)
+        ? (countMode ? Math.round(v - subjV) : Math.round(((v - subjV) / subjV) * 100))
+        : null;
       rows.push({ id: s.id, name: s.name, bench: s.bench, color: s.color, v, vs, y: hv.y(v) });
     });
     if (!rows.length) { trendHoverLeave(cache); return; }
@@ -2773,16 +2816,16 @@
     });
 
     // tooltip
-    const psfMode = hv.metric === "avgPsf";
-    const fmtV = psfMode ? (x) => "$" + x.toFixed(2) + "/sf" : (x) => "$" + Math.round(x).toLocaleString();
+    const fmtV = (x) => fmtTrendValue(hv.metric, x, true);
     const fmtVs = (r) => {
       if (r.bench) return ` <span class="tt-chg tt-subj">(subject)</span>`;
       if (r.vs == null) return "";
-      return ` <span class="tt-chg ${r.vs > 0 ? "up" : r.vs < 0 ? "down" : ""}">(${r.vs > 0 ? "+" : r.vs < 0 ? "−" : ""}${Math.abs(r.vs)}%)</span>`;
+      const val = countMode ? Math.abs(r.vs).toLocaleString() : Math.abs(r.vs) + "%";
+      return ` <span class="tt-chg ${r.vs > 0 ? "up" : r.vs < 0 ? "down" : ""}">(${r.vs > 0 ? "+" : r.vs < 0 ? "−" : ""}${val})</span>`;
     };
     let html = `<div class="tt-date">${fmtDate(D)}</div>`;
     rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtVs(r)}</span></div>`; });
-    if (subjV) html += `<div class="tt-note">( ) = premium / discount vs subject${subjCarried ? " (last obs.)" : ""}</div>`;
+    if (subjV) html += `<div class="tt-note">( ) = ${countMode ? "listing count delta" : "premium / discount"} vs subject${subjCarried ? " (last obs.)" : ""}</div>`;
     const tip = cache.tip;
     tip.innerHTML = html; tip.hidden = false;
 
@@ -2829,7 +2872,7 @@
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
       const pts = (D.trends[c.b.id] || [])
         .filter((p) => p.date >= st.from && p.date <= st.to)
-        .map((p) => ({ d: p.date, v: weightedAt(p, st.metric, st.types) }))
+        .map((p) => ({ d: p.date, v: trendValueAt(p, st.metric, st.types) }))
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
@@ -2841,9 +2884,7 @@
     // dynamic title
     const tt = document.getElementById("chart-title");
     if (tt) {
-      const mName = st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent";
-      const scope = !st.types.length ? "—" : (st.avail && st.types.length === st.avail.length) ? "all units (weighted)" : st.types.map((t) => TYPE_LABEL[t] || t).join(" + ") + " (weighted)";
-      tt.textContent = `${mName} · ${scope}`;
+      tt.textContent = `${trendMetricName(st.metric)} · ${trendScopeLabel(st)}`;
     }
 
     const allV = []; target.forEach((s) => s.pts.forEach((p) => allV.push(p.v)));
@@ -2973,8 +3014,8 @@
     const lerp = (p, q, e) => p + (q - p) * e;
     const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOut: glide off the current position, settle gently
     const DUR = prefersReduced ? 0 : (cache.drawn ? 480 : 760);   // first paint = cinematic left-to-right draw-on
-    const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
-    const labelFmt = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) : (v) => "$" + Math.round(v).toLocaleString();
+    const fmtY = (v) => fmtTrendValue(st.metric, v, true);
+    const labelFmt = (v) => fmtTrendValue(st.metric, v, false);
 
     const renderFrame = (e) => {
       const yMin = lerp(fromYMin, tYMin, e), yMax = lerp(fromYMax, tYMax, e), span = (yMax - yMin) || 1;
