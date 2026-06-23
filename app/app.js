@@ -2560,6 +2560,11 @@
 
     document.getElementById("tabbody").innerHTML = `
       <div class="filters">
+        <label>Metric</label>
+        <select id="f-metric">
+          <option value="avgPsf" ${st.metric === "avgPsf" ? "selected" : ""}>Average Rent PSF</option>
+          <option value="avgRent" ${st.metric === "avgRent" ? "selected" : ""}>Average Gross Rent</option>
+        </select>
         <label>From</label><input type="date" id="f-from" value="${st.from}" min="${minD}" max="${st.to}"/>
         <label>To</label><input type="date" id="f-to" value="${st.to}" min="${st.from}" max="${maxD}"/>
         <span class="date-err" id="trend-dateerr" role="alert"></span>
@@ -2581,19 +2586,14 @@
         </div>
       </div>
       <div class="card chart-card">
-        <h3 id="chart-title-rent">Average Gross Rent</h3>
-        <div id="chart-rent"></div>
-        <div class="legend" id="legend-rent"></div>
-      </div>
-      <div class="card chart-card">
-        <h3 id="chart-title-psf">Average Rent PSF</h3>
-        <div id="chart-psf"></div>
-        <div class="legend" id="legend-psf"></div>
+        <h3 id="chart-title">${st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent"}</h3>
+        <div id="chart"></div>
+        <div class="legend" id="legend"></div>
       </div>`;
 
-    // both metrics stacked — no toggle. Shared filters redraw both.
-    const draw = () => { drawChart(a, cols, st, "avgRent", "-rent"); drawChart(a, cols, st, "avgPsf", "-psf"); };
+    const draw = () => drawChart(a, cols, st);
     const upSums = () => { document.getElementById("mt-sum").innerHTML = typesSummary(); document.getElementById("mb-sum").innerHTML = buildsSummary(); };
+    document.getElementById("f-metric").onchange = (e) => { st.metric = e.target.value; renderTrends(a, cols); };
     const dateErr = document.getElementById("trend-dateerr");
     const fromEl = document.getElementById("f-from"), toEl = document.getElementById("f-to");
     fromEl.onchange = (e) => {
@@ -2785,13 +2785,12 @@
     if (cache.labelsG) cache.labelsG.querySelectorAll(".end-label").forEach((t) => { t.style.opacity = "1"; t.classList.remove("end-label--hi"); });
   }
 
-  function drawChart(a, cols, st, metric, suffix) {
-    suffix = suffix || "";
-    const chartEl = document.getElementById("chart" + suffix);
-    const legendEl = document.getElementById("legend" + suffix);
+  function drawChart(a, cols, st) {
+    const chartEl = document.getElementById("chart");
+    const legendEl = document.getElementById("legend");
     if (!chartEl) return;
     const NS = "http://www.w3.org/2000/svg";
-    const key = a.id + suffix;   // separate cache/raf/clip per stacked chart (rent vs PSF)
+    const key = a.id;
     const W = Math.max(720, (chartEl.clientWidth || 900));
     const H = 420, padL = 64, padR = 64, padT = 16, padB = 56;   // padR widened for end-of-line value labels
     const dates = (() => {
@@ -2813,7 +2812,7 @@
       const color = c.bench ? BENCH_COLOR : COMP_COLORS[i % COMP_COLORS.length];
       const pts = (D.trends[c.b.id] || [])
         .filter((p) => p.date >= st.from && p.date <= st.to)
-        .map((p) => ({ d: p.date, v: weightedAt(p, metric, st.types) }))
+        .map((p) => ({ d: p.date, v: weightedAt(p, st.metric, st.types) }))
         .filter((p) => p.v != null && xIdx.has(p.d));
       if (!pts.length) return;
       const vmap = {}; pts.forEach((p) => (vmap[p.d] = p.v));
@@ -2823,9 +2822,9 @@
     if (!target.length) { chartEl.innerHTML = `<div class="empty">Select at least one building and one unit type.</div>`; legendEl.innerHTML = ""; chartCache[key] = null; return; }
 
     // dynamic title
-    const tt = document.getElementById("chart-title" + suffix);
+    const tt = document.getElementById("chart-title");
     if (tt) {
-      const mName = metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent";
+      const mName = st.metric === "avgPsf" ? "Average Rent PSF" : "Average Gross Rent";
       const scope = !st.types.length ? "—" : (st.avail && st.types.length === st.avail.length) ? "all units (weighted)" : st.types.map((t) => TYPE_LABEL[t] || t).join(" + ") + " (weighted)";
       tt.textContent = `${mName} · ${scope}`;
     }
@@ -2885,7 +2884,7 @@
     cache.overlay.setAttribute("width", Math.max(0, W - padL - padR)); cache.overlay.setAttribute("height", Math.max(0, H - padT - padB));
     const ySettled = (v) => padT + (1 - (v - tYMin) / ((tYMax - tYMin) || 1)) * (H - padT - padB);
     cache.hover = {
-      dates, x, y: ySettled, padT, padB, H, W, metric,
+      dates, x, y: ySettled, padT, padB, H, W, metric: st.metric,
       series: target.map((s) => ({ id: s.bid, name: s.name, bench: s.bench, color: s.color, pts: s.pts, vmap: s.vmap })),
     };
 
@@ -2957,8 +2956,8 @@
     const lerp = (p, q, e) => p + (q - p) * e;
     const ease = (t) => 1 - Math.pow(1 - t, 3);  // easeOut: glide off the current position, settle gently
     const DUR = prefersReduced ? 0 : (cache.drawn ? 480 : 760);   // first paint = cinematic left-to-right draw-on
-    const fmtY = metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
-    const labelFmt = metric === "avgPsf" ? (v) => "$" + v.toFixed(2) : (v) => "$" + Math.round(v).toLocaleString();
+    const fmtY = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) + "/sf" : (v) => "$" + Math.round(v).toLocaleString();
+    const labelFmt = st.metric === "avgPsf" ? (v) => "$" + v.toFixed(2) : (v) => "$" + Math.round(v).toLocaleString();
 
     const renderFrame = (e) => {
       const yMin = lerp(fromYMin, tYMin, e), yMax = lerp(fromYMax, tYMax, e), span = (yMax - yMin) || 1;
