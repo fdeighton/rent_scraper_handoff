@@ -114,7 +114,9 @@ def db_all():
 
 async def run_scrape(url: str, name: str, config: dict, rid: str = "") -> dict:
     """Mirror of main.py's fetch -> extract -> validate, minus the database."""
-    config = config or {}
+    # Drop null-valued keys: the frontend sends e.g. initial_wait_ms:null for "unset", but
+    # the fetcher relies on dict.get(key, default), which only defaults when the key is ABSENT.
+    config = {k: v for k, v in (config or {}).items() if v is not None}
     strategy = config.get("strategy") or "playwright_render"
     t0 = time.perf_counter()
     log.info("%s fetch    start url=%s strategy=%s wait=%sms scroll=%s",
