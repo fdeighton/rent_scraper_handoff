@@ -19,16 +19,17 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         """Load config from environment variables."""
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_SERVICE_KEY")
+        # Accept both this scraper's names and the standard Supabase/Next.js names.
+        url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+        key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
         # Project-scoped key first, then the generic name for backward compatibility.
         api_key = os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS") or os.environ.get("ANTHROPIC_API_KEY")
 
         missing = []
         if not url:
-            missing.append("SUPABASE_URL")
+            missing.append("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)")
         if not key:
-            missing.append("SUPABASE_SERVICE_KEY")
+            missing.append("SUPABASE_SERVICE_KEY (or SUPABASE_SERVICE_ROLE_KEY)")
         if not api_key:
             missing.append("ANTHROPIC_API_KEY_RENT_COMPS")
 
