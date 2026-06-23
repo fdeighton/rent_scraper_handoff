@@ -5,9 +5,13 @@ Sends raw page content to Claude and gets back structured unit data.
 
 import json
 import base64
+import os
 import re
 
 import anthropic
+
+# Default Claude model for text extraction; override with ANTHROPIC_MODEL in the env.
+DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +199,7 @@ HTML Content:
 class RentExtractor:
     """Extracts structured rental data from HTML using Claude."""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 

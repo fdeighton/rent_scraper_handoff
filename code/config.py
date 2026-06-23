@@ -6,6 +6,9 @@ NEVER hardcode API keys or secrets.
 import os
 from dataclasses import dataclass, field
 
+# Model is configurable via env (ANTHROPIC_MODEL), never hardcoded. One source of truth.
+DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
 
 @dataclass
 class Config:
@@ -13,7 +16,7 @@ class Config:
     supabase_service_key: str
     anthropic_api_key: str
     headless: bool = True
-    extraction_model: str = "claude-sonnet-4-20250514"
+    extraction_model: str = DEFAULT_MODEL
     max_content_length: int = 100_000  # chars to send to Claude
 
     @classmethod
@@ -44,5 +47,5 @@ class Config:
             supabase_service_key=key,
             anthropic_api_key=api_key,
             headless=os.environ.get("HEADLESS", "true").lower() == "true",
-            extraction_model=os.environ.get("EXTRACTION_MODEL", "claude-sonnet-4-20250514"),
+            extraction_model=DEFAULT_MODEL,
         )
