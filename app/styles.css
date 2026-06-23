@@ -637,7 +637,8 @@ svg.linechart { width: 100%; height: 420px; display: block; }
 .trend-zoom-overlay { cursor: grab; }
 .trend-zoom-overlay.dragging { cursor: grabbing; }
 .hoverlayer { pointer-events: none; }
-.trend-cross { stroke: var(--navy-600); stroke-width: 1; stroke-dasharray: 4 4; opacity: .55; }
+.trend-cross { stroke: var(--ink-soft); stroke-width: 1; stroke-dasharray: 4 4; opacity: .62; }
+html[data-theme="dark"] .trend-cross { opacity: .82; }
 .trend-cross-dot { stroke: #fff; stroke-width: 1.5; }
 .trend-tip { position: absolute; z-index: 20; pointer-events: none; background: var(--navy); color: #fff;
   border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow-md); min-width: 188px; max-width: 280px; }

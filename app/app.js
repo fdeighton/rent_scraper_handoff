@@ -70,7 +70,7 @@
   const analysisById = (id) => D.analyses.find((a) => a.id === id);
 
   function currentTheme() {
-    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    return document.documentElement.dataset.theme === "light" ? "light" : "dark";
   }
   function setTheme(theme) {
     const mode = theme === "dark" ? "dark" : "light";

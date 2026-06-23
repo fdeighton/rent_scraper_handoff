@@ -16,7 +16,7 @@
       try {
         const key = "comp_theme_v1";
         const saved = localStorage.getItem(key);
-        const dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+        const dark = saved ? saved === "dark" : true;
         document.documentElement.dataset.theme = dark ? "dark" : "light";
       } catch (_) {}
     })();
