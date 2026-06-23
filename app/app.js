@@ -64,17 +64,18 @@
     if (cur == null || prev == null) return "";
     const d = cur - prev;
     if (Math.round(d) === 0) return `<span class="delta flat">$0 (0.0%)</span>`;
-    const cls = d > 0 ? "up" : "down";
+    const up = d > 0;
     const pct = prev ? (Math.abs(d / prev) * 100).toFixed(1) : "0.0";
-    return `<span class="delta ${cls}">$${Math.abs(Math.round(d)).toLocaleString()} (${pct}%)</span>`;
+    return `<span class="delta ${up ? "up" : "down"}"><span class="delta__arr">${up ? "▲" : "▼"}</span>$${Math.abs(Math.round(d)).toLocaleString()} (${pct}%)</span>`;
   }
   // PSF delta — cents precision (rent's whole-dollar rounding would read as "$0"), $ + %.
   function deltaPsf(cur, prev) {
     if (cur == null || prev == null) return "";
     const d = cur - prev;
     if (Math.abs(d) < 0.005) return `<span class="delta flat">$0.00 (0.0%)</span>`;
+    const up = d > 0;
     const pct = prev ? (Math.abs(d / prev) * 100).toFixed(1) : "0.0";
-    return `<span class="delta ${d > 0 ? "up" : "down"}">$${Math.abs(d).toFixed(2)} (${pct}%)</span>`;
+    return `<span class="delta ${up ? "up" : "down"}"><span class="delta__arr">${up ? "▲" : "▼"}</span>$${Math.abs(d).toFixed(2)} (${pct}%)</span>`;
   }
 
   // ========================================== New Analysis (create flow) ====

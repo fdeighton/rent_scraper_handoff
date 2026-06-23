@@ -501,6 +501,7 @@ table.comp thead th {
 .tcheck input { accent-color: var(--orange); cursor: pointer; }
 
 .delta { font-size: 10px; font-weight: 600; margin-left: 6px; }
+.delta__arr { font-size: 8px; margin-right: 2px; vertical-align: 1px; }   /* ▲/▼ direction arrow */
 .delta.up { color: var(--success); }
 .delta.down { color: var(--orange-600); }
 .delta.flat { color: var(--grey); }
