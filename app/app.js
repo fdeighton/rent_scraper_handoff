@@ -2979,7 +2979,8 @@
     const NS = "http://www.w3.org/2000/svg";
     const key = a.id;
     const W = Math.max(720, (chartEl.clientWidth || 900));
-    const H = 420, padL = 64, padR = 64, padT = 16, padB = 56;   // padR widened for end-of-line value labels
+    const H = 420, padL = 64, padR = 84, padT = 16, padB = 56;   // padR reserves room for end-of-line labels
+    const clipPad = 9;   // lets endpoint dots/round caps breathe past the plot boundary
     const dates = (() => {
       const s = new Set();
       cols.forEach((c) => (D.trends[c.b.id] || []).forEach((p) => { if (p.date >= st.from && p.date <= st.to) s.add(p.date); }));
@@ -3035,7 +3036,8 @@
       const defs = document.createElementNS(NS, "defs");
       const clip = document.createElementNS(NS, "clipPath"); clip.setAttribute("id", "chartclip-" + key);
       const clipRect = document.createElementNS(NS, "rect");
-      clipRect.setAttribute("x", String(padL)); clipRect.setAttribute("y", String(padT)); clipRect.setAttribute("width", String(plotW)); clipRect.setAttribute("height", String(H - padT - padB));
+      clipRect.setAttribute("x", String(padL - clipPad)); clipRect.setAttribute("y", String(padT - clipPad));
+      clipRect.setAttribute("width", String(plotW + clipPad * 2)); clipRect.setAttribute("height", String(H - padT - padB + clipPad * 2));
       clip.appendChild(clipRect); defs.appendChild(clip);
       const gridG = document.createElementNS(NS, "g"); gridG.setAttribute("class", "grid");
       const linesG = document.createElementNS(NS, "g"); linesG.setAttribute("class", "axis"); linesG.setAttribute("clip-path", "url(#chartclip-" + key + ")");
@@ -3082,8 +3084,8 @@
     cache.svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     cache.overlay.setAttribute("x", padL); cache.overlay.setAttribute("y", padT);
     cache.overlay.setAttribute("width", Math.max(0, plotW)); cache.overlay.setAttribute("height", Math.max(0, H - padT - padB));
-    cache.clipRect.setAttribute("x", String(padL)); cache.clipRect.setAttribute("y", String(padT));
-    cache.clipRect.setAttribute("height", String(H - padT - padB));
+    cache.clipRect.setAttribute("x", String(padL - clipPad)); cache.clipRect.setAttribute("y", String(padT - clipPad));
+    cache.clipRect.setAttribute("height", String(H - padT - padB + clipPad * 2));
     const ySettled = (v) => padT + (1 - (v - tYMin) / ((tYMax - tYMin) || 1)) * (H - padT - padB);
     cache.zoomCtl = { st, dates, datesKey, W, padL, padR, redraw: () => drawChart(a, cols, st) };
     cache.hover = {
@@ -3190,7 +3192,11 @@
         rec.path.setAttribute("stroke-linejoin", "round");
         rec.path.setAttribute("stroke-opacity", s.bench ? "1" : "0.9");
         let dots = "";
-        s.pts.forEach((p) => { const cy = y(vmapNow[p.d]); dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`; });
+        s.pts.forEach((p) => {
+          if (!inWindow(p.i)) return;
+          const cy = y(vmapNow[p.d]);
+          dots += s.bench ? `<circle cx="${x(p.d)}" cy="${cy}" r="3.5" fill="${s.color}"/>` : `<circle cx="${x(p.d)}" cy="${cy}" r="2.6" fill="#fff" stroke="${s.color}" stroke-width="1.4"/>`;
+        });
         rec.dotsG.innerHTML = dots;
         rec.grp.style.opacity = cache.drawn ? (rec.enter ? String(e) : "1") : "1";   // first paint reveals via clip, not opacity
         rec.cur = vmapNow;
@@ -3202,14 +3208,14 @@
       });
       cache.labelsG.innerHTML = endLabels;
       cache.labelsG.style.opacity = cache.drawn ? "1" : String(Math.max(0, (e - 0.6) / 0.4));   // labels fade in as the draw-on finishes
-      cache.clipRect.setAttribute("width", String(cache.drawn ? plotW : Math.max(0, e * plotW))); // left-to-right reveal on first paint
+      cache.clipRect.setAttribute("width", String(cache.drawn ? plotW + clipPad * 2 : Math.max(0, e * (plotW + clipPad * 2)))); // left-to-right reveal on first paint
       exits.forEach((rec) => { rec.grp.style.opacity = String(1 - e); });
 
       if (e >= 1) {  // finalize: drop exited series, lock in the full reveal
         exits.forEach((rec) => rec.grp.remove());
         Object.keys(cache.series).forEach((bid) => { if (!want.has(bid)) delete cache.series[bid]; });
         active.forEach((rec) => (rec.enter = false));
-        cache.drawn = true; cache.clipRect.setAttribute("width", String(plotW)); cache.labelsG.style.opacity = "1";
+        cache.drawn = true; cache.clipRect.setAttribute("width", String(plotW + clipPad * 2)); cache.labelsG.style.opacity = "1";
       }
     };
 
