@@ -16,6 +16,11 @@ window.COMP_CONFIG = {
   dataSource: "inline",
   dataUrl: "", // e.g. "/api/comp-data"
 
+  // Local scrape server (code/local_server.py) — lets the app run a scrape on demand
+  // WITHOUT Supabase; results are saved to this browser (localStorage) for now. Leave as
+  // localhost for local dev; set to "" to hide the "Run scrape" button.
+  scrapeApi: "http://localhost:8787",
+
   // Per-building individual-listing files (the heavy ~half of the data, split out and
   // lazy-loaded on demand). Served as data/units/<building-id>.json by default. Point this
   // at a backend route if you serve them elsewhere. Requires HTTP (fetch is blocked on

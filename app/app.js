@@ -41,6 +41,7 @@
     "doc": '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/>',
     "star": '<path d="M12 2l2.9 6.3 6.9.6-5.2 4.5 1.6 6.8L12 17.3 5.8 20.7l1.6-6.8L2.2 8.9l6.9-.6z"/>',
     "calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/>',
+    "refresh": '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/>',
     "chevron-down": '<path d="M6 9l6 6 6-6"/>',
     "alert": '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
   };
@@ -360,6 +361,72 @@
       m[b.id] = { scrapeUrl: b.scrapeUrl || null, strategy: b.strategy || null, initialWaitMs: b.initialWaitMs != null ? b.initialWaitMs : null, scroll: b.scroll != null ? b.scroll : null };
       localStorage.setItem(SCRAPE_OVR_KEY, JSON.stringify(m));
     } catch (e) {}
+  }
+
+  // ---- Local (Supabase-free) scrapes: run via code/local_server.py, persist in this
+  // browser. Each saved scrape is re-applied into the in-memory dataset on load so the
+  // building page + analyses reflect it. Migrating to Supabase later swaps this store +
+  // ingest for DB writes/reads; the UI is unchanged.
+  const LOCAL_SCRAPE_KEY = "comp_local_scrapes_v1";   // { bid: [ {date, incentives, units:[{type,bath,sqft,rent,psf,note}]} ] }
+  const mapServerUnits = (us) => (us || []).map((u) => ({
+    type: u.unit_type, bath: u.bathrooms != null ? String(u.bathrooms) : null,
+    sqft: u.square_footage != null ? +u.square_footage : null,
+    rent: u.rent_price != null ? +u.rent_price : null,
+    psf: u.rent_psf != null ? +u.rent_psf : null,
+    note: u.notes || u.raw_text || "",
+  }));
+  // building_summary-style aggregate (mirrors build_data.py) → { byType, weighted }.
+  function aggregateUnits(units) {
+    const priced = units.filter((u) => u.rent != null);
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const agg = (us) => {
+      const rents = us.map((u) => u.rent), psfs = us.map((u) => u.psf).filter((v) => v != null), sqfts = us.map((u) => u.sqft).filter((v) => v != null);
+      return { count: us.length, avgRent: Math.round(mean(rents)), avgPsf: psfs.length ? +mean(psfs).toFixed(2) : null, avgSqft: sqfts.length ? Math.round(mean(sqfts)) : null };
+    };
+    const byType = {};
+    UNIT_TYPES.forEach((t) => { const us = priced.filter((u) => u.type === t); if (us.length) { const a = agg(us); byType[t] = { ...a, minRent: Math.round(Math.min(...us.map((u) => u.rent))), maxRent: Math.round(Math.max(...us.map((u) => u.rent))) }; } });
+    return { byType, weighted: priced.length ? agg(priced) : null };
+  }
+  function localScrapeStore() { try { return JSON.parse(localStorage.getItem(LOCAL_SCRAPE_KEY) || "{}"); } catch (e) { return {}; } }
+  function localUnitsFor(bid) {  // { date: units } for loadUnits() to merge in
+    const out = {}; ((localScrapeStore()[bid]) || []).forEach((s) => (out[s.date] = s.units)); return out;
+  }
+  // Apply one scrape into D (summary/prevSummary/snapshots/trends/history), idempotent by date.
+  function applyScrape(b, date, incentives, units) {
+    const bid = b.id, { byType, weighted } = aggregateUnits(units);
+    const prev = D.summary[bid];
+    if (prev && prev.date !== date) D.prevSummary[bid] = prev;        // last run becomes the Δ baseline
+    D.summary[bid] = { date, incentives: incentives || null, byType, weighted };
+    const snapEntry = { date, incentives: incentives || null, byType, weighted, hasUnits: true };
+    const snaps = (D.snapshots[bid] = (D.snapshots[bid] || []).filter((s) => s.date !== date));
+    snaps.unshift(snapEntry); snaps.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+    if (weighted) {
+      const tpt = { date, avgRent: weighted.avgRent, avgPsf: weighted.avgPsf, byType };
+      const tr = (D.trends[bid] = (D.trends[bid] || []).filter((p) => p.date !== date));
+      tr.push(tpt); tr.sort((x, y) => (x.date || "").localeCompare(y.date || ""));
+    }
+    const hist = (D.history[bid] = (D.history[bid] || []).filter((h) => (h.date || "").slice(0, 10) !== date));
+    hist.unshift({ date, status: "success", units: units.filter((u) => u.rent != null).length, incentives: incentives || null });
+    hist.sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+    if (b.lastScrape == null || date > b.lastScrape) b.lastScrape = date;
+  }
+  // Re-apply all persisted local scrapes on boot (chronological, so Δ baselines line up).
+  function loadLocalScrapes() {
+    const store = localScrapeStore();
+    Object.keys(store).forEach((bid) => {
+      const b = bld(bid); if (!b) return;
+      (store[bid] || []).slice().sort((a, c) => (a.date || "").localeCompare(c.date || ""))
+        .forEach((s) => applyScrape(b, s.date, s.incentives, s.units));
+    });
+  }
+  // Save a fresh scrape locally + apply it.
+  function saveLocalScrape(b, date, incentives, units) {
+    const store = localScrapeStore();
+    const arr = (store[b.id] = (store[b.id] || []).filter((s) => s.date !== date));
+    arr.push({ date, incentives: incentives || null, units });
+    try { localStorage.setItem(LOCAL_SCRAPE_KEY, JSON.stringify(store)); } catch (e) {}
+    if (_unitsCache) delete _unitsCache[b.id];   // bust the lazy units cache so the drill-down sees it
+    applyScrape(b, date, incentives, units);
   }
   function createBuilding(b) {
     const id = "cb-" + Date.now().toString(36);
@@ -1830,9 +1897,11 @@
     if (_unitsCache[bid]) return _unitsCache[bid];
     const cfg = window.COMP_CONFIG || {};
     const base = cfg.unitsBase || "data/units";
+    const local = localUnitsFor(bid);   // locally-saved scrapes override / add their dates
     _unitsCache[bid] = fetch(`${base}/${encodeURIComponent(bid)}.json`, { headers: { Accept: "application/json" }, cache: "no-store" })
       .then((r) => (r.ok ? r.json() : {}))
-      .catch(() => ({}));
+      .catch(() => ({}))
+      .then((m) => Object.assign({}, m, local));
     return _unitsCache[bid];
   }
   // Individual-listings table for the scrape-history detail panels.
@@ -3321,6 +3390,72 @@
     };
   }
 
+  // Run a scrape via the local server (no Supabase), preview the units, then save the
+  // result into this browser (saveLocalScrape) so the building + analyses reflect it.
+  function openRunScrapeModal(b) {
+    const api = (window.COMP_CONFIG || {}).scrapeApi || "";
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal modal--wide" role="dialog" aria-modal="true" aria-label="Run scrape">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("refresh")}</div>
+        <div class="modal__title">Run scrape — ${esc(b.name)}</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        ${b.scrapeUrl
+          ? `<div class="field"><label>Target</label><div class="sub">${esc(b.scrapeUrl)}</div><div class="sub" style="margin-top:2px">Strategy: ${esc(b.strategy || "playwright_render")}${b.scroll ? " · scroll" : ""}${b.initialWaitMs ? " · wait " + b.initialWaitMs + "ms" : ""} — change in Scrape Settings</div></div>`
+          : `<div class="empty">${icon("settings")}<br/>No scrape URL set — add one in Scrape Settings first.</div>`}
+        <div class="geo-note">Runs against your local scrape server (<b>${esc(api || "not configured")}</b>). No database — the result saves to this browser. A real Claude call; ~15–40s.</div>
+        <div id="rs-out"></div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Close</button>
+        <button class="btn btn--accent" id="rs-run" ${(!b.scrapeUrl || !api) ? "disabled" : ""}>${icon("refresh")} Run scrape</button>
+        <button class="btn btn--primary" id="rs-save" style="display:none">Save as snapshot</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+    let lastResult = null;
+    const runBtn = $("#rs-run"), saveBtn = $("#rs-save"), out = $("#rs-out");
+    if (runBtn) runBtn.onclick = async () => {
+      runBtn.disabled = true; saveBtn.style.display = "none";
+      out.innerHTML = `<div class="geo-loading">${icon("clock")} Fetching the page + extracting with Claude… (~15–40s)</div>`;
+      try {
+        const res = await fetch(api.replace(/\/$/, "") + "/scrape", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: b.scrapeUrl, name: b.name, config: { strategy: b.strategy || "playwright_render", initial_wait_ms: b.initialWaitMs != null ? b.initialWaitMs : null, scroll: b.scroll != null ? b.scroll : null } }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+        const units = mapServerUnits(data.units);
+        const priced = units.filter((u) => u.rent != null).length;
+        lastResult = { incentives: data.incentives, units };
+        out.innerHTML = `
+          <div class="sh-inc" style="margin-top:12px"><span class="sh-lbl">Incentive</span>${data.incentives ? esc(data.incentives) : '<span class="sub">None advertised</span>'}</div>
+          <div class="sub" style="margin:8px 0">${units.length} units extracted · ${priced} priced · ${(data.fetchedChars || 0).toLocaleString()} chars fetched</div>
+          ${units.length ? unitsTableHtml(units) : `<div class="empty">No units extracted — try a different strategy in Scrape Settings.</div>`}`;
+        saveBtn.style.display = priced ? "" : "none";
+      } catch (e) {
+        out.innerHTML = `<div class="empty" style="margin-top:12px">${icon("globe")}<br/>Scrape failed: ${esc(String((e && e.message) || e))}<br/><span class="sub">Make sure the local server is running: <code>cd code &amp;&amp; python local_server.py</code></span></div>`;
+      } finally { runBtn.disabled = false; }
+    };
+    if (saveBtn) saveBtn.onclick = () => {
+      if (!lastResult) return;
+      const date = new Date().toISOString().slice(0, 10);
+      saveLocalScrape(b, date, lastResult.incentives, lastResult.units);
+      close(); route();
+      toast(`Saved scrape for <b>${esc(b.name)}</b> · ${fmtDate(date)} — stored in this browser`);
+    };
+  }
+
   // ========================================================= Building Detail =
   function renderBuilding(id) {
     const b = bld(id);
@@ -3416,6 +3551,7 @@
           </div>
           <div class="detail-actions">
             <button class="btn" id="b-scrape">${icon("settings")} Scrape Settings</button>
+            ${(window.COMP_CONFIG || {}).scrapeApi ? `<button class="btn" id="b-runscrape">${icon("refresh")} Run scrape</button>` : ""}
             <button class="btn btn--accent" id="b-addto">${icon("plus")} Add to Analysis</button>
           </div>
         </div>
@@ -3432,6 +3568,8 @@
 
     const bScrape = document.getElementById("b-scrape");
     if (bScrape) bScrape.onclick = () => openScrapeSettingsModal(b);
+    const bRun = document.getElementById("b-runscrape");
+    if (bRun) bRun.onclick = () => openRunScrapeModal(b);
     const bAddTo = document.getElementById("b-addto");
     if (bAddTo) bAddTo.onclick = () => openAddToAnalysisModal(b);
 
@@ -3630,6 +3768,7 @@
   function boot() {
     loadCustomBuildings();
     loadScrapeOverrides();
+    loadLocalScrapes();      // re-apply any browser-saved scrapes into the dataset
     loadCustomAnalyses();
     // Always land on Building Universe on open/refresh, regardless of a persisted hash.
     if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
