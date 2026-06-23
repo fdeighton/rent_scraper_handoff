@@ -11,6 +11,16 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script>
+    (() => {
+      try {
+        const key = "comp_theme_v1";
+        const saved = localStorage.getItem(key);
+        const dark = saved ? saved === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      } catch (_) {}
+    })();
+  </script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <link rel="stylesheet" href="styles.css" />
@@ -25,6 +35,9 @@
         <button class="sidebar__toggle" id="sb-toggle" aria-label="Collapse sidebar" title="Collapse sidebar"></button>
       </div>
       <nav class="sidebar__nav" id="nav"></nav>
+      <div class="sidebar__foot">
+        <button class="theme-toggle" id="theme-toggle" type="button"></button>
+      </div>
     </aside>
     <main class="main">
       <div class="content" id="view"></div>

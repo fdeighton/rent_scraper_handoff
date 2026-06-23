@@ -8,6 +8,7 @@
   let D = null;   // the dataset — populated by loadData() at boot (inline data.js or a backend URL)
   const $view = document.getElementById("view");
   const $nav = document.getElementById("nav");
+  const THEME_KEY = "comp_theme_v1";
 
   const UNIT_TYPES = ["bachelor", "1-bed", "1-bed+den", "2-bed", "2-bed+den", "3-bed", "3-bed+den", "4-bed"];
   const TYPE_LABEL = {
@@ -15,8 +16,8 @@
     "2-bed": "2-Bed", "2-bed+den": "2-Bed+Den", "3-bed": "3-Bed", "3-bed+den": "3-Bed+Den", "4-bed": "4-Bed",
   };
   // Comp palette — benchmark is brand orange; comps are navy + supporting shades, dashed.
-  const COMP_COLORS = ["#061031", "#2A6FDB", "#7C3AED", "#0891B2", "#1F8A5B", "#C77A0F", "#DC2626", "#4F46E5", "#0D9488", "#9333EA", "#0EA5E9", "#65A30D"];
-  const BENCH_COLOR = "#FF4E31";
+  const COMP_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)", "var(--series-6)", "var(--series-7)", "var(--series-8)", "var(--series-9)", "var(--series-10)", "var(--series-11)", "var(--series-12)"];
+  const BENCH_COLOR = "var(--orange)";
 
   // ---- icons (Lucide-style, inline so it works offline) --------------------
   const ICONS = {
@@ -25,6 +26,7 @@
     "building": '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/>',
+    "moon": '<path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8z"/>',
     "search": '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>',
     "map": '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
     "pin": '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
@@ -43,6 +45,13 @@
     "alert": '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
   };
   const icon = (n) => `<span class="ic">${ICONS[n] ? `<svg viewBox="0 0 24 24">${ICONS[n]}</svg>` : ""}</span>`;
+  const cssVar = (name, fallback) => {
+    try {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    } catch (e) {
+      return fallback;
+    }
+  };
 
   // ---- helpers -------------------------------------------------------------
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -59,6 +68,33 @@
   };
   const bld = (id) => D.buildings[id];
   const analysisById = (id) => D.analyses.find((a) => a.id === id);
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  }
+  function setTheme(theme) {
+    const mode = theme === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = mode;
+    try { localStorage.setItem(THEME_KEY, mode); } catch (e) {}
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      const dark = mode === "dark";
+      btn.innerHTML = `${icon(dark ? "sun" : "moon")}<span class="theme-toggle__label">${dark ? "Light mode" : "Dark mode"}</span>`;
+      btn.title = dark ? "Switch to light mode" : "Switch to dark mode";
+      btn.setAttribute("aria-label", btn.title);
+      btn.setAttribute("aria-pressed", String(dark));
+    }
+    if (uLines) {
+      try { uLines.eachLayer((l) => l.setStyle && l.setStyle({ color: cssVar("--ink-soft", "#1F2750") })); } catch (e) {}
+    }
+    if (uMap) setTimeout(() => { try { uMap.invalidateSize(); } catch (e) {} }, 120);
+  }
+  function wireThemeToggle() {
+    const btn = document.getElementById("theme-toggle");
+    if (!btn) return;
+    btn.onclick = () => setTheme(currentTheme() === "dark" ? "light" : "dark");
+    setTheme(currentTheme());
+  }
 
   function delta(cur, prev) {
     if (cur == null || prev == null) return "";
@@ -1012,7 +1048,7 @@
       const key = ll.lat.toFixed(5) + "," + ll.lng.toFixed(5);
       if (seen.has(key)) return;                            // one line per visible cluster/marker
       seen.add(key);
-      window.L.polyline([aLL, ll], { color: "#1F2750", weight: 1.5, opacity: 0.35, dashArray: "4 5", interactive: false }).addTo(uLines);
+      window.L.polyline([aLL, ll], { color: cssVar("--ink-soft", "#1F2750"), weight: 1.5, opacity: 0.35, dashArray: "4 5", interactive: false }).addTo(uLines);
     });
   }
   function wireMap(list) {
@@ -3567,6 +3603,7 @@
     tg.onclick = () => setSidebarOpen(sb.classList.contains("collapsed"));
     setSidebarOpen(true);
   })();
+  wireThemeToggle();
 
   // ---- Data source + boot ---------------------------------------------------
   // ONE seam for where the dataset comes from, configured in config.js (window.COMP_CONFIG):
