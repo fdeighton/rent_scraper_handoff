@@ -835,7 +835,9 @@ class PageFetcher:
         slug = config.get("tricon_api_slug")
         if slug:
             return slug
-        m = re.search(r"triconresidential\.com/apartment/([^/?#]+)", scrape_url)
+        # Marketing URL on either Tricon host: tricon{living,residential}.com/apartment[s]/<slug>
+        # (e.g. triconliving.com/apartment/the-spoke/#availability).
+        m = re.search(r"tricon(?:living|residential)\.com/apartments?/([^/?#]+)", scrape_url)
         if m:
             return m.group(1)
         # Also accept the raw API URL form (triconliving.com/api/v1/apartments/<slug>),
