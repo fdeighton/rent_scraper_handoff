@@ -73,6 +73,7 @@ def request_cancel(job_id):
     if not job_id:
         return
     with _cancel_lock:
+        _cancelled_jobs.pop(job_id, None)                      # re-request → move to newest position
         _cancelled_jobs[job_id] = True
         while len(_cancelled_jobs) > _CANCEL_CAP:
             _cancelled_jobs.pop(next(iter(_cancelled_jobs)))   # evict oldest, never the new one
@@ -214,7 +215,7 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_ca
         if should_cancel():
             fetch_task.cancel()
             try:
-                await fetch_task
+                await asyncio.wait_for(fetch_task, timeout=8)   # bound cleanup; don't pin the thread on a wedged browser
             except BaseException:
                 pass
             log.info("%s cancelled at fetch", rid)

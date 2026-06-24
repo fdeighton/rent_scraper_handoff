@@ -3998,17 +3998,19 @@
   // Merge the live activity log with historical scrape records already in the dataset/DB
   // (D.history per building) so the catalog is backfilled. Dedup by building+date; live wins.
   function scrapeHistoryEntries() {
-    // Dedupe the live log by building+day so a building scraped twice in a day (e.g. a single run
-    // and a set run, or fail-then-success) isn't double-listed. Prefer the run-tagged entry so it
-    // groups under its analysis run; otherwise keep the newest (log is newest-first).
+    // Dedupe the live log by building+day+run so exact repeats collapse (keeping the newest, since
+    // the log is newest-first) while DISTINCT runs of the same building on a day stay separate
+    // (a comp can belong to two analyses scraped the same day). Normalize legacy numeric runIds to
+    // "run-N" so pre-upgrade entries group with the DB's run_ids.
     const liveByKey = new Map();
     (_scrapeLog || []).forEach((e) => {
-      const key = (e.id || "") + "|" + (e.ts || "").slice(0, 10);
-      const cur = liveByKey.get(key);
-      if (!cur || (e.runId && !cur.runId)) liveByKey.set(key, Object.assign({}, e));
+      const ev = Object.assign({}, e);
+      if (typeof ev.runId === "number") ev.runId = "run-" + ev.runId;
+      const key = (ev.id || "") + "|" + (ev.ts || "").slice(0, 10) + "|" + (ev.runId || "");
+      if (!liveByKey.has(key)) liveByKey.set(key, ev);   // first = newest
     });
     const live = [...liveByKey.values()];
-    const seen = new Set(liveByKey.keys());
+    const seen = new Set(live.map((e) => (e.id || "") + "|" + (e.ts || "").slice(0, 10)));   // suppress backfill by building+day
     const out = live.slice();
     // DB-saved scrapes carry run_id/run_no/run_label → runs stay groupable even without the
     // live log (after a clear, or in a fresh session/another browser synced to the same DB).
