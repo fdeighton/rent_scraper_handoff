@@ -25,12 +25,13 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fetcher import PageFetcher                      # noqa: E402
+from fetcher import PageFetcher, is_public_http_url  # noqa: E402
 from extractor import RentExtractor, ScrapeCancelled  # noqa: E402
 
 PORT = int(os.environ.get("SCRAPE_PORT", "8787"))
@@ -228,8 +229,8 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_ca
     log.info("%s fetch    ok %d chars in %.1fs", rid, len(html), time.perf_counter() - t0)
     ck("before-extract")                          # skip the (expensive) Claude call if already cancelled
     if strategy == "tricon_api":                  # API strategies bypass Claude
-        raw_units = fetcher._last_api_units or []
-        incentives = fetcher._last_api_incentives
+        raw_units = fetcher.last_api_units or []
+        incentives = fetcher.last_api_incentives
         log.info("%s api      %d units (Claude skipped)", rid, len(raw_units))
     else:
         t1 = time.perf_counter()
@@ -248,11 +249,64 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_ca
     return {"ok": True, "incentives": incentives, "units": units, "fetchedChars": len(html)}
 
 
+# --- Security guards ---------------------------------------------------------
+# This server is reachable from the browser (the frontend fetches it cross-origin).
+# It is unauthenticated, so we must not let an arbitrary website the user happens to
+# visit drive it. Two guards below:
+#   1. _allowed_origin / origin check — replaces the old wildcard CORS. The browser
+#      sets the Origin header and page JS cannot forge it, so checking it server-side
+#      blocks drive-by sites from POSTing scrapes or reading/writing saved data.
+#   2. is_public_http_url (imported from fetcher) — the /scrape endpoint drives a
+#      headless browser to an arbitrary URL; without this a caller could reach internal
+#      services or the cloud metadata endpoint (169.254.169.254). SSRF guard. The
+#      fetcher applies the same guard to every secondary fetch (additional_urls,
+#      discovered links, images) and to redirect hops.
+#
+# NOTE: Origin 'null' (file://) and requests with no Origin header are trusted; this
+# is acceptable only because the server binds 127.0.0.1 (local processes only). If
+# this is ever exposed beyond localhost, replace the Origin check with a shared secret.
+
+# Config keys that execute code or trigger unvalidated outbound fetches. These are
+# accepted ONLY from trusted code/sites/*.json — never from the request body. The
+# legitimate frontend only ever sends strategy / initial_wait_ms / scroll.
+_REQUEST_CONFIG_BLOCKLIST = ("pre_capture_js", "additional_urls", "dynamic_additional_urls_selector")
+
+
+def _allowed_origin(origin):
+    """Return the Origin value to reflect in CORS headers if it's a trusted local
+    caller, else None. The frontend runs from file:// (Origin 'null' or absent) or a
+    localhost dev origin; any other site is rejected."""
+    if not origin or origin == "null":
+        return origin or "null"
+    try:
+        host = urlsplit(origin).hostname
+    except Exception:
+        return None
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return origin
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        allowed = _allowed_origin(self.headers.get("Origin"))
+        if allowed is not None:
+            self.send_header("Access-Control-Allow-Origin", allowed)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def _reject_foreign_origin(self):
+        """403 a request whose Origin header is present but not a trusted local caller.
+        Requests with no Origin (curl, same-origin, health checks) are allowed — the
+        threat model is a browser drive-by, which always carries an Origin."""
+        origin = self.headers.get("Origin")
+        if origin is not None and _allowed_origin(origin) is None:
+            log.warning("blocked cross-origin %s %s from origin=%s",
+                        self.command, self.path, origin)
+            self._json(403, {"ok": False, "error": "forbidden origin"})
+            return True
+        return False
 
     def _json(self, code, obj):
         body = json.dumps(obj).encode("utf-8")
@@ -268,55 +322,66 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
+    _MAX_BODY = 8 * 1024 * 1024   # 8 MB cap — a scrape/save payload is far smaller
+
     def _body(self):
         try:
             n = int(self.headers.get("Content-Length", 0) or 0)
+            if n > self._MAX_BODY:    # don't read an attacker-sized body into memory
+                log.warning("rejected oversized body: %d bytes", n)
+                return None
             return json.loads(self.rfile.read(n) or b"{}")
         except Exception:
             return None
 
     def do_GET(self):
-        if self.path.startswith("/health"):
+        if self._reject_foreign_origin():
+            return
+        route = urlsplit(self.path).path     # exact match — don't let /scrape-foo hit a handler
+        if route == "/health":
             self._json(200, {"ok": True, "hasKey": bool(API_KEY), "model": MODEL})
-        elif self.path.startswith("/scrapes"):     # all saved scrapes → { bid: [{date,incentives,units}] }
+        elif route == "/scrapes":     # all saved scrapes → { bid: [{date,incentives,units}] }
             try:
                 data = db_all()
                 log.info("GET  /scrapes -> %d buildings", len(data))
                 self._json(200, {"ok": True, "scrapes": data})
             except Exception as e:
                 log.exception("GET /scrapes FAILED")
-                self._json(500, {"ok": False, "error": str(e)})
+                self._json(500, {"ok": False, "error": "internal error (see server log)"})
         else:
             log.warning("GET  %s -> 404", self.path)
             self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
-        if self.path.startswith("/cancel"):          # request cancellation of an in-flight scrape
+        if self._reject_foreign_origin():
+            return
+        route = urlsplit(self.path).path     # exact match — don't let /scrapes or /saved misroute
+        if route == "/cancel":          # request cancellation of an in-flight scrape
             p = self._body() or {}
             jid = p.get("jobId")
             request_cancel(jid)
             log.info("cancel requested for job %s", jid)
             self._json(200, {"ok": True})
             return
-        if self.path.startswith("/save"):           # persist a scrape to SQLite
+        if route == "/save":           # persist a scrape to SQLite
             p = self._body()
             if p is None:
                 log.warning("POST /save -> 400 bad JSON body")
                 self._json(400, {"ok": False, "error": "bad JSON body"}); return
             bid, date, units = p.get("buildingId"), p.get("date"), p.get("units")
-            if not bid or not date or units is None:
-                log.warning("POST /save -> 400 missing fields (buildingId=%s date=%s units=%s)",
-                            bool(bid), bool(date), units is not None)
-                self._json(400, {"ok": False, "error": "buildingId, date, units required"}); return
+            if not bid or not date or not isinstance(units, list):
+                log.warning("POST /save -> 400 missing/invalid fields (buildingId=%s date=%s units=%s)",
+                            bool(bid), bool(date), type(units).__name__)
+                self._json(400, {"ok": False, "error": "buildingId, date, units (array) required"}); return
             try:
                 db_save(bid, date, p.get("incentives"), units, p.get("runId"), p.get("runNo"), p.get("runLabel"))
                 log.info("POST /save  building=%s date=%s units=%d run=%s -> ok", bid, date, len(units), p.get("runNo"))
                 self._json(200, {"ok": True})
             except Exception as e:
                 log.exception("POST /save FAILED building=%s date=%s", bid, date)
-                self._json(500, {"ok": False, "error": str(e)})
+                self._json(500, {"ok": False, "error": "internal error (see server log)"})
             return
-        if not self.path.startswith("/scrape"):
+        if route != "/scrape":
             log.warning("POST %s -> 404", self.path)
             self._json(404, {"ok": False, "error": "not found"})
             return
@@ -335,11 +400,20 @@ class Handler(BaseHTTPRequestHandler):
             log.warning("%s POST /scrape -> 400 missing url", rid)
             self._json(400, {"ok": False, "error": "missing url"})
             return
+        if not is_public_http_url(url):    # SSRF guard — no internal/loopback/metadata targets
+            log.warning("%s POST /scrape -> 403 blocked url=%s", rid, url)
+            self._json(403, {"ok": False, "error": "url not allowed"})
+            return
         name = payload.get("name") or ""
         job_id = payload.get("jobId")
         # Merge the curated per-building config (if any) over the request — site config wins, so
         # floor-pagination / selectors are restored on the on-demand path.
         cfg = dict(payload.get("config") or {})
+        # SECURITY: drop code-execution / outbound-fetch keys from the (browser-reachable)
+        # request body; these are honored only from trusted code/sites/*.json below.
+        for k in _REQUEST_CONFIG_BLOCKLIST:
+            if cfg.pop(k, None) is not None:
+                log.warning("%s ignored request-supplied '%s' (only sites/*.json may set it)", rid, k)
         site = site_config_for(name)
         if site:
             cfg = {**cfg, **site}
@@ -356,7 +430,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception: pass   # client already disconnected — expected
         except Exception as e:
             log.exception("%s scrape FAILED url=%s", rid, url)
-            try: self._json(500, {"ok": False, "error": str(e)})
+            try: self._json(500, {"ok": False, "error": "internal error (see server log)"})
             except Exception: pass
         finally:
             clear_cancel(job_id)

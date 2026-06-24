@@ -40,12 +40,10 @@ out_dir.mkdir(exist_ok=True)
 for f in out_dir.glob("batch_*.txt"):
     f.unlink()
 
-# contiguous chunks keep same-platform buildings together
-batches = [[] for _ in range(N)]
-# round-robin over platform-sorted list balances size while keeping platforms adjacent
+# Contiguous chunks over the platform-sorted list keep same-platform buildings
+# together (the last chunk may be shorter; empty trailing chunks are skipped below).
 chunk = (len(rows) + N - 1) // N
-for i in range(N):
-    batches[i] = rows[i * chunk:(i + 1) * chunk]
+batches = [rows[i * chunk:(i + 1) * chunk] for i in range(N)]
 
 total = 0
 for i, batch in enumerate(batches, 1):

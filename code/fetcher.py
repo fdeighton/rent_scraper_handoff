@@ -4,13 +4,15 @@ Supports multiple strategies for different site types.
 """
 
 import asyncio
+import ipaddress
 import json
 import random
 import re
+import socket
 import sys
 import urllib.error
 import urllib.request
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin, urlsplit
 from typing import Optional
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -47,6 +49,97 @@ def extract_og_image(html: str, base_url: str) -> Optional[str]:
     return None
 
 
+def _clean_config(config: dict) -> dict:
+    """Drop keys whose value is None so `config.get(key, default)` falls back to
+    the default instead of returning None. A JSON `null` in a site config (or a
+    Supabase scrape_config) means "use the default", but `.get` only substitutes
+    the default for ABSENT keys — a present-but-None `initial_wait_ms` would reach
+    `None / 1000` and raise TypeError. Stripping None here mirrors what the local
+    server already does on its path, so both entry points behave the same."""
+    return {k: v for k, v in (config or {}).items() if v is not None}
+
+
+# --- SSRF guards -------------------------------------------------------------
+# Every outbound URL the scraper touches — the top-level target, additional_urls,
+# links discovered on the page, image/og URLs — must be a public http(s) endpoint.
+# Without this a malicious or compromised target page can point the scraper at
+# internal services or the cloud metadata endpoint (169.254.169.254).
+
+def _ip_is_blocked(ip) -> bool:
+    return bool(ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified)
+
+
+def is_public_http_url(url) -> bool:
+    """True only for an http(s) URL whose host resolves entirely to public
+    addresses. Shared by the local server (entry check) and the fetcher (every
+    secondary fetch). Resolves DNS, so it also catches decimal/octal/IPv4-mapped
+    encodings that normalize to a private address."""
+    if not isinstance(url, str):
+        return False
+    try:
+        parts = urlsplit(url)
+    except Exception:
+        return False
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parts.hostname, None)
+    except Exception:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if _ip_is_blocked(ip):
+            return False
+    return True
+
+
+async def _block_private_requests(route) -> None:
+    """Playwright route handler: abort any request whose host is a *literal*
+    private/loopback/link-local IP. Cheap (no DNS) and fail-open, so it adds no
+    page-behaviour change for normal hostname traffic but blocks a target page (or
+    a redirect/subresource) from reaching an internal IP such as 169.254.169.254.
+    Every matched request must be resolved or it hangs — hence the broad guards."""
+    host = ""
+    try:
+        host = urlsplit(route.request.url).hostname or ""
+    except Exception:
+        host = ""
+    blocked = False
+    if host:
+        try:
+            blocked = _ip_is_blocked(ipaddress.ip_address(host))
+        except ValueError:
+            blocked = False   # a hostname, not a literal IP — allow through
+    try:
+        await (route.abort() if blocked else route.continue_())
+    except Exception:
+        pass
+
+
+async def _safe_get(client, url, **kwargs):
+    """httpx GET that validates the SSRF guard on the initial URL *and every
+    redirect hop*, so a 30x to an internal host can't slip past. Returns the
+    httpx Response, or None if the URL (or any hop) is not a public http(s)
+    endpoint. follow_redirects is forced off and handled manually."""
+    seen = 0
+    while seen <= 5:
+        if not is_public_http_url(url):
+            return None
+        resp = await client.get(url, follow_redirects=False, **kwargs)
+        if resp.is_redirect and resp.headers.get("location"):
+            url = urljoin(str(resp.url), resp.headers["location"])
+            seen += 1
+            continue
+        return resp
+    return None
+
+
 class PageFetcher:
     """Fetches rendered HTML from rental listing pages."""
 
@@ -60,6 +153,29 @@ class PageFetcher:
         self._last_api_units: list[dict] | None = None
         self._last_api_incentives: str | None = None
 
+    # Public read-only accessors for the most-recent fetch's side outputs. fetch()
+    # populates the private attrs as it runs; callers (main.py / local_server.py)
+    # read them through these instead of reaching into underscore-internals.
+    @property
+    def last_api_units(self):
+        return self._last_api_units
+
+    @property
+    def last_api_incentives(self):
+        return self._last_api_incentives
+
+    @property
+    def last_fetch_meta(self):
+        return self._last_fetch_meta
+
+    @property
+    def last_screenshot(self):
+        return self._last_screenshot
+
+    @property
+    def last_modal_screenshots(self):
+        return self._last_modal_screenshots
+
     async def fetch_og_image(self, page_url: str):
         """Fetch a listing/home page's og:image (the marketing hero shot) and
         return (image_bytes, content_type), or None. Used to auto-populate a
@@ -70,12 +186,14 @@ class PageFetcher:
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=20,
                                          headers={"User-Agent": ua}) as client:
-                page = await client.get(page_url)
+                page = await _safe_get(client, page_url)
+                if page is None:
+                    return None
                 img_url = extract_og_image(page.text, str(page.url))
                 if not img_url:
                     return None
-                img = await client.get(img_url, headers={"Referer": page_url})
-                if img.status_code != 200 or not img.content:
+                img = await _safe_get(client, img_url, headers={"Referer": page_url})
+                if img is None or img.status_code != 200 or not img.content:
                     return None
                 ct = (img.headers.get("content-type") or "image/jpeg").split(";")[0].strip().lower()
                 if not ct.startswith("image/"):
@@ -124,6 +242,7 @@ class PageFetcher:
         self._last_modal_screenshots = []
         self._last_api_units = None
         self._last_api_incentives = None
+        config = _clean_config(config)
         strategy = config.get("strategy", "playwright_render")
 
         if strategy == "static_html":
@@ -148,6 +267,9 @@ class PageFetcher:
         # Fetch additional pages and append (e.g., penthouse listings on a separate URL)
         additional_urls = config.get("additional_urls", [])
         for extra_url in additional_urls:
+            if not is_public_http_url(extra_url):     # SSRF: only public http(s) targets
+                print(f"      Skipping additional page (non-public URL): {extra_url}")
+                continue
             print(f"      Fetching additional page: {extra_url}")
             extra_content = await self._fetch_playwright(extra_url, config)
             if extra_content:
@@ -159,22 +281,31 @@ class PageFetcher:
         """Create a browser context with anti-bot measures."""
         browser = await playwright.chromium.launch(headless=headless if headless is not None else self.headless)
 
-        ua = random.choice(USER_AGENTS)
-        viewport = random.choice(VIEWPORTS)
+        # If context creation fails after the browser launched, close the browser so
+        # it isn't orphaned — callers only wrap cleanup around the returned tuple, so
+        # a raise here would otherwise leak the chromium process.
+        try:
+            ua = random.choice(USER_AGENTS)
+            viewport = random.choice(VIEWPORTS)
 
-        context = await browser.new_context(
-            user_agent=ua,
-            viewport=viewport,
-            locale="en-CA",
-            timezone_id="America/Toronto",
-        )
+            context = await browser.new_context(
+                user_agent=ua,
+                viewport=viewport,
+                locale="en-CA",
+                timezone_id="America/Toronto",
+            )
 
-        # Anti-bot: mask webdriver property
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-CA', 'en-US', 'en'] });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-        """)
+            # Anti-bot: mask webdriver property
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-CA', 'en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            """)
+            # SSRF: block navigations/subresources/redirects to a literal internal IP.
+            await context.route("**/*", _block_private_requests)
+        except Exception:
+            await browser.close()
+            raise
 
         return browser, context
 
@@ -305,7 +436,9 @@ class PageFetcher:
                     }""",
                     item_selector,
                 )
-                count = await page.evaluate(f"document.querySelectorAll('{item_selector}').length")
+                count = await page.evaluate(
+                    "(sel) => document.querySelectorAll(sel).length", item_selector
+                )
                 if first_y is not None and last_y is not None:
                     start_y = max(0, int(first_y) - int(viewport_h * 0.05))
                     end_y = int(last_y) + int(viewport_h * 0.05)
@@ -391,6 +524,7 @@ class PageFetcher:
         """
         import httpx
 
+        config = _clean_config(config)
         tile_selector = config.get("tile_selector")
         if not tile_selector:
             print(f"      Vision: no tile_selector configured, skipping")
@@ -487,7 +621,10 @@ class PageFetcher:
         async with httpx.AsyncClient(timeout=30) as client:
             for i, img_url in enumerate(image_urls):
                 try:
-                    resp = await client.get(img_url)
+                    resp = await _safe_get(client, img_url)
+                    if resp is None:
+                        print(f"      Vision image {i + 1} skipped (non-public URL)")
+                        continue
                     resp.raise_for_status()
                     images.append(resp.content)
                     print(f"      Vision image {i + 1}/{len(image_urls)} downloaded ({len(resp.content):,} bytes)")
@@ -527,10 +664,10 @@ class PageFetcher:
                 await asyncio.sleep(wait_ms / 1000)
 
                 # Collect first image URL from popup
-                src = await page.evaluate(f"""() => {{
-                    const img = document.querySelector({repr(popup_img_selector)});
-                    return img ? img.src : '';
-                }}""")
+                src = await page.evaluate(
+                    """(sel) => { const img = document.querySelector(sel); return img ? img.src : ''; }""",
+                    popup_img_selector,
+                )
 
                 if src and src.startswith("http") and src not in seen:
                     seen.add(src)
@@ -565,7 +702,10 @@ class PageFetcher:
         async with httpx.AsyncClient(timeout=30) as client:
             for i, img_url in enumerate(image_urls):
                 try:
-                    resp = await client.get(img_url)
+                    resp = await _safe_get(client, img_url)
+                    if resp is None:
+                        print(f"      Vision image {i + 1} skipped (non-public URL)")
+                        continue
                     resp.raise_for_status()
                     images.append(resp.content)
                     print(f"      Vision image {i + 1}/{len(image_urls)} downloaded ({len(resp.content):,} bytes)")
@@ -698,7 +838,7 @@ class PageFetcher:
 
     def _tricon_fetch_api(self, slug: str, timeout: int = 15) -> Optional[dict]:
         """Synchronous HTTP GET against the Tricon JSON API. Never raises."""
-        url = f"{self._TRICON_API_BASE}{slug}"
+        url = f"{self._TRICON_API_BASE}{quote(slug, safe='')}"
         req = urllib.request.Request(url, headers={
             "User-Agent": random.choice(USER_AGENTS),
             "Accept": "application/json",
@@ -878,12 +1018,13 @@ class PageFetcher:
         import httpx
 
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url,
+            response = await _safe_get(
+                client, url,
                 headers={"User-Agent": random.choice(USER_AGENTS)},
-                follow_redirects=True,
                 timeout=30,
             )
+            if response is None:
+                raise ValueError(f"refusing to fetch non-public URL: {url}")
             response.raise_for_status()
             return response.text
 
@@ -1152,7 +1293,7 @@ class PageFetcher:
 
         try:
             link_count = await page.evaluate(
-                f"""() => document.querySelectorAll({dyn_sel!r}).length"""
+                "(sel) => document.querySelectorAll(sel).length", dyn_sel
             )
         except Exception as e:
             print(f"      dynamic_additional_urls_selector query failed: {e}")
@@ -1165,27 +1306,30 @@ class PageFetcher:
         for i in range(link_count):
             try:
                 link_info = await page.evaluate(
-                    f"""(i) => {{
-                        const els = document.querySelectorAll({dyn_sel!r});
-                        if (i >= els.length) return null;
-                        const el = els[i];
-                        el.scrollIntoView({{block: 'center'}});
-                        return {{href: el.href || '', idx: i}};
-                    }}""",
-                    i,
+                    """([sel, idx]) => {
+                        const els = document.querySelectorAll(sel);
+                        if (idx >= els.length) return null;
+                        const el = els[idx];
+                        el.scrollIntoView({block: 'center'});
+                        return {href: el.href || '', idx: idx};
+                    }""",
+                    [dyn_sel, i],
                 )
                 if not link_info:
                     continue
                 href = link_info.get("href", "")
+                if href and not is_public_http_url(href):   # SSRF: skip internal/non-public links
+                    print(f"      Skipping dynamic subpage (non-public URL): {href}")
+                    continue
                 async with page.expect_navigation(
                     wait_until="domcontentloaded", timeout=45000
                 ):
                     await page.evaluate(
-                        f"""(i) => {{
-                            const els = document.querySelectorAll({dyn_sel!r});
-                            els[i].click();
-                        }}""",
-                        i,
+                        """([sel, idx]) => {
+                            const els = document.querySelectorAll(sel);
+                            els[idx].click();
+                        }""",
+                        [dyn_sel, i],
                     )
                 # Poll for Cloudflare / bot challenge to clear. Require both
                 # a meaningful body length AND absence of challenge markers.
@@ -1396,9 +1540,20 @@ class PageFetcher:
                 try:
                     page = await context.new_page()
 
-                    # Step 1: Navigate
+                    # Step 1: Navigate. A navigation timeout/error is the most common
+                    # transient failure, so retry it like an HTTP 5xx (the bare retry
+                    # loop previously only retried on status codes, never on exceptions,
+                    # so a goto timeout aborted the whole scrape). CancelledError is a
+                    # BaseException, not Exception, so cooperative cancel still propagates.
                     print(f"      [1/6] Opening browser & navigating...")
-                    response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                    try:
+                        response = await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                    except Exception as e:
+                        if attempt < max_retries:
+                            print(f"      [!] Navigation error ({e}) — retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})...")
+                            await asyncio.sleep(retry_delay)
+                            continue   # exits inner try -> finally closes browser -> fresh attempt
+                        raise
 
                     # Check for HTTP errors that warrant a retry
                     if response and response.status in (403, 429, 500, 502, 503):
@@ -1657,6 +1812,9 @@ class PageFetcher:
                             await self._capture_qa_assets(page, config)
                             content = "\n<!-- PAGE BREAK -->\n".join(pages)
                             return self._prepend_promo(promo_context, content)
+                        # No pages captured — fall through to the single-page capture
+                        # below (intentional fallback, made explicit so it's not silent).
+                        print(f"      [8/8] Pagination produced no pages — falling back to single-page capture")
                     else:
                         print(f"      [8/8] Capturing page content...")
 
@@ -1700,6 +1858,10 @@ class PageFetcher:
         import os
         import tempfile
 
+        # Shared persistent profile: accumulates the Akamai trust cookie across runs
+        # (that persistence is the whole point of this strategy). Tradeoff: sites
+        # scraped via akamai_stealth share cookie state. Kept local & git-ignored
+        # (.gitignore: **/.chrome_profiles/) so no session state is ever committed.
         profile_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             ".chrome_profiles",

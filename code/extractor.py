@@ -200,6 +200,51 @@ HTML Content:
 {html_content}"""
 
 
+def _salvage_objects(text: str) -> list:
+    """Best-effort recovery of complete top-level ``{...}`` JSON objects from a
+    truncated or garbled response (e.g. the model hit max_tokens mid-array, so the
+    outer wrapper never closes but the earlier unit objects are intact). String-
+    and escape-aware so a brace inside a string value doesn't mis-balance the scan.
+    Returns the list of successfully-parsed dicts (possibly empty)."""
+    objs, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] != "{":
+            i += 1
+            continue
+        depth = 0
+        in_str = False
+        escaped = False
+        end = None
+        for j in range(i, n):
+            ch = text[j]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = j
+                    break
+        if end is None:        # unbalanced from here on (the truncated tail) — skip this brace
+            i += 1
+            continue
+        try:
+            objs.append(json.loads(text[i:end + 1], strict=False))
+        except json.JSONDecodeError:
+            pass
+        i = end + 1
+    return objs
+
+
 class RentExtractor:
     """Extracts structured rental data from HTML using Claude."""
 
@@ -218,10 +263,21 @@ class RentExtractor:
             - incentives: str | None
             - units: list[dict] with unit_type, bathrooms, square_footage, rent_price, rent_psf, raw_text
         """
-        # Truncate content to avoid exceeding context limits
-        truncated = html_content[:max_content_length]
+        # Truncate content to avoid exceeding context limits. A pre_capture_js hook
+        # appends its extracted unit block as the LAST element in <body>, so a pure
+        # head-keep would silently drop exactly the data we injected. Keep a head
+        # slice (page context, "from $X" prices, building-name disambiguation) AND a
+        # tail slice (the injected block) when the page exceeds the cap.
         if len(html_content) > max_content_length:
-            truncated += "\n\n<!-- CONTENT TRUNCATED -->"
+            tail_len = max_content_length // 4
+            head_len = max_content_length - tail_len
+            truncated = (
+                html_content[:head_len]
+                + "\n\n<!-- CONTENT TRUNCATED (middle) -->\n\n"
+                + html_content[-tail_len:]
+            )
+        else:
+            truncated = html_content
 
         prompt = EXTRACTION_PROMPT.format(
             building_name=building_name,
@@ -241,11 +297,16 @@ class RentExtractor:
                     raise ScrapeCancelled()         # stop the Claude call mid-generation
                 parts.append(delta)
             text = "".join(parts).strip()
+            # Was the response cut off at the token limit? If so a json.loads failure
+            # below is truncation, not a malformed model reply — handle it distinctly.
+            try:
+                hit_token_limit = getattr(stream.get_final_message(), "stop_reason", None) == "max_tokens"
+            except Exception:
+                hit_token_limit = False
 
         # Handle potential markdown code blocks
         if "```" in text:
             # Extract content between ```json ... ``` or ``` ... ```
-            import re
             match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
             if match:
                 text = match.group(1).strip()
@@ -256,10 +317,24 @@ class RentExtractor:
             brace_idx = text.find("{")
             if brace_idx != -1:
                 text = text[brace_idx:]
-                # Find the matching closing brace
+                # Find the matching closing brace. Track string state so braces
+                # inside string values (e.g. a notes field "corner unit {3}") don't
+                # throw off the depth count and truncate the JSON early.
                 depth = 0
+                in_str = False
+                escaped = False
                 for i, ch in enumerate(text):
-                    if ch == "{":
+                    if in_str:
+                        if escaped:
+                            escaped = False
+                        elif ch == "\\":
+                            escaped = True
+                        elif ch == '"':
+                            in_str = False
+                        continue
+                    if ch == '"':
+                        in_str = True
+                    elif ch == "{":
                         depth += 1
                     elif ch == "}":
                         depth -= 1
@@ -272,7 +347,15 @@ class RentExtractor:
             # strings — Claude sometimes emits unescaped \t in raw_text fields
             result = json.loads(text, strict=False)
         except json.JSONDecodeError as e:
-            print(f"  Warning: Failed to parse Claude response as JSON: {e}")
+            reason = "response truncated at max_tokens" if hit_token_limit else "malformed JSON"
+            print(f"  Warning: Failed to parse Claude response ({reason}): {e}")
+            # Salvage whatever complete unit objects survived — a truncated array
+            # still has intact earlier entries. Better partial data than zero.
+            salvaged = [o for o in _salvage_objects(text)
+                        if isinstance(o, dict) and "unit_type" in o]
+            if salvaged:
+                print(f"  Salvaged {len(salvaged)} complete unit object(s) from the partial response")
+                return {"incentives": None, "units": salvaged}
             print(f"  Raw response (first 500 chars): {text[:500]}")
             return {"incentives": None, "units": []}
 
@@ -337,18 +420,25 @@ class RentExtractor:
 
             # Handle potential markdown code blocks
             if "```" in text:
-                import re
                 match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
                 if match:
                     text = match.group(1).strip()
 
             result = json.loads(text, strict=False)
+            # Tolerate the model wrapping the array (e.g. {"plans": [...]}) instead of
+            # returning a bare list, so one stray shape doesn't discard all sqft.
+            if isinstance(result, dict):
+                result = next((v for v in result.values() if isinstance(v, list)), [])
+            if not isinstance(result, list):
+                result = []
 
             # Build {unit_type: sqft} map, deduplicating by taking first seen
             sqft_map = {}
             for entry in result:
-                plan_type = entry.get("plan_type", "").lower().strip()
-                sqft = entry.get("sqft")
+                if not isinstance(entry, dict):
+                    continue
+                plan_type = str(entry.get("plan_type", "")).lower().strip()
+                sqft = _to_number(entry.get("sqft"))   # tolerant of "611 sqft" etc.
                 if plan_type and sqft and plan_type not in sqft_map:
                     sqft_map[plan_type] = int(sqft)
 
@@ -410,7 +500,6 @@ class RentExtractor:
 
             # Parse JSON from response
             if "```" in text:
-                import re
                 match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
                 if match:
                     text = match.group(1).strip()
@@ -514,7 +603,6 @@ class RentExtractor:
 
             # Parse JSON from response
             if "```" in text:
-                import re
                 match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
                 if match:
                     text = match.group(1).strip()
@@ -620,7 +708,6 @@ class RentExtractor:
             text = response.content[0].text.strip()
 
             if "```" in text:
-                import re
                 match = re.search(r"```(?:json)?\s*\n(.*?)\n```", text, re.DOTALL)
                 if match:
                     text = match.group(1).strip()
@@ -724,7 +811,10 @@ class RentExtractor:
                     flag("psf_above_max")
                 psf = None
             if psf is None and rent is not None and sqft is not None and sqft > 0:
-                psf = round(rent / sqft, 4)
+                recomputed = round(rent / sqft, 4)
+                # Apply the same ceiling as a directly-listed psf, so a derived value
+                # can't slip an implausible number past the guard.
+                psf = recomputed if recomputed <= MAX_PSF else None
 
             bathrooms = u.get("bathrooms")
             bathrooms = str(bathrooms).strip() if bathrooms not in (None, "") else None

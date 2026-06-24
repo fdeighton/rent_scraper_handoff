@@ -111,8 +111,24 @@ async def scrape_building(
         print(f"    Saving snapshot to database...")
         snapshot_id = db.create_snapshot(building["id"], html)
 
-        # 2.5. Content guard — detect error pages (403, Access Denied, etc.)
-        if len(html) < 200 and any(kw in html.lower() for kw in ["403", "forbidden", "access denied", "blocked"]):
+        # 2.5. Content guard — detect error / bot-challenge pages. Two signals:
+        #   (a) a short page that mentions a generic block keyword (most error pages
+        #       are small), with the length gate raised from 200 so multi-KB block
+        #       pages don't slip through; and
+        #   (b) an unambiguous challenge-page phrase at ANY length — these strings
+        #       (Cloudflare/Akamai/Incapsula interstitials) don't appear in real listings.
+        low = html.lower()
+        _challenge_markers = (
+            "access denied", "attention required! | cloudflare", "just a moment...",
+            "pardon our interruption", "request unsuccessful. incapsula",
+            "you don't have permission to access", "verify you are human",
+            "enable javascript and cookies to continue",
+        )
+        looks_blocked = (
+            (len(html) < 2000 and any(kw in low for kw in ["403", "forbidden", "access denied", "blocked"]))
+            or any(m in low for m in _challenge_markers)
+        )
+        if looks_blocked:
             error_msg = f"Error page detected ({len(html)} chars): {html[:100]}"
             print(f"    [!] {error_msg}")
             if snapshot_id:
@@ -123,14 +139,16 @@ async def scrape_building(
 
         # 3. Extract structured data
         # Strategies that produce structured units directly (e.g., tricon_api)
-        # bypass Claude — units come from `fetcher._last_api_units`.
+        # bypass Claude — units come from `fetcher.last_api_units`.
+        # Assigned up-front (not just in the else) so the 0-units retry below can
+        # reference it regardless of which branch ran.
+        extraction_hint = scrape_config.get("extraction_hint", "")
         if scrape_config.get("strategy") == "tricon_api":
-            raw_units = fetcher._last_api_units or []
-            incentives = fetcher._last_api_incentives
+            raw_units = fetcher.last_api_units or []
+            incentives = fetcher.last_api_incentives
             extract_time = 0.0
             print(f"    Using API units directly (skipping Claude extraction)")
         else:
-            extraction_hint = scrape_config.get("extraction_hint", "")
             print(f"    Sending to Claude for extraction (this takes 15-30s)...")
             extract_start = time.time()
             result = extractor.extract(html, name, extraction_hint=extraction_hint)
@@ -186,11 +204,11 @@ async def scrape_building(
 
         if qa:
             strategy = scrape_config.get("strategy", "playwright_render")
-            fetch_meta = fetcher._last_fetch_meta
+            fetch_meta = fetcher.last_fetch_meta
 
             if strategy == "modal_iterate":
                 # Modal QA — send modal screenshots to Haiku
-                modal_shots = fetcher._last_modal_screenshots
+                modal_shots = fetcher.last_modal_screenshots
                 triggers = fetch_meta.get("triggers_found", 0)
                 modals = fetch_meta.get("modals_captured", 0)
 
@@ -224,7 +242,7 @@ async def scrape_building(
                 # (e.g., tricon_api or any strategy with multi_viewport_screenshots: true).
                 # A single viewport screenshot can't see units below the fold; the scroll
                 # series gives Haiku a fair chance to count a long list.
-                scroll_shots = fetcher._last_modal_screenshots
+                scroll_shots = fetcher.last_modal_screenshots
                 if scroll_shots and len(scroll_shots) > 1:
                     print(f"    Running list QA ({len(scroll_shots)} scroll screenshots -> Haiku)...")
                     qa_result = extractor.verify_list_units(
@@ -239,10 +257,10 @@ async def scrape_building(
                         qa_status = "WARN"
                         qa_note = f"{len(scroll_shots)} viewports, ~{visible} visible vs {len(units)} extracted"
                     print(f"    [QA {qa_status}] {qa_note}")
-                elif fetcher._last_screenshot:
+                elif fetcher.last_screenshot:
                     print(f"    Running visual QA (Haiku)...")
                     qa_result = extractor.verify_unit_count(
-                        fetcher._last_screenshot, name, len(units)
+                        fetcher.last_screenshot, name, len(units)
                     )
                     visible = qa_result["visible_count"]
                     confidence = qa_result["confidence"]
