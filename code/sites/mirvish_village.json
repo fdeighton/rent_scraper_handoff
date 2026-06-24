@@ -1,0 +1,8 @@
+{
+  "building_name": "Mirvish Village",
+  "strategy": "playwright_render",
+  "scroll": true,
+  "initial_wait_ms": 4000,
+  "pre_capture_js": "(async function(){try{var cfg=window.archivePropertiesConfig||{};var endpoint=cfg.endpoint,token=cfg.token;if(!endpoint){var ee=document.querySelector('[data-endpoint]');if(ee)endpoint=ee.getAttribute('data-endpoint');}if(!token){var te=document.querySelector('[data-token]');if(te)token=te.getAttribute('data-token');}if(!endpoint||!token)return;var res=await fetch(endpoint,{headers:{Authorization:'Bearer '+token}});if(!res.ok)return;var json=await res.json();var d=(json&&json.data)||{};var list=d.appartments||d.apartments||[];if(!Array.isArray(list)||!list.length)return;var lines=list.map(function(u){return ['Unit '+(u.apartmentName||''),(u.floorplanName||''),(u.beds!=null?u.beds+' bed':''),(u.baths!=null?u.baths+' bath':''),(u.sqft?u.sqft+' sqft':''),(u.minimumRent?'$'+u.minimumRent+'/mo':''),(u.maximumRent&&u.maximumRent!==u.minimumRent?'max $'+u.maximumRent:''),(u.unitStatus||''),(u.availableDate?'Available '+u.availableDate:'')].filter(Boolean).join(' | ');});var div=document.createElement('div');div.id='mirvish-units';div.textContent=lines.join('\\n---\\n');document.body.appendChild(div);}catch(e){}})()",
+  "_note": "Tier-2 fix: mirvish-village.com paginates JS-rendered cards client-side (only page 1 reaches the DOM). The page loads ALL units from a single API (peterson-corportate-backend.onrender.com .../apartment-availability with a Bearer token exposed via window.archivePropertiesConfig / #properties-container data attrs). pre_capture_js calls that same API and injects every unit into #mirvish-units for the innerText capture — so all pages are captured in one shot, no pagination clicking."
+}

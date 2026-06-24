@@ -134,56 +134,79 @@ _db_lock = threading.Lock()
 
 def _conn():
     c = sqlite3.connect(DB_PATH)
+    # pricing_basis is part of the key: a building can hold BOTH a 'lowest' record
+    # (normal scrape — feeds analyses) and a flagged '12mo' record (on-demand Tricon,
+    # building-page display only) for the same date without one overwriting the other.
     c.execute(
         "CREATE TABLE IF NOT EXISTS scrapes ("
-        "  building_id TEXT NOT NULL,"
-        "  date        TEXT NOT NULL,"
-        "  incentives  TEXT,"
-        "  units       TEXT NOT NULL,"
-        "  run_id      TEXT,"          # serializes an analysis-set scrape: one id shared by its buildings
-        "  run_no      INTEGER,"       # human "Run #N"
-        "  run_label   TEXT,"          # analysis name at scrape time
-        "  created_at  TEXT NOT NULL DEFAULT (datetime('now')),"
-        "  PRIMARY KEY (building_id, date)"
+        "  building_id   TEXT NOT NULL,"
+        "  date          TEXT NOT NULL,"
+        "  incentives    TEXT,"
+        "  units         TEXT NOT NULL,"
+        "  run_id        TEXT,"          # serializes an analysis-set scrape: one id shared by its buildings
+        "  run_no        INTEGER,"       # human "Run #N"
+        "  run_label     TEXT,"          # analysis name at scrape time
+        "  pricing_basis TEXT NOT NULL DEFAULT 'lowest',"   # 'lowest' | '12mo'
+        "  created_at    TEXT NOT NULL DEFAULT (datetime('now')),"
+        "  PRIMARY KEY (building_id, date, pricing_basis)"
         ")"
     )
-    # Migrate older DBs that predate the run_* columns.
     cols = {r[1] for r in c.execute("PRAGMA table_info(scrapes)").fetchall()}
+    # Migrate older DBs that predate the run_* columns (additive).
     for col, decl in (("run_id", "TEXT"), ("run_no", "INTEGER"), ("run_label", "TEXT")):
         if col not in cols:
             c.execute(f"ALTER TABLE scrapes ADD COLUMN {col} {decl}")
+    # pricing_basis must be in the PRIMARY KEY, which ALTER TABLE can't do — so a
+    # legacy table (PK = building_id,date) is rebuilt once into the new shape.
+    if "pricing_basis" not in cols:
+        c.executescript(
+            "ALTER TABLE scrapes RENAME TO scrapes_legacy;"
+            "CREATE TABLE scrapes ("
+            "  building_id TEXT NOT NULL, date TEXT NOT NULL, incentives TEXT,"
+            "  units TEXT NOT NULL, run_id TEXT, run_no INTEGER, run_label TEXT,"
+            "  pricing_basis TEXT NOT NULL DEFAULT 'lowest',"
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "  PRIMARY KEY (building_id, date, pricing_basis));"
+            "INSERT INTO scrapes (building_id,date,incentives,units,run_id,run_no,run_label,pricing_basis,created_at)"
+            "  SELECT building_id,date,incentives,units,run_id,run_no,run_label,'lowest',created_at FROM scrapes_legacy;"
+            "DROP TABLE scrapes_legacy;"
+        )
     return c
 
 
-def db_save(building_id, date, incentives, units, run_id=None, run_no=None, run_label=None):
+def db_save(building_id, date, incentives, units, run_id=None, run_no=None, run_label=None,
+            pricing_basis="lowest"):
+    pricing_basis = pricing_basis if pricing_basis in ("lowest", "12mo") else "lowest"
     with _db_lock:
         c = _conn()
         try:
             with c:   # transaction (commit/rollback)
                 c.execute(
-                    "INSERT INTO scrapes (building_id, date, incentives, units, run_id, run_no, run_label) "
-                    "VALUES (?,?,?,?,?,?,?) "
-                    "ON CONFLICT(building_id, date) DO UPDATE SET "
+                    "INSERT INTO scrapes (building_id, date, incentives, units, run_id, run_no, run_label, pricing_basis) "
+                    "VALUES (?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(building_id, date, pricing_basis) DO UPDATE SET "
                     "incentives=excluded.incentives, units=excluded.units, "
                     "run_id=excluded.run_id, run_no=excluded.run_no, run_label=excluded.run_label, "
                     "created_at=datetime('now')",
-                    (building_id, date, incentives, json.dumps(units), run_id, run_no, run_label),
+                    (building_id, date, incentives, json.dumps(units), run_id, run_no, run_label, pricing_basis),
                 )
         finally:
             c.close()
-    log.debug("db_save  building=%s date=%s units=%d", building_id, date, len(units))
+    log.debug("db_save  building=%s date=%s units=%d basis=%s", building_id, date, len(units), pricing_basis)
 
 
 def db_all():
     with _db_lock:
         c = _conn()
         try:
-            rows = c.execute("SELECT building_id, date, incentives, units, run_id, run_no, run_label FROM scrapes ORDER BY date").fetchall()
+            rows = c.execute("SELECT building_id, date, incentives, units, run_id, run_no, run_label, pricing_basis FROM scrapes ORDER BY date").fetchall()
         finally:
             c.close()
     out = {}
-    for bid, date, inc, units, rid, rno, rlbl in rows:
-        out.setdefault(bid, []).append({"date": date, "incentives": inc, "units": json.loads(units), "run_id": rid, "run_no": rno, "run_label": rlbl})
+    for bid, date, inc, units, rid, rno, rlbl, basis in rows:
+        out.setdefault(bid, []).append({"date": date, "incentives": inc, "units": json.loads(units),
+                                        "run_id": rid, "run_no": rno, "run_label": rlbl,
+                                        "pricingBasis": basis or "lowest"})
     log.debug("db_all   %d rows across %d buildings", len(rows), len(out))
     return out
 
@@ -247,6 +270,21 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_ca
              rid, len(units), dropped, priced, inc_preview)
     log.info("%s done     total %.1fs", rid, time.perf_counter() - t0)
     return {"ok": True, "incentives": incentives, "units": units, "fetchedChars": len(html)}
+
+
+async def run_tricon_12mo(url: str, name: str, rid: str = "", should_cancel=None) -> dict:
+    """On-demand 12-month rent enrichment for a Tricon property (no Claude, no DB write —
+    the frontend persists the result with pricingBasis='12mo')."""
+    should_cancel = should_cancel or (lambda: False)
+    t0 = time.perf_counter()
+    log.info("%s tricon12 start url=%s", rid, url)
+    fetcher = PageFetcher(headless=True)
+    rows = await fetcher.fetch_tricon_12mo(url, {}, should_cancel=should_cancel)
+    if should_cancel():
+        raise ScrapeCancelled()
+    got = sum(1 for r in rows if r.get("rent_12mo") is not None)
+    log.info("%s tricon12 ok %d/%d quotes in %.1fs", rid, got, len(rows), time.perf_counter() - t0)
+    return {"ok": True, "units": rows, "quoted": got, "total": len(rows)}
 
 
 # --- Security guards ---------------------------------------------------------
@@ -374,12 +412,42 @@ class Handler(BaseHTTPRequestHandler):
                             bool(bid), bool(date), type(units).__name__)
                 self._json(400, {"ok": False, "error": "buildingId, date, units (array) required"}); return
             try:
-                db_save(bid, date, p.get("incentives"), units, p.get("runId"), p.get("runNo"), p.get("runLabel"))
-                log.info("POST /save  building=%s date=%s units=%d run=%s -> ok", bid, date, len(units), p.get("runNo"))
+                db_save(bid, date, p.get("incentives"), units, p.get("runId"), p.get("runNo"),
+                        p.get("runLabel"), pricing_basis=p.get("pricingBasis", "lowest"))
+                log.info("POST /save  building=%s date=%s units=%d run=%s basis=%s -> ok",
+                         bid, date, len(units), p.get("runNo"), p.get("pricingBasis", "lowest"))
                 self._json(200, {"ok": True})
             except Exception as e:
                 log.exception("POST /save FAILED building=%s date=%s", bid, date)
                 self._json(500, {"ok": False, "error": "internal error (see server log)"})
+            return
+        if route == "/tricon-12mo":      # on-demand 12-month rent enrichment (Tricon only)
+            rid = _next_rid()
+            payload = self._body()
+            if payload is None:
+                self._json(400, {"ok": False, "error": "bad JSON body"}); return
+            url = (payload.get("url") or "").strip()
+            if not url:
+                self._json(400, {"ok": False, "error": "missing url"}); return
+            if not is_public_http_url(url):          # SSRF guard
+                log.warning("%s POST /tricon-12mo -> 403 blocked url=%s", rid, url)
+                self._json(403, {"ok": False, "error": "url not allowed"}); return
+            name = payload.get("name") or ""
+            job_id = payload.get("jobId")
+            log.info("%s POST /tricon-12mo name=%s job=%s", rid, name or "(unnamed)", job_id)
+            try:
+                result = asyncio.run(run_tricon_12mo(url, name, rid=rid, should_cancel=lambda: is_cancelled(job_id)))
+                self._json(200, result)
+            except ScrapeCancelled:
+                log.info("%s tricon12 CANCELLED url=%s", rid, url)
+                try: self._json(499, {"ok": False, "cancelled": True})
+                except Exception: pass
+            except Exception as e:
+                log.exception("%s tricon12 FAILED url=%s", rid, url)
+                try: self._json(500, {"ok": False, "error": "internal error (see server log)"})
+                except Exception: pass
+            finally:
+                clear_cancel(job_id)
             return
         if route != "/scrape":
             log.warning("POST %s -> 404", self.path)
