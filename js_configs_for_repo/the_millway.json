@@ -1,0 +1,8 @@
+{
+  "building_name": "The Millway",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 3,
+  "pre_capture_js": "(function(){function w(n,d,m){if(d>m)return\"\";var r=\"\";var c=n.children||[];for(var i=0;i<c.length;i++){var ch=c[i];if(ch.shadowRoot)r+=w(ch.shadowRoot,d+1,m);if(ch.children.length<=3){var t=ch.textContent?ch.textContent.trim():\"\";if(t&&t.length>1&&t.length<200&&t[0]!==\".\")r+=t+\"\\n\";}r+=w(ch,d,m);}return r;}var el=document.querySelector(\"rhenti-listings\");if(el&&el.shadowRoot){var div=document.createElement(\"div\");div.id=\"rhenti-extracted\";div.textContent=w(el.shadowRoot,0,5);document.body.appendChild(div);}})()",
+  "initial_wait_ms": 8000
+}

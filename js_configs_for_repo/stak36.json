@@ -1,0 +1,8 @@
+{
+  "building_name": "Stak36",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 10,
+  "pre_capture_js": "(async function() { var rentTab = document.querySelector('a[href*=\\\"rental\\\"]') || Array.from(document.querySelectorAll('a, button')).find(function(el) { return el.textContent.trim() === 'For Rent'; }); if (rentTab) { rentTab.click(); await new Promise(function(r) { setTimeout(r, 3000); }); } window.scrollTo(0, document.body.scrollHeight); await new Promise(function(r) { setTimeout(r, 2000); }); var elems = document.querySelectorAll('a, button, span, div'); for (var i = 0; i < elems.length; i++) { if (elems[i].textContent.trim().match(/^Show All/)) { elems[i].click(); await new Promise(function(r) { setTimeout(r, 1500); }); } } window.scrollTo(0, document.body.scrollHeight); await new Promise(function(r) { setTimeout(r, 2000); }); })()",
+  "initial_wait_ms": 8000
+}

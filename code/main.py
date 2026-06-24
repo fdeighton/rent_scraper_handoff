@@ -13,6 +13,7 @@ Requires .env file with SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY.
 
 import asyncio
 import argparse
+import re
 import sys
 import time
 
@@ -66,6 +67,16 @@ async def scrape_building(
         html = await fetcher.fetch(scrape_url, scrape_config)
         fetch_time = time.time() - start_time
         print(f"    Fetched {len(html):,} chars in {fetch_time:.1f}s")
+
+        # Sentinel guard: when pre_capture_js injects a shadow-DOM->light-DOM bridge div
+        # (id derived from the JS, e.g. "collegewest-units"), confirm it made it into the
+        # captured text. Distinguishes a broken shadow-DOM walk from a genuinely empty building.
+        pcjs = scrape_config.get("pre_capture_js")
+        if pcjs:
+            m = re.search(r"""\.id\s*=\s*["']([^"']+)["']""", pcjs)
+            if m and m.group(1) not in html:
+                print(f"    [!] {name}: pre_capture_js ran but captured text lacks sentinel "
+                      f"'{m.group(1)}' — shadow-DOM walk may have broken (not just empty).")
 
         # 1.5. Vision enrichment (optional — screenshots -> Haiku → sqft)
         vision_config = scrape_config.get("vision_enrichment")

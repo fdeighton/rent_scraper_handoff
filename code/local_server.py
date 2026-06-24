@@ -215,7 +215,10 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_ca
         if should_cancel():
             fetch_task.cancel()
             try:
-                await asyncio.wait_for(fetch_task, timeout=8)   # bound cleanup; don't pin the thread on a wedged browser
+                await asyncio.wait_for(fetch_task, timeout=8)   # bound the responsive cleanup wait (the common case)
+                # NOTE: a browser that fully ignores cancellation can still hold this worker thread
+                # during asyncio.run() teardown — extreme/rare; impact is one leaked thread, the
+                # server keeps serving on fresh threads.
             except BaseException:
                 pass
             log.info("%s cancelled at fetch", rid)

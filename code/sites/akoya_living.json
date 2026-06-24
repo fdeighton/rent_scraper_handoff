@@ -1,0 +1,9 @@
+{
+  "building_name": "Akoya Living",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 5,
+  "wait_selector": "[class*='suite'], [class*='unit'], [class*='listing']",
+  "pre_capture_js": "\n(async () => {\n  // Click Load More until gone\n  for (let i = 0; i < 20; i++) {\n    const btns = document.querySelectorAll('button.uk3-button-default');\n    let clicked = false;\n    for (const btn of btns) {\n      if (btn.textContent.toLowerCase().includes('load')) {\n        btn.click();\n        clicked = true;\n        break;\n      }\n    }\n    if (!clicked) break;\n    await new Promise(r => setTimeout(r, 2000));\n  }\n  await new Promise(r => setTimeout(r, 2000));\n\n  // Read all unit-group-card textContent (hidden from innerText)\n  const cards = document.querySelectorAll('.unit-group-card');\n  const modals = document.querySelectorAll('.unit-group-modal');\n  let text = '[UNIT LISTINGS]\\n';\n  for (const card of cards) {\n    const t = card.textContent.trim();\n    if (t) text += t + '\\n---\\n';\n  }\n  for (const modal of modals) {\n    const t = modal.textContent.trim();\n    if (t.length > 50) text += '[MODAL]\\n' + t + '\\n---\\n';\n  }\n  text += '[/UNIT LISTINGS]\\n';\n\n  // Inject as visible div so innerText capture picks it up\n  const div = document.createElement('div');\n  div.id = 'scraper-injected';\n  div.textContent = text;\n  document.body.prepend(div);\n})()\n",
+  "initial_wait_ms": 10000
+}

@@ -1,0 +1,12 @@
+{
+  "building_name": "Mille Carre",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "click_repeat": 5,
+  "scroll_count": 5,
+  "pre_capture_js": "document.querySelectorAll('.modal-units__table, .unit-group-modal').forEach(function(el, i) { var text = el.textContent.replace(/\\s+/g, ' ').trim(); if (text.length > 10) { var div = document.createElement('div'); div.textContent = '[UNIT TABLE ' + (i+1) + '] ' + text; div.style.fontSize = '14px'; document.body.appendChild(div); } });",
+  "click_selectors": [
+    "text=LOAD MORE"
+  ],
+  "initial_wait_ms": 5000
+}

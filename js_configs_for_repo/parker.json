@@ -1,0 +1,8 @@
+{
+  "building_name": "Parker",
+  "notes": "RentSync Levels view. All available units pre-rendered in DOM with .unit-item.available class. pre_capture_js extracts all available units text and injects into body.",
+  "scroll": false,
+  "strategy": "playwright_render",
+  "pre_capture_js": "(async function() { var units = document.querySelectorAll('.floor-container .unit-item.available'); if (!units.length) return; var allText = []; units.forEach(function(unit) { var name = unit.querySelector('.name'); var rent = unit.querySelector('.rent'); var beds = unit.querySelector('.bedroom'); var baths = unit.querySelector('.bathroom'); var sqft = unit.querySelector('.sqft'); var avail = unit.querySelector('.availability'); var parts = []; if (name) parts.push(name.textContent.trim()); if (rent) parts.push(rent.textContent.trim()); if (beds) parts.push(beds.textContent.trim()); if (baths) parts.push(baths.textContent.trim()); if (sqft) parts.push(sqft.textContent.trim()); if (avail) parts.push(avail.textContent.trim()); allText.push(parts.join(' | ')); }); var div = document.createElement('div'); div.id = 'parker-units'; div.textContent = 'AVAILABLE UNITS (' + units.length + '):\\n' + allText.join('\\n'); document.body.appendChild(div); })()",
+  "initial_wait_ms": 8000
+}

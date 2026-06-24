@@ -1,0 +1,8 @@
+{
+  "building_name": "185 Enfield",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 5,
+  "pre_capture_js": "document.querySelectorAll('[data-floorplan-name]').forEach(el => { const name = el.getAttribute('data-floorplan-name'); const sqft = el.getAttribute('data-floorplan-sqft'); const price = el.getAttribute('data-floorplan-price'); if (name && sqft) { const div = document.createElement('div'); div.textContent = '[PLAN DATA] ' + name + ' | Sqft: ' + sqft + ' | Price: ' + price; div.style.fontSize = '14px'; el.parentElement.insertBefore(div, el); } });",
+  "initial_wait_ms": 5000
+}

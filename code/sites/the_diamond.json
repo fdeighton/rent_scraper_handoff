@@ -1,0 +1,8 @@
+{
+  "building_name": "The Diamond",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "pre_capture_js": "(async function() { var host = document.querySelector('floorplan-navigator'); if (!host || !host.shadowRoot) return; var sr = host.shadowRoot; var floors = sr.querySelectorAll('li.unit-filters__floor'); if (!floors.length) return; var allText = []; for (var i = 0; i < floors.length; i++) { floors[i].dispatchEvent(new MouseEvent('click', {bubbles: true})); await new Promise(function(r) { setTimeout(r, 1500); }); var waited = 0; while (waited < 2000) { var listing = sr.querySelector('.unit-listing__ul'); if (listing) { var t = listing.textContent.trim().replace(/\\s+/g, ' '); if (t.length > 10) break; } await new Promise(function(r) { setTimeout(r, 200); }); waited += 200; } var listing = sr.querySelector('.unit-listing__ul'); if (listing) { var t = listing.textContent.trim().replace(/\\s+/g, ' '); if (t.length > 10) { var floorLabel = floors[i].textContent.trim(); allText.push('FLOOR ' + floorLabel + ': ' + t); } } } if (allText.length > 0) { var div = document.createElement('div'); div.id = 'diamond-units'; div.textContent = allText.join('\\n'); document.body.appendChild(div); } })()",
+  "extraction_hint": "This site has units across multiple floors. The pre_capture_js iterates ALL floors and appends unit listings in a diamond-units div. Extract EVERY unit from EVERY floor - there should be 80-120+ units total across all floors. Do not skip any floor sections.",
+  "initial_wait_ms": 8000
+}

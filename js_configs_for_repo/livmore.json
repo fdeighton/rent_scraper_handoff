@@ -1,0 +1,14 @@
+{
+  "building_name": "Livmore",
+  "notes": "GWL/RentCafe/Yardi site. Main page has plan-level sqft in data attributes (injected via pre_capture_js). Subpages have individual unit rents. Cookie popup auto-dismissed.",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 3,
+  "pre_capture_js": "document.querySelectorAll('[data-floorplan-name]').forEach(el => { const name = el.getAttribute('data-floorplan-name'); const sqft = el.getAttribute('data-floorplan-sqft'); const price = el.getAttribute('data-floorplan-price'); if (name && sqft) { const div = document.createElement('div'); div.textContent = '[PLAN DATA] ' + name + ' | Sqft: ' + sqft + ' | Price: ' + price; div.style.fontSize = '14px'; el.parentElement.insertBefore(div, el); } }); document.querySelectorAll('.fp-container img[src]').forEach(img => { const src = decodeURIComponent(img.src.split('/').pop()); const match = src.match(/(\\d+)sf/i); const nameMatch = src.match(/lbg%20(.+?)%20\\d/); if (match) { const div = document.createElement('div'); div.textContent = '[PLAN IMAGE] ' + src.replace(/.jpg$/i, '').replace(/%20/g, ' '); div.style.fontSize = '12px'; img.parentElement.insertBefore(div, img); } });",
+  "additional_urls": [
+    "https://www.gwlraresidential.com/apartments/on/toronto/the-livmore-bay-gerrard/floorplans/studio",
+    "https://www.gwlraresidential.com/apartments/on/toronto/the-livmore-bay-gerrard/floorplans/1-bedroom-1-bath",
+    "https://www.gwlraresidential.com/apartments/on/toronto/the-livmore-bay-gerrard/floorplans/2-bedroom-2-bath"
+  ],
+  "initial_wait_ms": 8000
+}

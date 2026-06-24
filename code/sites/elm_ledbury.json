@@ -1,0 +1,12 @@
+{
+  "building_name": "Elm Ledbury",
+  "notes": "RentSync Levels view with floorplan-navigator shadow DOM web components (same pattern as The Diamond). Two buildings: Elm (#fpn-elm) and Ledbury (#fpn-led). pre_capture_js clicks Levels tab, iterates floor filters in each buildings shadow DOM, captures unit listing text, injects into body. Incentive: Up to Two Months Free.",
+  "scroll": false,
+  "strategy": "playwright_render",
+  "setup_clicks": [
+    "a[href*=\"floorplans\"]"
+  ],
+  "pre_capture_js": "(async function() { function delay(ms) { return new Promise(function(r) { setTimeout(r, ms); }); } async function scrapeBuilding(fpnId, label) { var fpn = document.querySelector(fpnId); if (!fpn || !fpn.shadowRoot) return []; var sr = fpn.shadowRoot; var floors = sr.querySelectorAll(\"li.unit-filters__floor\"); if (!floors.length) return []; var allText = []; for (var i = 0; i < floors.length; i++) { floors[i].dispatchEvent(new MouseEvent(\"click\", {bubbles: true})); await delay(1500); var waited = 0; while (waited < 3000) { var listing = sr.querySelector(\".unit-listing__ul\"); if (listing && listing.textContent.trim().length > 10) break; await delay(300); waited += 300; } var listing = sr.querySelector(\".unit-listing__ul\"); if (listing) { var t = listing.textContent.trim().replace(/\\\\s+/g, \" \"); if (t.length > 5) { var floorLabel = floors[i].textContent.trim(); allText.push(label + \" \" + floorLabel + \": \" + t); } } } return allText; } var elmData = await scrapeBuilding(\"#fpn-elm\", \"ELM\"); var ledTab = document.querySelector(\"a.ledbury\"); if (ledTab) { ledTab.click(); await delay(2000); var ledContainer = document.querySelector(\"#ledburyfpn\"); if (ledContainer) { ledContainer.classList.remove(\"hidden\"); ledContainer.style.display = \"block\"; var fpnLed = document.querySelector(\"#fpn-led\"); if (fpnLed) { fpnLed.classList.remove(\"hidden\"); fpnLed.style.display = \"inline\"; } } await delay(2000); } var ledData = await scrapeBuilding(\"#fpn-led\", \"LEDBURY\"); var allData = elmData.concat(ledData); if (allData.length > 0) { var div = document.createElement(\"div\"); div.id = \"elmledbury-units\"; div.textContent = allData.join(\"\\n\"); document.body.appendChild(div); } })()",
+  "extraction_hint": "IMPORTANT: This property has two buildings — Elm (units labeled 'Unit NNN') and Ledbury (units labeled 'Suite NNN'). Extract ALL units from BOTH buildings.",
+  "initial_wait_ms": 8000
+}

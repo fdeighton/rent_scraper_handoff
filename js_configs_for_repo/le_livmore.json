@@ -1,0 +1,13 @@
+{
+  "building_name": "Le Livmore",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 3,
+  "pre_capture_js": "(function() { var sqftRef = []; document.querySelectorAll('[data-floorplan-name]').forEach(function(el) { var name = el.getAttribute('data-floorplan-name'); var sqft = el.getAttribute('data-floorplan-sqft'); var price = el.getAttribute('data-floorplan-price'); if (name && sqft) { var parts = sqft.split(/\\s*-\\s*/); var sqftVal; if (parts.length === 2) { sqftVal = Math.round((parseInt(parts[0]) + parseInt(parts[1])) / 2); } else { sqftVal = parseInt(parts[0]); } if (!isNaN(sqftVal)) { sqftRef.push(name.trim() + ' = ' + sqftVal + ' sqft'); } var div = document.createElement('div'); div.textContent = '[PLAN DATA] ' + name + ' | Sqft: ' + sqft + ' | Price: ' + price; div.style.fontSize = '14px'; el.parentElement.insertBefore(div, el); } }); document.querySelectorAll('.fp-container img[src]').forEach(function(img) { var src = decodeURIComponent(img.src.split('/').pop()); var match = src.match(/(\\d+)sf/i); if (match) { var div = document.createElement('div'); div.textContent = '[PLAN IMAGE] ' + src.replace(/.jpg$/i, '').replace(/%20/g, ' '); div.style.fontSize = '12px'; img.parentElement.insertBefore(div, img); } }); if (sqftRef.length > 0) { var ref = document.createElement('div'); ref.style.fontSize = '16px'; ref.textContent = '[SQFT REFERENCE] ' + sqftRef.join(' | '); document.body.insertBefore(ref, document.body.firstChild); } })();",
+  "additional_urls": [
+    "https://www.lelivmore.com/floorplans/1-bedroom-1-bath",
+    "https://www.lelivmore.com/floorplans/2-bedroom-2-bath",
+    "https://www.lelivmore.com/floorplans/3-bedroom-2-bath"
+  ],
+  "initial_wait_ms": 8000
+}

@@ -1,0 +1,8 @@
+{
+  "building_name": "Trilogy on King",
+  "scroll": true,
+  "strategy": "playwright_render",
+  "scroll_count": 5,
+  "pre_capture_js": "(async function() { var buttons = document.querySelectorAll('button'); var availButtons = []; buttons.forEach(function(b) { if (b.textContent.trim().toLowerCase().includes('check availability')) { availButtons.push(b); } }); for (var i = 0; i < availButtons.length; i++) { availButtons[i].click(); await new Promise(function(r) { setTimeout(r, 500); }); } window.scrollTo(0, document.body.scrollHeight); await new Promise(function(r) { setTimeout(r, 1000); }); })()",
+  "initial_wait_ms": 5000
+}
