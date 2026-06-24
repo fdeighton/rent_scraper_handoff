@@ -14,6 +14,10 @@ import anthropic
 DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 
+class ScrapeCancelled(Exception):
+    """Raised when a caller-supplied should_cancel() turns true mid-extraction."""
+
+
 # ---------------------------------------------------------------------------
 # Persistence-boundary guards. validate_units() (below) is the single point
 # every scraped unit crosses before it is written to Supabase, so the limits
@@ -205,7 +209,7 @@ class RentExtractor:
 
     def extract(
         self, html_content: str, building_name: str, extraction_hint: str = "",
-        max_content_length: int = 100_000,
+        max_content_length: int = 100_000, should_cancel=None,
     ) -> dict:
         """
         Send HTML to Claude, get back structured data.
@@ -231,7 +235,12 @@ class RentExtractor:
             max_tokens=32768,
             messages=[{"role": "user", "content": prompt}],
         ) as stream:
-            text = stream.get_final_text().strip()
+            parts = []
+            for delta in stream.text_stream:        # iterate so we can bail between tokens
+                if should_cancel and should_cancel():
+                    raise ScrapeCancelled()         # stop the Claude call mid-generation
+                parts.append(delta)
+            text = "".join(parts).strip()
 
         # Handle potential markdown code blocks
         if "```" in text:

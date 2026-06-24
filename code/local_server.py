@@ -30,8 +30,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fetcher import PageFetcher          # noqa: E402
-from extractor import RentExtractor      # noqa: E402
+from fetcher import PageFetcher                      # noqa: E402
+from extractor import RentExtractor, ScrapeCancelled  # noqa: E402
 
 PORT = int(os.environ.get("SCRAPE_PORT", "8787"))
 API_KEY = os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS") or os.environ.get("ANTHROPIC_API_KEY")
@@ -59,6 +59,67 @@ def _next_rid():
         _req_seq += 1
         return f"#{_req_seq:03d}"
 
+
+# ---- Cooperative cancellation: the frontend POSTs /cancel {jobId}; run_scrape checks this set
+# at checkpoints (incl. between Claude's streamed tokens) and aborts instead of finishing.
+_cancelled_jobs = set()
+_cancel_lock = threading.Lock()
+
+
+def request_cancel(job_id):
+    if not job_id:
+        return
+    with _cancel_lock:
+        _cancelled_jobs.add(job_id)
+        if len(_cancelled_jobs) > 1000:          # backstop against unbounded growth
+            _cancelled_jobs.clear()
+            _cancelled_jobs.add(job_id)
+
+
+def is_cancelled(job_id):
+    if not job_id:
+        return False
+    with _cancel_lock:
+        return job_id in _cancelled_jobs
+
+
+def clear_cancel(job_id):
+    if not job_id:
+        return
+    with _cancel_lock:
+        _cancelled_jobs.discard(job_id)
+
+
+# ---- Per-building rich scrape configs (code/sites/*.json) --------------------
+# The on-demand frontend only sends {strategy, initial_wait_ms, scroll}. Sites that need
+# multi-step traversal (floor pagination, section clicks, shadow DOM) keep their full config —
+# the SAME shape the seed scraper used — in code/sites/<slug>.json, matched here by building_name.
+# This reuses fetcher.py's existing capabilities; nothing in the scrape engine changes.
+SITES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sites")
+
+
+def site_config_for(name):
+    if not name:
+        return None
+    target = name.strip().lower()
+    try:
+        files = os.listdir(SITES_DIR)
+    except FileNotFoundError:
+        return None
+    for fn in files:
+        if not fn.endswith(".json") or fn.startswith("_"):
+            continue
+        try:
+            with open(os.path.join(SITES_DIR, fn), encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception as e:
+            log.warning("sites/%s unreadable: %s", fn, e)
+            continue
+        key = (cfg.get("building_name") or fn[:-5]).strip().lower()
+        if key == target:
+            return cfg
+    return None
+
 # ---- Local SQLite store (saved scrapes) -------------------------------------
 # Real on-disk SQL the frontend reads/writes over HTTP (browsers can't open SQLite
 # directly). One row per (building, date); units stored as JSON. Migrate to Supabase
@@ -75,23 +136,34 @@ def _conn():
         "  date        TEXT NOT NULL,"
         "  incentives  TEXT,"
         "  units       TEXT NOT NULL,"
+        "  run_id      TEXT,"          # serializes an analysis-set scrape: one id shared by its buildings
+        "  run_no      INTEGER,"       # human "Run #N"
+        "  run_label   TEXT,"          # analysis name at scrape time
         "  created_at  TEXT NOT NULL DEFAULT (datetime('now')),"
         "  PRIMARY KEY (building_id, date)"
         ")"
     )
+    # Migrate older DBs that predate the run_* columns.
+    cols = {r[1] for r in c.execute("PRAGMA table_info(scrapes)").fetchall()}
+    for col, decl in (("run_id", "TEXT"), ("run_no", "INTEGER"), ("run_label", "TEXT")):
+        if col not in cols:
+            c.execute(f"ALTER TABLE scrapes ADD COLUMN {col} {decl}")
     return c
 
 
-def db_save(building_id, date, incentives, units):
+def db_save(building_id, date, incentives, units, run_id=None, run_no=None, run_label=None):
     with _db_lock:
         c = _conn()
         try:
             with c:   # transaction (commit/rollback)
                 c.execute(
-                    "INSERT INTO scrapes (building_id, date, incentives, units) VALUES (?,?,?,?) "
+                    "INSERT INTO scrapes (building_id, date, incentives, units, run_id, run_no, run_label) "
+                    "VALUES (?,?,?,?,?,?,?) "
                     "ON CONFLICT(building_id, date) DO UPDATE SET "
-                    "incentives=excluded.incentives, units=excluded.units, created_at=datetime('now')",
-                    (building_id, date, incentives, json.dumps(units)),
+                    "incentives=excluded.incentives, units=excluded.units, "
+                    "run_id=excluded.run_id, run_no=excluded.run_no, run_label=excluded.run_label, "
+                    "created_at=datetime('now')",
+                    (building_id, date, incentives, json.dumps(units), run_id, run_no, run_label),
                 )
         finally:
             c.close()
@@ -102,29 +174,38 @@ def db_all():
     with _db_lock:
         c = _conn()
         try:
-            rows = c.execute("SELECT building_id, date, incentives, units FROM scrapes ORDER BY date").fetchall()
+            rows = c.execute("SELECT building_id, date, incentives, units, run_id, run_no, run_label FROM scrapes ORDER BY date").fetchall()
         finally:
             c.close()
     out = {}
-    for bid, date, inc, units in rows:
-        out.setdefault(bid, []).append({"date": date, "incentives": inc, "units": json.loads(units)})
+    for bid, date, inc, units, rid, rno, rlbl in rows:
+        out.setdefault(bid, []).append({"date": date, "incentives": inc, "units": json.loads(units), "run_id": rid, "run_no": rno, "run_label": rlbl})
     log.debug("db_all   %d rows across %d buildings", len(rows), len(out))
     return out
 
 
-async def run_scrape(url: str, name: str, config: dict, rid: str = "") -> dict:
+async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_cancel=None) -> dict:
     """Mirror of main.py's fetch -> extract -> validate, minus the database."""
+    should_cancel = should_cancel or (lambda: False)
+
+    def ck(where):
+        if should_cancel():
+            log.info("%s cancelled at %s", rid, where)
+            raise ScrapeCancelled()
+
     # Drop null-valued keys: the frontend sends e.g. initial_wait_ms:null for "unset", but
     # the fetcher relies on dict.get(key, default), which only defaults when the key is ABSENT.
     config = {k: v for k, v in (config or {}).items() if v is not None}
     strategy = config.get("strategy") or "playwright_render"
     t0 = time.perf_counter()
+    ck("start")
     log.info("%s fetch    start url=%s strategy=%s wait=%sms scroll=%s",
              rid, url, strategy, config.get("initial_wait_ms"), config.get("scroll"))
     fetcher = PageFetcher(headless=True)          # fetch() opens + closes its own browser
     extractor = RentExtractor(API_KEY, MODEL)
     html = await fetcher.fetch(url, config)
     log.info("%s fetch    ok %d chars in %.1fs", rid, len(html), time.perf_counter() - t0)
+    ck("before-extract")                          # skip the (expensive) Claude call if already cancelled
     if strategy == "tricon_api":                  # API strategies bypass Claude
         raw_units = fetcher._last_api_units or []
         incentives = fetcher._last_api_incentives
@@ -132,7 +213,7 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "") -> dict:
     else:
         t1 = time.perf_counter()
         log.info("%s extract  start model=%s (%d chars -> Claude)", rid, MODEL, len(html))
-        result = extractor.extract(html, name or "Building", extraction_hint=config.get("extraction_hint", ""))
+        result = extractor.extract(html, name or "Building", extraction_hint=config.get("extraction_hint", ""), should_cancel=should_cancel)
         incentives = result.get("incentives")
         raw_units = result.get("units", [])
         log.info("%s extract  ok %d raw units in %.1fs", rid, len(raw_units), time.perf_counter() - t1)
@@ -189,6 +270,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        if self.path.startswith("/cancel"):          # request cancellation of an in-flight scrape
+            p = self._body() or {}
+            jid = p.get("jobId")
+            request_cancel(jid)
+            log.info("cancel requested for job %s", jid)
+            self._json(200, {"ok": True})
+            return
         if self.path.startswith("/save"):           # persist a scrape to SQLite
             p = self._body()
             if p is None:
@@ -200,8 +288,8 @@ class Handler(BaseHTTPRequestHandler):
                             bool(bid), bool(date), units is not None)
                 self._json(400, {"ok": False, "error": "buildingId, date, units required"}); return
             try:
-                db_save(bid, date, p.get("incentives"), units)
-                log.info("POST /save  building=%s date=%s units=%d -> ok", bid, date, len(units))
+                db_save(bid, date, p.get("incentives"), units, p.get("runId"), p.get("runNo"), p.get("runLabel"))
+                log.info("POST /save  building=%s date=%s units=%d run=%s -> ok", bid, date, len(units), p.get("runNo"))
                 self._json(200, {"ok": True})
             except Exception as e:
                 log.exception("POST /save FAILED building=%s date=%s", bid, date)
@@ -227,13 +315,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "missing url"})
             return
         name = payload.get("name") or ""
-        log.info("%s POST /scrape from %s name=%s", rid, self.client_address[0], name or "(unnamed)")
+        job_id = payload.get("jobId")
+        # Merge the curated per-building config (if any) over the request — site config wins, so
+        # floor-pagination / selectors are restored on the on-demand path.
+        cfg = dict(payload.get("config") or {})
+        site = site_config_for(name)
+        if site:
+            cfg = {**cfg, **site}
+            log.info("%s applied sites/ config for '%s' (strategy=%s, +%d keys)", rid, name, site.get("strategy"), len(site))
+        log.info("%s POST /scrape from %s name=%s job=%s", rid, self.client_address[0], name or "(unnamed)", job_id)
         try:
-            result = asyncio.run(run_scrape(url, name, payload.get("config"), rid=rid))
+            result = asyncio.run(run_scrape(url, name, cfg, rid=rid, should_cancel=lambda: is_cancelled(job_id)))
             self._json(200, result)
+        except ScrapeCancelled:
+            log.info("%s scrape CANCELLED url=%s", rid, url)
+            try: self._json(499, {"ok": False, "cancelled": True})
+            except Exception: pass   # client already disconnected — expected
         except Exception as e:
             log.exception("%s scrape FAILED url=%s", rid, url)
-            self._json(500, {"ok": False, "error": str(e)})
+            try: self._json(500, {"ok": False, "error": str(e)})
+            except Exception: pass
+        finally:
+            clear_cancel(job_id)
 
     def log_message(self, fmt, *args):   # default per-request access log -> DEBUG only
         log.debug("http %s %s", self.client_address[0], fmt % args)
@@ -244,7 +347,7 @@ if __name__ == "__main__":
         log.warning("ANTHROPIC_API_KEY_RENT_COMPS not found in code/.env — extraction will fail.")
     log.info("Comp Tracker local scrape server -> http://localhost:%d", PORT)
     log.info("  model=%s  log-level=%s  (set LOG_LEVEL=DEBUG for HTTP + SQLite detail)", MODEL, LOG_LEVEL)
-    log.info("  POST /scrape - POST /save - GET /scrapes - GET /health")
+    log.info("  POST /scrape - POST /cancel - POST /save - GET /scrapes - GET /health")
     log.info("  SQLite -> %s", DB_PATH)
     log.info("  Ctrl+C to stop.")
     try:

@@ -200,8 +200,6 @@ def main():
 
     summary, prev_summary, trends, history, quarterly = {}, {}, {}, {}, {}
     snapshots = {}  # last N successful snapshots per building (for the historical picker)
-    units_for_building = defaultdict(dict)  # bid -> {date: [unit rows]} — emitted as per-building
-                                            # lazy-loaded files so the core payload stays lean
 
     for b in comp_buildings:
         bid = b["id"]
@@ -268,8 +266,7 @@ def main():
                 "weighted": w,
             }
             if i >= nwin - 8:        # individual listings for the 8 most recent only
-                entry["hasUnits"] = True   # core keeps a flag; the rows live in a lazy per-building file
-                units_for_building[bid][s["date"]] = [
+                entry["units"] = [
                     {"type": u["type"], "bath": u["bath"], "rent": round(u["rent"]), "sqft": u["sqft"],
                      "psf": u["psf"], "note": u["note"]}
                     for u in us if u["rent"] is not None
@@ -376,27 +373,11 @@ def main():
         f.write(payload)
         f.write(";\n")
 
-    # Per-building unit rows → lazy-loaded files (data/units/<bid>.json). Keeps the heavy
-    # individual-listing arrays (~half the payload) out of the initial load; the app fetches
-    # a building's file only when its drill-down modal or scrape-history detail is opened.
-    units_dir = os.path.join(os.path.dirname(__file__), "data", "units")
-    os.makedirs(units_dir, exist_ok=True)
-    for fn in os.listdir(units_dir):          # clean stale files from a previous run
-        if fn.endswith(".json"):
-            os.remove(os.path.join(units_dir, fn))
-    units_bytes = 0
-    for bid, by_date in units_for_building.items():
-        p = os.path.join(units_dir, bid + ".json")
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(json.dumps(by_date, ensure_ascii=False, separators=(",", ":")))
-        units_bytes += os.path.getsize(p)
-
     size_mb = os.path.getsize(OUT) / 1e6
     print(f"Wrote {OUT}  ({size_mb:.2f} MB)")
     print(f"  buildings={data['counts']['buildings']} analyses={data['counts']['analyses']} "
           f"snapshots={data['counts']['snapshots']} units={data['counts']['units']}")
-    print(f"  summaries={len(summary)} trends={len(trends)} quarterly={len(quarterly)}")
-    print(f"  units split into {len(units_for_building)} files under data/units/ ({units_bytes/1e6:.2f} MB total, lazy)")
+    print(f"  summaries={len(summary)} trends={len(trends)} quarterly={len(quarterly)}")  
 
 
 if __name__ == "__main__":

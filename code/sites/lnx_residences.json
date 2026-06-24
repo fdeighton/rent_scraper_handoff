@@ -1,0 +1,12 @@
+{
+  "building_name": "LNX Residences",
+  "strategy": "playwright_render",
+  "initial_wait_ms": 6000,
+  "scroll": true,
+  "scroll_count": 5,
+  "next_button_wait_ms": 3000,
+  "max_pages": 30,
+  "section_wait_ms": 3000,
+  "_TODO": "Floor-explorer (lnxrentals.com/suites). Add next_button_selector = the floor '>' arrow's CSS selector (DevTools → right-click the arrow → Copy selector), and optionally content_selector/shadow_host_selector for the unit-card region. Until next_button_selector is set, only the first floor is captured. See story_of_midtown.json for the shape.",
+  "notes": "Interactive floor map; needs floor pagination to capture every floor's units."
+}

@@ -1,0 +1,16 @@
+{
+  "_doc": "Copy this to <slug>.json and set building_name to EXACTLY match the building's name in the app. local_server.py merges this over the on-demand request, so floor-pagination / selectors are restored. Files starting with _ are ignored. See story_of_midtown.json for a working example.",
+  "building_name": "Exact Building Name",
+  "strategy": "playwright_render",
+  "initial_wait_ms": 6000,
+  "scroll": true,
+  "scroll_count": 5,
+  "section_clicks": ["button:has-text(\"Available Suites\")"],
+  "next_button_selector": "CSS selector for the floor 'next' arrow (drives pagination)",
+  "next_button_wait_ms": 3000,
+  "max_pages": 30,
+  "section_wait_ms": 3000,
+  "content_selector": "optional: CSS selector that wraps the unit cards",
+  "shadow_host_selector": "optional: web-component host if the widget uses shadow DOM",
+  "notes": "What this site needs and why."
+}

@@ -1,0 +1,12 @@
+{
+  "building_name": "College West",
+  "strategy": "playwright_render",
+  "initial_wait_ms": 6000,
+  "scroll": true,
+  "scroll_count": 5,
+  "next_button_wait_ms": 3000,
+  "max_pages": 30,
+  "section_wait_ms": 3000,
+  "_TODO": "Floor-explorer (collegewest.com/suites). REQUIRED: set next_button_selector to the floor '>' arrow's CSS selector, else only the first floor is captured. Optionally set content_selector to the unit-card region. See story_of_midtown.json for the shape.",
+  "notes": "Interactive floor map; needs floor pagination to capture every floor's units."
+}

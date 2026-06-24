@@ -362,6 +362,43 @@
       localStorage.setItem(SCRAPE_OVR_KEY, JSON.stringify(m));
     } catch (e) {}
   }
+  // Profile edits (name, type, year, units, owner…) on SEED buildings persist as an overrides
+  // map, same pattern as scrape settings. Custom buildings already round-trip in full.
+  const BUILD_OVR_KEY = "comp_building_overrides_v1";
+  const BUILD_OVR_FIELDS = ["name", "address", "city", "province", "yearBuilt", "unitCount", "owner", "assetType", "photo"];
+  function loadBuildingOverrides() {
+    try {
+      const m = JSON.parse(localStorage.getItem(BUILD_OVR_KEY) || "{}");
+      Object.entries(m).forEach(([id, o]) => { const b = D.buildings[id]; if (b) Object.assign(b, o); });
+    } catch (e) {}
+  }
+  function saveBuildingSettings(b) {
+    if (b.custom) { saveCustomBuildings(); return; }   // full object already persisted
+    try {
+      const m = JSON.parse(localStorage.getItem(BUILD_OVR_KEY) || "{}");
+      const o = {}; BUILD_OVR_FIELDS.forEach((k) => (o[k] = b[k] != null ? b[k] : null));
+      m[b.id] = o;
+      localStorage.setItem(BUILD_OVR_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  // ---- Scrape activity log: every scrape attempt (success / empty / failed) is recorded here
+  // with a timestamp, for the Scrape History view. Persisted in this browser; capped at 300.
+  const SCRAPE_LOG_KEY = "comp_scrape_log_v1";
+  const RUN_SEQ_KEY = "comp_run_seq_v1";
+  let _scrapeLog = [];
+  let _runSeq = 0;   // monotonic "Run #" for analysis-set scrapes
+  function loadScrapeLog() {
+    try { _scrapeLog = JSON.parse(localStorage.getItem(SCRAPE_LOG_KEY) || "[]") || []; } catch (e) { _scrapeLog = []; }
+    try { _runSeq = parseInt(localStorage.getItem(RUN_SEQ_KEY) || "0", 10) || 0; } catch (e) { _runSeq = 0; }
+  }
+  function nextRunNo() { _runSeq++; try { localStorage.setItem(RUN_SEQ_KEY, String(_runSeq)); } catch (e) {} return _runSeq; }
+  function logScrapeEvent(ev) {
+    _scrapeLog.unshift(Object.assign({ ts: new Date().toISOString() }, ev));   // newest first
+    if (_scrapeLog.length > 300) _scrapeLog.length = 300;
+    try { localStorage.setItem(SCRAPE_LOG_KEY, JSON.stringify(_scrapeLog)); } catch (e) {}
+    if ((location.hash || "").startsWith("#/scrapes")) route();   // live-refresh the history view if open
+  }
+  function clearScrapeLog() { _scrapeLog = []; try { localStorage.removeItem(SCRAPE_LOG_KEY); } catch (e) {} }
 
   // ---- Local (Supabase-free) scrapes: run + STORE via code/local_server.py, which keeps
   // them in a local SQLite file. Loaded scrapes are mirrored in memory and re-applied into
@@ -430,15 +467,38 @@
       .catch(() => {});   // server down → app stays on seed data
   }
   // Apply a fresh scrape immediately (optimistic), then persist it to the SQLite store.
-  function saveLocalScrape(b, date, incentives, units) {
+  // `run` {id,no,label} tags a building as part of an analysis-set run so history can group it.
+  function saveLocalScrape(b, date, incentives, units, run) {
+    run = run || {};
     _localScrapes[b.id] = (_localScrapes[b.id] || []).filter((s) => s.date !== date);
-    _localScrapes[b.id].push({ date, incentives: incentives || null, units });
+    _localScrapes[b.id].push({ date, incentives: incentives || null, units, run_id: run.id || null, run_no: run.no != null ? run.no : null, run_label: run.label || null });
     delete _unitsCache[b.id];                 // bust the lazy units cache so the drill-down sees it
     applyScrape(b, date, incentives, units);
     const base = scrapeApiBase();
     if (!base) return Promise.reject(new Error("no scrape server configured"));
-    return fetch(base + "/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buildingId: b.id, date, incentives: incentives || null, units }) })
+    return fetch(base + "/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buildingId: b.id, date, incentives: incentives || null, units, runId: run.id || null, runNo: run.no != null ? run.no : null, runLabel: run.label || null }) })
       .then((r) => { if (!r.ok) return r.json().then((j) => { throw new Error(j.error || ("HTTP " + r.status)); }); });
+  }
+  // One scrape round-trip to the local server → { incentives, units, fetchedChars } (no save).
+  // jobId lets us cancel server-side (POST /cancel) so the scrape actually stops, not just the
+  // client wait. signal is the AbortController signal for the fetch itself.
+  let _jobSeq = 0;
+  const newJobId = () => "job-" + (++_jobSeq) + "-" + Date.now();
+  function cancelScrape(jobId) {
+    const base = scrapeApiBase(); if (!base || !jobId) return;
+    try { fetch(base + "/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId }), keepalive: true }).catch(() => {}); } catch (e) {}
+  }
+  function performScrape(b, signal, jobId) {
+    const base = scrapeApiBase();
+    if (!base) return Promise.reject(new Error("no scrape server configured"));
+    if (!b.scrapeUrl) return Promise.reject(new Error("no scrape URL set"));
+    return fetch(base + "/scrape", {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal,
+      body: JSON.stringify({ url: b.scrapeUrl, name: b.name, jobId: jobId || null, config: { strategy: b.strategy || "playwright_render", initial_wait_ms: b.initialWaitMs != null ? b.initialWaitMs : null, scroll: b.scroll != null ? b.scroll : null } }),
+    }).then((res) => res.json().catch(() => ({})).then((data) => {
+      if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+      return { incentives: data.incentives, units: mapServerUnits(data.units), fetchedChars: data.fetchedChars || 0 };
+    }));
   }
   function createBuilding(b) {
     const id = "cb-" + Date.now().toString(36);
@@ -448,7 +508,11 @@
       yearBuilt: b.yearBuilt || null, unitCount: b.unitCount || null, owner: b.owner || null,
       assetType: b.assetType || null, scrapeUrl: b.scrapeUrl || null,
       strategy: b.scrapeUrl ? (b.strategy || "playwright_render") : null,
-      initialWaitMs: null, scroll: null, isActive: true, lastScrape: null, custom: true,
+      // Sensible scrape defaults for a new building with a URL: 5s settle + scroll (matches the
+      // proven condos.ca settings). Tunable later in Scrape Settings. No URL → leave unset.
+      initialWaitMs: b.scrapeUrl ? (b.initialWaitMs != null ? b.initialWaitMs : 5000) : null,
+      scroll: b.scrapeUrl ? (b.scroll != null ? b.scroll : true) : null,
+      isActive: true, lastScrape: null, custom: true,
     };
     saveCustomBuildings();
     location.hash = "#/building/" + id;
@@ -583,6 +647,7 @@
   }
 
   // ============================================================== Sidebar ===
+  let navAnalysesOpen = true;   // collapsible "Analyses" group; starts expanded (collapsible by the user)
   function renderNav() {
     const route = location.hash || "#/universe";
     const inAnalysis = route.includes("/analysis/");
@@ -592,17 +657,29 @@
     // expands the sidebar to reveal the full list. Hidden when expanded.
     html += `<button class="nav-item nav-collapsed-only ${inAnalysis ? "active" : ""}" data-action="expand-sidebar" title="Analyses">
         ${icon("list")}<span class="nav-item__label">Analyses</span></button>`;
-    html += `<div class="sidebar__section">Analyses</div>`;
-    for (const a of D.analyses) {
-      const active = route.includes("/analysis/" + a.id);
-      html += `<button class="nav-item nav-expanded-only ${active ? "active" : ""}" data-go="#/analysis/${a.id}" title="${esc(a.name)}">
-          ${icon("building")}<span class="nav-item__label">${esc(a.name)}</span>${a.custom ? '<span class="nav-tag">custom</span>' : ""}</button>`;
+    // Analyses collapse under one toggle (cleaner when no analysis is open); auto-open in one.
+    const showList = navAnalysesOpen || inAnalysis;
+    // While viewing an analysis the orange rail + lit text live on the GROUP HEADER (it's .active);
+    // the chosen analysis below lights up too (.current) but without its own rail.
+    html += `<button class="nav-item nav-expanded-only nav-group__head ${showList ? "open" : ""} ${inAnalysis ? "active" : ""}" data-action="toggle-analyses" title="Analyses" aria-expanded="${showList}">
+        ${icon("list")}<span class="nav-item__label">Analyses</span><span class="nav-group__count">${D.analyses.length}</span><span class="nav-group__chev">${icon("chevron-down")}</span></button>`;
+    if (showList) {
+      for (const a of D.analyses) {
+        const active = route.includes("/analysis/" + a.id);
+        html += `<button class="nav-item nav-expanded-only nav-sub ${active ? "current" : ""}" data-go="#/analysis/${a.id}" title="${esc(a.name)}">
+            ${icon("building")}<span class="nav-item__label">${esc(a.name)}</span>${a.custom ? '<span class="nav-tag">custom</span>' : ""}</button>`;
+      }
+      html += `<button class="nav-item nav-expanded-only nav-sub" data-action="new-analysis" title="New Analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
     }
-    html += `<button class="nav-item nav-expanded-only" data-action="new-analysis" title="New Analysis">${icon("plus")}<span class="nav-item__label">New Analysis</span></button>`;
+    // Scrape History is a utility/audit view — demoted to the bottom, below a divider.
+    html += `<div class="nav-divider"></div>`;
+    html += `<button class="nav-item ${route.startsWith("#/scrapes") ? "active" : ""}" data-go="#/scrapes" title="Scrape History">
+        ${icon("clock")}<span class="nav-item__label">Scrape History</span></button>`;
     $nav.innerHTML = html;
     positionNavRail(navRailReady); navRailReady = true;   // glide the orange bar to the active item
     $nav.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => (location.hash = b.dataset.go)));
     $nav.querySelectorAll('[data-action="new-analysis"]').forEach((b) => (b.onclick = openNewAnalysisModal));
+    $nav.querySelectorAll('[data-action="toggle-analyses"]').forEach((b) => (b.onclick = () => { navAnalysesOpen = !navAnalysesOpen; renderNav(); }));
     $nav.querySelectorAll('[data-action="expand-sidebar"]').forEach((b) => (b.onclick = () => {
       setSidebarOpen(true);
       // snap to the first analysis when expanding from the collapsed rail
@@ -1698,6 +1775,7 @@
           <button class="btn" id="a-xlsx">${icon("download")} Export Excel</button>
           <button class="btn" id="a-export">${icon("doc")} Export PDF</button>
           <button class="btn btn--accent" id="a-addcomp">${icon("plus")} Add building</button>
+          ${(window.COMP_CONFIG || {}).scrapeApi ? `<button class="btn btn--accent" id="a-scrapeset">${icon("refresh")} Scrape set</button>` : ""}
           ${a.custom ? `<button class="btn btn--accent" id="a-remove">Remove analysis</button>` : ""}
         </div>
       </div>`;
@@ -1719,6 +1797,8 @@
     if (ex) ex.onclick = () => openReport(a);
     const addc = document.getElementById("a-addcomp");
     if (addc) addc.onclick = () => openAddCompModal(a);
+    const sset = document.getElementById("a-scrapeset");
+    if (sset) sset.onclick = () => openScrapeSetModal(a, cols);
     const mapb = document.getElementById("a-map");
     if (mapb) mapb.onclick = () => { buState.bucket = a.id; buState.view = "map"; buState.city = "__all"; location.hash = "#/universe"; };
     const xls = document.getElementById("a-xlsx");
@@ -1768,7 +1848,8 @@
     rows += rowMeta("", (c) => {
       const b = c.b;
       const ph = `<div class="prop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(b.photo)}" onerror="this.style.display='none'"/>` : ""}</div>`;
-      return `${ph}<div class="prop-name ${c.bench ? "bench" : ""}">${esc(b.name)}</div>`;
+      const inner = `${ph}<div class="prop-name ${c.bench ? "bench" : ""}">${esc(b.name)}</div>`;
+      return pdf ? inner : `<div class="prop-go" data-go-bid="${b.id}" role="link" tabindex="0" title="Open ${esc(b.name)} →">${inner}</div>`;
     });
     rows += rowMeta("Address", (c) => `<span class="sub">${esc(c.b.address || "—")}${c.b.city ? "<br/>" + esc(c.b.city) + ", " + esc(c.b.province || "") : ""}</span>`);
     rows += rowMeta("Year built", (c) => c.b.yearBuilt || "—");
@@ -2167,7 +2248,18 @@
     document.body.appendChild(menu);
     // Stay open until a date is picked (or the user clicks away). On scroll/resize we
     // REPOSITION to track the button rather than close — so it never "flies" off or vanishes.
-    const place = () => { const r = btn.getBoundingClientRect(); menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px"; menu.style.top = (r.bottom + 4) + "px"; };
+    // Fit within the viewport: cap height to the space below the button (or flip above when
+    // there's more room there) and let the list scroll internally — so frequent dates never
+    // overflow off the bottom of the screen.
+    const place = () => {
+      const r = btn.getBoundingClientRect(), m = 12;
+      const below = window.innerHeight - r.bottom - m, above = r.top - m;
+      const flipUp = below < 220 && above > below;
+      const maxH = Math.max(140, (flipUp ? above : below) - 4);
+      menu.style.maxHeight = maxH + "px";
+      menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px";
+      menu.style.top = (flipUp ? (r.top - 4 - Math.min(menu.scrollHeight, maxH)) : (r.bottom + 4)) + "px";
+    };
     place();
     let onScroll;
     const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", place); };
@@ -2230,9 +2322,16 @@
           toast(`Removed <b>${esc(rb ? rb.name : "comp")}</b> from the set`, { action: "Undo", onAction: () => { readdComp(a, rid); route(); } });
           return;
         }
+        const go = e.target.closest("[data-go-bid]");
+        if (go) { e.stopPropagation(); goToBuildingFrom(go.dataset.goBid); return; }
         const td = e.target.closest("td[data-bid]");
         if (td) openUnitsModal(td.dataset.bid, td.dataset.type, td.dataset.snap);
       };
+      wrap.addEventListener("keydown", (e) => {   // Enter/Space on a focused property cell opens it
+        if (e.key !== "Enter" && e.key !== " ") return;
+        const go = e.target.closest && e.target.closest("[data-go-bid]");
+        if (go) { e.preventDefault(); goToBuildingFrom(go.dataset.goBid); }
+      });
       // keep the floating header's horizontal position locked to the table (covers the
       // scrollbar, trackpad, and grab-drag, which all move wrap.scrollLeft)
       wrap.addEventListener("scroll", () => { if (compStickyHead) compStickyHead.scrollLeft = wrap.scrollLeft; });
@@ -3309,6 +3408,80 @@
   }
 
   // Edit a building's scrape configuration (URL / strategy / initial wait / scroll).
+  // Edit a building's profile (name, type, year, units, owner, address). Persists for both
+  // custom and seed buildings (seed via the overrides map). Asset type offers existing values.
+  function openBuildingSettingsModal(b) {
+    const types = Array.from(new Set(Object.values(D.buildings).map((x) => x.assetType).filter(Boolean))).sort();
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Building Settings">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("building")}</div>
+        <div class="modal__title">Building Settings — ${esc(b.name)}</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="field"><label for="bs-name">Name</label><input type="text" id="bs-name" value="${esc(b.name || "")}"/></div>
+        <div class="field"><label for="bs-type">Type <span class="sub">(e.g. PBR, Rental Condo, Condo)</span></label>
+          <input type="text" id="bs-type" list="bs-typelist" value="${esc(b.assetType || "")}"/>
+          <datalist id="bs-typelist">${types.map((t) => `<option value="${esc(t)}"></option>`).join("")}</datalist>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="bs-year">Year built</label><input type="text" id="bs-year" inputmode="numeric" value="${b.yearBuilt != null ? b.yearBuilt : ""}"/></div>
+          <div class="field"><label for="bs-units">Total units</label><input type="text" id="bs-units" inputmode="numeric" value="${b.unitCount != null ? b.unitCount : ""}"/></div>
+        </div>
+        <div class="field"><label for="bs-owner">Owner / manager</label><input type="text" id="bs-owner" value="${esc(b.owner || "")}"/></div>
+        <div class="field"><label for="bs-photo">Photo URL <span class="sub">(building image)</span></label>
+          <input type="text" id="bs-photo" placeholder="https://…/photo.jpg" value="${esc(b.photo || "")}"/>
+          <div class="bs-photo-prev"><img id="bs-photo-img" alt="" src="${esc(b.photo || "")}" style="${b.photo ? "" : "display:none"}" onerror="this.style.display='none'"/><span class="sub" id="bs-photo-none" style="${b.photo ? "display:none" : ""}">No image</span></div>
+        </div>
+        <div class="field"><label for="bs-addr">Address</label><input type="text" id="bs-addr" value="${esc(b.address || "")}"/></div>
+        <div class="field-row">
+          <div class="field"><label for="bs-city">City</label><input type="text" id="bs-city" value="${esc(b.city || "")}"/></div>
+          <div class="field"><label for="bs-prov">Province</label><input type="text" id="bs-prov" value="${esc(b.province || "")}"/></div>
+        </div>
+        <div class="geo-note">Saved in this browser only. Scrape URL &amp; strategy live in <b>Scrape Settings</b>.</div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--primary" id="bs-save">Save</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    // live photo preview as the URL is typed
+    const photoImg = $("#bs-photo-img"), photoNone = $("#bs-photo-none");
+    $("#bs-photo").oninput = (e) => {
+      const v = e.target.value.trim();
+      if (v) { photoImg.src = v; photoImg.style.display = ""; photoNone.style.display = "none"; }
+      else { photoImg.style.display = "none"; photoNone.style.display = ""; }
+    };
+    $("#bs-save").onclick = () => {
+      const name = $("#bs-name").value.trim();
+      if (!name) { $("#bs-name").focus(); return; }
+      const num = (v) => { const n = parseInt(String(v).replace(/[^\d]/g, ""), 10); return isNaN(n) ? null : n; };
+      b.name = name;
+      b.assetType = $("#bs-type").value.trim() || null;
+      b.yearBuilt = num($("#bs-year").value);
+      b.unitCount = num($("#bs-units").value);
+      b.owner = $("#bs-owner").value.trim() || null;
+      b.photo = $("#bs-photo").value.trim() || null;
+      b.address = $("#bs-addr").value.trim() || null;
+      b.city = $("#bs-city").value.trim() || null;
+      b.province = $("#bs-prov").value.trim() || null;
+      saveBuildingSettings(b);
+      close();
+      route();
+      toast(`Building details updated for <b>${esc(b.name)}</b>`);
+    };
+    setTimeout(() => $("#bs-type").focus(), 0);
+  }
+
   function openScrapeSettingsModal(b) {
     const stratOpts = STRATEGY_INFO.map((s) => `<option value="${s.value}" ${b.strategy === s.value ? "selected" : ""}>${esc(s.label)}</option>`).join("");
     const stratDescMap = Object.fromEntries(STRATEGY_INFO.map((s) => [s.value, s.desc]));
@@ -3402,8 +3575,175 @@
     };
   }
 
-  // Run a scrape via the local server (no Supabase), preview the units, then save the
-  // result into this browser (saveLocalScrape) so the building + analyses reflect it.
+  // Live progress for a scrape. The server returns ONE response at the end (no streaming),
+  // so this walks through the expected stages on time-weighted estimates: an elapsed timer,
+  // a shimmering bar that fills toward ~92% over the estimate, and a step list. finish()
+  // completes it (bar→100%, all steps done); stop() just clears the timers.
+  function runScrapeProgress(out, opts) {
+    opts = opts || {};
+    const waitMs = opts.waitMs || 0, scroll = opts.scroll;
+    const api = opts.strategy === "tricon_api";
+    const steps = [];
+    steps.push({ label: "Launching headless browser", est: 2500 });
+    steps.push({ label: "Loading & rendering page" + (waitMs ? ` (waiting ${(waitMs / 1000).toFixed(0)}s)` : ""), est: 3500 + waitMs });
+    if (scroll) steps.push({ label: "Scrolling for lazy-loaded units", est: 3000 });
+    steps.push({ label: api ? "Reading listings from the building API" : "Extracting rents with Claude", est: api ? 4000 : 20000 });
+    steps.push({ label: "Validating & normalizing units", est: 2500 });
+    const cum = []; let acc = 0;
+    steps.forEach((s) => { acc += s.est; cum.push(acc); });
+    const totalEst = acc;
+
+    out.innerHTML = `<div class="scrape-prog">
+      <div class="scrape-prog__top">
+        <div class="scrape-prog__stage">${icon("refresh")}<span data-stage>${esc(steps[0].label)}</span></div>
+        <div class="scrape-prog__time" data-time>0.0s</div>
+      </div>
+      <div class="scrape-prog__bar"><div class="scrape-prog__fill" data-fill></div></div>
+      <ul class="scrape-prog__steps">
+        ${steps.map((s, i) => `<li data-step="${i}"${i === 0 ? ' class="active"' : ""}><span class="dot"></span>${esc(s.label)}</li>`).join("")}
+      </ul>
+    </div>`;
+
+    const stageEl = out.querySelector("[data-stage]");
+    const timeEl = out.querySelector("[data-time]");
+    const fillEl = out.querySelector("[data-fill]");
+    const stepEls = Array.prototype.slice.call(out.querySelectorAll("[data-step]"));
+    const t0 = Date.now();
+    const autoMax = steps.length - 2;   // park on the long pole (extract); validate only completes on finish()
+    let cur = 0;
+    const setStep = (i) => {
+      cur = i;
+      if (stageEl) stageEl.textContent = steps[i].label;
+      stepEls.forEach((el, j) => { el.classList.toggle("done", j < i); el.classList.toggle("active", j === i); });
+    };
+    const tick = () => {
+      const el = Date.now() - t0;
+      if (timeEl) timeEl.textContent = (el / 1000).toFixed(1) + "s";
+      let i = 0; while (i < steps.length - 1 && el > cum[i]) i++;
+      if (i > cur) setStep(Math.min(i, autoMax));
+      if (fillEl) fillEl.style.width = Math.min(92, (el / totalEst) * 92).toFixed(1) + "%";
+    };
+    tick();
+    const iv = setInterval(tick, 200);
+    return {
+      finish() { clearInterval(iv); stepEls.forEach((el) => { el.classList.remove("active"); el.classList.add("done"); }); if (fillEl) fillEl.style.width = "100%"; },
+      stop() { clearInterval(iv); },
+    };
+  }
+
+  // ---- Background scrape dock -----------------------------------------------------------
+  // A scrape auto-docks to a bottom-right tab the moment it starts, so the user can queue more.
+  // The tab mirrors the (hidden) modal's live progress via opts.status(); click it to expand
+  // the modal back, or × to cancel/dismiss. The scrape keeps running while docked.
+  function scrapeDock() {
+    let el = document.getElementById("scrape-dock");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "scrape-dock"; el.className = "scrape-dock";
+      el.innerHTML = `
+        <div class="scrape-dock__head">
+          <span class="scrape-dock__heading">${icon("refresh")} Scrapes</span>
+          <span class="scrape-dock__summary" data-summary></span>
+          <button class="scrape-dock__clear" data-clearfin title="Clear finished" style="display:none">Clear done</button>
+          <button class="scrape-dock__collapse" data-collapse title="Collapse" aria-label="Collapse">&#9662;</button>
+        </div>
+        <div class="scrape-dock__body">
+          <div class="scrape-dock__group" data-group="running" style="display:none"><div class="scrape-dock__glabel">Running</div><div data-list="running"></div></div>
+          <div class="scrape-dock__group" data-group="queued" style="display:none"><div class="scrape-dock__glabel">Waiting</div><div data-list="queued"></div></div>
+          <div class="scrape-dock__group" data-group="done" style="display:none"><div class="scrape-dock__glabel">Finished</div><div data-list="done"></div></div>
+        </div>`;
+      document.body.appendChild(el);
+      el.querySelector("[data-collapse]").onclick = () => el.classList.toggle("collapsed");
+      el.querySelector("[data-clearfin]").onclick = () => {
+        el.querySelectorAll(".scrape-dock__row.done, .scrape-dock__row.fail").forEach((r) => { if (r._cleanup) r._cleanup(); else r.remove(); });
+        refreshScrapeDock();
+      };
+    }
+    return el;
+  }
+  const _dockGroupOf = (state) => (state === "running") ? "running" : (state === "queued") ? "queued" : "done";   // done|error → Finished
+  function refreshScrapeDock() {
+    const el = document.getElementById("scrape-dock"); if (!el) return;
+    let running = 0, queued = 0, done = 0, fail = 0;
+    el.querySelectorAll(".scrape-dock__row").forEach((r) => {
+      const s = r.dataset.state;
+      if (s === "running") running++; else if (s === "queued") queued++; else if (s === "error") fail++; else done++;
+    });
+    ["running", "queued", "done"].forEach((g) => {
+      const list = el.querySelector(`[data-list="${g}"]`), grp = el.querySelector(`[data-group="${g}"]`);
+      if (grp) grp.style.display = (list && list.children.length) ? "" : "none";
+    });
+    const parts = [];
+    if (running) parts.push(`${running} running`);
+    if (queued) parts.push(`${queued} waiting`);
+    if (done) parts.push(`${done} done`);
+    if (fail) parts.push(`${fail} failed`);
+    const sum = el.querySelector("[data-summary]"); if (sum) sum.textContent = parts.join(" · ");
+    const clr = el.querySelector("[data-clearfin]"); if (clr) clr.style.display = (done + fail) ? "" : "none";
+    el.style.display = el.querySelectorAll(".scrape-dock__row").length ? "" : "none";
+  }
+  // Register a running/queued modal as a row in the consolidated dock panel (grouped by state).
+  function minimizeScrapeModal(overlay, opts) {
+    overlay.style.display = "none";
+    const dock = scrapeDock();
+    const row = document.createElement("div");
+    row.className = "scrape-dock__row";
+    row.innerHTML = `
+      <div class="scrape-dock__row-main">
+        <span class="scrape-dock__title">${opts.title}</span>
+        <span class="scrape-dock__rowstatus" data-label>…</span>
+      </div>
+      <div class="scrape-prog__bar"><div class="scrape-prog__fill" data-fill style="width:0%"></div></div>`;
+    const labelEl = row.querySelector("[data-label]"), fillEl = row.querySelector("[data-fill]");
+    let iv = null, curGroup = null;
+    const stop = () => { if (iv) { clearInterval(iv); iv = null; } };
+    const dismiss = () => { stop(); row.remove(); refreshScrapeDock(); };
+    const restore = () => { stop(); row.remove(); refreshScrapeDock(); overlay.style.display = ""; if (opts.onRestore) opts.onRestore(); };
+    row._cleanup = () => { if (opts.onDismiss) opts.onDismiss(); };   // used by "Clear done" (removes overlay + row)
+    const tick = () => {
+      const s = opts.status() || {};
+      row.dataset.state = s.state || "running";
+      if (labelEl) labelEl.textContent = s.label || "…";
+      if (fillEl) fillEl.style.width = (s.pct || 0).toFixed(1) + "%";
+      row.classList.toggle("done", s.state === "done");
+      row.classList.toggle("fail", s.state === "error");
+      row.classList.toggle("queued", s.state === "queued");
+      const g = _dockGroupOf(s.state);
+      if (g !== curGroup) { curGroup = g; const list = dock.querySelector(`[data-list="${g}"]`); if (list) list.appendChild(row); }   // move into Running/Waiting/Finished
+      refreshScrapeDock();
+      if (s.state === "done" || s.state === "error") stop();
+    };
+    // Done → jump to the scrape's subject (building/analysis) and clear the row.
+    // Running/queued/error → open the modal (watch progress, cancel, or read the error).
+    row.onclick = () => {
+      const st = (opts.status() || {}).state;
+      if (st === "done" && opts.href) { stop(); row.remove(); refreshScrapeDock(); if (opts.onDismiss) opts.onDismiss(); location.hash = opts.href; }
+      else restore();
+    };
+    iv = setInterval(tick, 300); tick();
+    return { restore, dismiss };
+  }
+
+  // ---- Serial scrape queue: only ONE job runs at a time; the rest wait their turn. Each job
+  // (a single scrape OR a whole set) is one queue entry, so the next isn't launched until the
+  // current finishes. Avoids hammering the machine with concurrent Chromium + Claude calls.
+  let _scrapeChain = Promise.resolve();
+  let _scrapeWaiting = [];   // ids of jobs queued but not yet started (FIFO)
+  let _scrapeSeq = 0;
+  function enqueueScrape(taskFn) {
+    const id = ++_scrapeSeq;
+    _scrapeWaiting.push(id);
+    const done = _scrapeChain.then(() => {
+      const i = _scrapeWaiting.indexOf(id); if (i >= 0) _scrapeWaiting.splice(i, 1);   // our turn now
+      return taskFn();
+    });
+    _scrapeChain = done.catch(() => {});   // keep the chain alive even if a job errors
+    return id;
+  }
+  const scrapeQueueAhead = (id) => { const i = _scrapeWaiting.indexOf(+id); return i < 0 ? 0 : i; };   // jobs ahead (0 = next up)
+
+  // Run a scrape via the local server (no Supabase). On success it AUTO-saves the result as a
+  // snapshot (saveLocalScrape → in-memory apply + SQLite), then shows the extracted units.
   function openRunScrapeModal(b) {
     const api = (window.COMP_CONFIG || {}).scrapeApi || "";
     const overlay = document.createElement("div");
@@ -3423,62 +3763,493 @@
       </div>
       <div class="modal__foot">
         <button class="btn" data-close>Close</button>
+        <button class="btn btn--danger" id="rs-cancel" style="display:none">Cancel scrape</button>
         <button class="btn btn--accent" id="rs-run" ${(!b.scrapeUrl || !api) ? "disabled" : ""}>${icon("refresh")} Run scrape</button>
-        <button class="btn btn--primary" id="rs-save" style="display:none">Save as snapshot</button>
       </div>
     </div>`;
     document.body.appendChild(overlay);
     const $ = (s) => overlay.querySelector(s);
-    function close() { overlay.remove(); document.removeEventListener("keydown", onKey); }
+    const out = $("#rs-out");
+    let prog = null, minimized = false, dockCtl = null, cancelled = false, controller = null, jobId = null;
+    const statusFn = () => {
+      const st = overlay.dataset.state || "idle";
+      if (st === "done") return { label: "Saved ✓", pct: 100, state: "done" };
+      if (st === "error") return { label: "Scrape failed", pct: 100, state: "error" };
+      if (st === "queued") { const n = scrapeQueueAhead(overlay.dataset.qid); return { label: n > 0 ? `Queued · ${n} ahead` : "Next up…", pct: 0, state: "queued" }; }
+      if (st === "running") {
+        const stage = overlay.querySelector("[data-stage]"), time = overlay.querySelector("[data-time]"), fill = overlay.querySelector("[data-fill]");
+        return { label: (stage ? stage.textContent : "Scraping…") + (time ? " · " + time.textContent : ""), pct: fill ? (parseFloat(fill.style.width) || 0) : 0, state: "running" };
+      }
+      return { label: "Ready", pct: 0, state: "idle" };
+    };
+    function minimize() {
+      if (minimized) return;
+      minimized = true;
+      dockCtl = minimizeScrapeModal(overlay, { title: `Run scrape — ${b.name}`, status: statusFn, href: `#/building/${b.id}`, onDismiss: hardClose, onRestore: () => { minimized = false; dockCtl = null; } });
+    }
+    function hardClose() { cancelled = true; cancelScrape(jobId); if (controller) { try { controller.abort(); } catch (e) {} } if (prog) { prog.stop(); prog = null; } if (dockCtl) dockCtl.dismiss(); overlay.remove(); document.removeEventListener("keydown", onKey); }
+    function close() { const st = overlay.dataset.state; if (st === "running" || st === "queued") { minimize(); return; } hardClose(); }   // closing a live/queued job just re-docks it (never cancels)
     function onKey(e) { if (e.key === "Escape") close(); }
     document.addEventListener("keydown", onKey);
     overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    const cancelBtn = $("#rs-cancel");
+    if (cancelBtn) cancelBtn.onclick = () => confirmModal({
+      title: "Cancel this scrape?",
+      body: `Stop the scrape of <b>${esc(b.name)}</b>? Nothing will be saved.`,
+      confirmLabel: "Cancel scrape", cancelLabel: "Keep running",
+    }).then((ok) => { if (ok) hardClose(); });
 
-    let lastResult = null;
-    const runBtn = $("#rs-run"), saveBtn = $("#rs-save"), out = $("#rs-out");
-    if (runBtn) runBtn.onclick = async () => {
-      runBtn.disabled = true; saveBtn.style.display = "none";
-      out.innerHTML = `<div class="geo-loading">${icon("clock")} Fetching the page + extracting with Claude… (~15–40s)</div>`;
+    const runBtn = $("#rs-run");
+    if (runBtn) runBtn.onclick = () => {
+      runBtn.style.display = "none";                  // one run per modal — no re-run button after click
+      if (cancelBtn) cancelBtn.style.display = "";
+      overlay.dataset.state = "queued";
+      minimize();   // AUTO-dock immediately (shows "Queued") so the user can line up more jobs
+      overlay.dataset.qid = enqueueScrape(async () => {
+        if (cancelled) return;                       // cancelled before its turn
+        overlay.dataset.state = "running";
+        prog = runScrapeProgress(out, { waitMs: b.initialWaitMs, scroll: b.scroll, strategy: b.strategy });
+        controller = new AbortController();
+        jobId = newJobId();
       try {
-        const res = await fetch(api.replace(/\/$/, "") + "/scrape", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: b.scrapeUrl, name: b.name, config: { strategy: b.strategy || "playwright_render", initial_wait_ms: b.initialWaitMs != null ? b.initialWaitMs : null, scroll: b.scroll != null ? b.scroll : null } }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
-        const units = mapServerUnits(data.units);
+        const r = await performScrape(b, controller.signal, jobId);
+        if (prog) { prog.finish(); prog = null; }
+        const units = r.units;
         const priced = units.filter((u) => u.rent != null).length;
-        lastResult = { incentives: data.incentives, units };
+        const date = new Date().toISOString().slice(0, 10);
+        // Auto-save the snapshot when there's something priced; mirror the set-runner guardrails.
+        let savedLine = `<div class="sub" style="margin-top:4px">Not saved — no priced units extracted.</div>`;
+        if (priced) {
+          try {
+            await saveLocalScrape(b, date, r.incentives, units);   // in-memory apply + SQLite persist
+            route();                                               // refresh the page behind the modal
+            savedLine = `<div class="sh-inc" style="margin-top:4px;color:var(--ok,#16a34a)">${icon("refresh")} Saved as snapshot · ${fmtDate(date)}</div>`;
+          } catch (e) {
+            savedLine = `<div class="sub" style="margin-top:4px;color:var(--danger)">Applied locally, but saving to SQLite failed: ${esc(String((e && e.message) || e))}</div>`;
+          }
+        }
         out.innerHTML = `
-          <div class="sh-inc" style="margin-top:12px"><span class="sh-lbl">Incentive</span>${data.incentives ? esc(data.incentives) : '<span class="sub">None advertised</span>'}</div>
-          <div class="sub" style="margin:8px 0">${units.length} units extracted · ${priced} priced · ${(data.fetchedChars || 0).toLocaleString()} chars fetched</div>
+          <div class="sh-inc" style="margin-top:12px"><span class="sh-lbl">Incentive</span>${r.incentives ? esc(r.incentives) : '<span class="sub">None advertised</span>'}</div>
+          <div class="sub" style="margin:8px 0">${units.length} units extracted · ${priced} priced · ${(r.fetchedChars || 0).toLocaleString()} chars fetched</div>
+          ${savedLine}
           ${units.length ? unitsTableHtml(units) : `<div class="empty">No units extracted — try a different strategy in Scrape Settings.</div>`}`;
-        saveBtn.style.display = priced ? "" : "none";
+        overlay.dataset.state = "done";
+        logScrapeEvent({ kind: "building", id: b.id, name: b.name, status: priced ? "success" : "empty", units: units.length, priced, incentive: r.incentives || null, via: "single" });
       } catch (e) {
+        if (prog) { prog.stop(); prog = null; }
+        if (cancelled) return;                         // aborted via Cancel — no error UI
+        overlay.dataset.state = "error";
         out.innerHTML = `<div class="empty" style="margin-top:12px">${icon("globe")}<br/>Scrape failed: ${esc(String((e && e.message) || e))}<br/><span class="sub">Make sure the local server is running: <code>cd code &amp;&amp; python local_server.py</code></span></div>`;
-      } finally { runBtn.disabled = false; }
+        logScrapeEvent({ kind: "building", id: b.id, name: b.name, status: "failed", units: 0, priced: 0, via: "single", message: String((e && e.message) || e) });
+      } finally { const cb = $("#rs-cancel"); if (cb) cb.style.display = "none"; controller = null; }
+      });   // end queued task
     };
-    if (saveBtn) saveBtn.onclick = async () => {
-      if (!lastResult) return;
+  }
+
+  // Run a scrape for EVERY building in an analysis set, sequentially, with an overall progress
+  // bar + a per-building status list and the same staged visuals as the single scrape. Each
+  // success is saved to local SQLite (saveLocalScrape). Buildings with no scrape URL are skipped.
+  function openScrapeSetModal(a, cols) {
+    const base = scrapeApiBase();
+    const all = (cols || compSetBuildings(a)).map((c) => ({ b: c.b, bench: !!c.bench }));
+    const targets = all.filter((x) => x.b.scrapeUrl);
+    const skipped = all.length - targets.length;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal modal--wide" role="dialog" aria-modal="true" aria-label="Scrape set">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("refresh")}</div>
+        <div class="modal__title">Scrape set — ${esc(a.name)}</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="geo-note">Runs each building against your local scrape server (<b>${esc(base || "not configured")}</b>) one at a time and saves each to local SQLite. ~15–40s per building.</div>
+        <div class="scrape-set__overall">
+          <div class="scrape-set__count"><b data-done>0</b> / ${targets.length} done${skipped ? ` · ${skipped} skipped (no URL)` : ""}</div>
+          <div class="scrape-prog__bar"><div class="scrape-prog__fill" data-overall style="width:0%"></div></div>
+        </div>
+        <ul class="scrape-set">
+          ${all.map((x) => `<li data-row="${x.b.id}" class="${x.b.scrapeUrl ? "" : "skip"}">
+            <span class="dot"></span>
+            <span class="scrape-set__name">${esc(x.b.name)}${x.bench ? ' <span class="scrape-set__badge">★ benchmark</span>' : ""}</span>
+            <span class="scrape-set__status" data-status>${x.b.scrapeUrl ? "Pending" : "Skipped — no URL"}</span>
+          </li>`).join("")}
+        </ul>
+        <div id="ss-current"></div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Close</button>
+        <button class="btn btn--danger" id="ss-cancel" style="display:none">Cancel</button>
+        <button class="btn btn--accent" id="ss-start" ${(!base || !targets.length) ? "disabled" : ""}>${icon("refresh")} Start — ${targets.length} building${targets.length === 1 ? "" : "s"}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const $ = (s) => overlay.querySelector(s);
+    let prog = null, controller = null, cancelled = false, running = false, anySaved = false, minimized = false, dockCtl = null, jobId = null;
+    const statusFn = () => {
+      const st = overlay.dataset.state || "idle";
+      const done = +(($("[data-done]") || {}).textContent || 0), total = targets.length;
+      if (st === "done") return { label: `Done — ${done}/${total} saved`, pct: 100, state: "done" };
+      if (st === "queued") { const n = scrapeQueueAhead(overlay.dataset.qid); return { label: n > 0 ? `Queued · ${n} ahead` : "Next up…", pct: 0, state: "queued" }; }
+      const head = overlay.querySelector(".scrape-set__current-head");
+      const cur = head ? head.textContent.trim() : (st === "running" ? "scraping…" : "not started");
+      return { label: `${done}/${total} · ${cur}`, pct: total ? (done / total) * 100 : 0, state: st === "running" ? "running" : "idle" };
+    };
+    function minimize() {
+      if (minimized) return;
+      minimized = true;
+      dockCtl = minimizeScrapeModal(overlay, { title: `Scrape set — ${a.name}`, status: statusFn, href: `#/analysis/${a.id}`, onDismiss: hardClose, onRestore: () => { minimized = false; dockCtl = null; } });
+    }
+    function hardClose() {   // cancel the run + remove everything
+      cancelled = true;
+      cancelScrape(jobId);   // stop the building currently scraping, server-side
+      if (controller) { try { controller.abort(); } catch (e) {} }
+      if (prog) { prog.stop(); prog = null; }
+      if (dockCtl) dockCtl.dismiss();
+      overlay.remove(); document.removeEventListener("keydown", onKey);
+      if (anySaved) { route(); }   // reflect whatever completed
+    }
+    function close() { if (running) { minimize(); return; } hardClose(); }   // closing a running set re-docks it
+    function onKey(e) { if (e.key === "Escape") close(); }
+    document.addEventListener("keydown", onKey);
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    const cancelBtn = $("#ss-cancel");
+    if (cancelBtn) cancelBtn.onclick = () => confirmModal({
+      title: "Cancel this set scrape?",
+      body: `Stop scraping the <b>${esc(a.name)}</b> set? Buildings already saved are kept; the rest are skipped.`,
+      confirmLabel: "Cancel set", cancelLabel: "Keep running",
+    }).then((ok) => { if (ok) hardClose(); });
+
+    const doneEl = $("[data-done]"), overallFill = $("[data-overall]"), current = $("#ss-current"), startBtn = $("#ss-start");
+    const setRow = (bid, cls, text) => {
+      const li = $(`[data-row="${bid}"]`); if (!li) return;
+      li.classList.remove("running", "done", "fail");
+      if (cls) li.classList.add(cls);
+      const st = li.querySelector("[data-status]"); if (st) st.textContent = text;
+    };
+    const setOverall = (n) => {
+      if (doneEl) doneEl.textContent = n;
+      if (overallFill) overallFill.style.width = (targets.length ? (n / targets.length) * 100 : 0).toFixed(1) + "%";
+    };
+
+    function start() {
+      if (running) return; running = true;
+      startBtn.style.display = "none";                 // no re-start button after click
+      if (cancelBtn) cancelBtn.style.display = "";
+      overlay.dataset.state = "queued";
+      minimize();   // AUTO-dock (shows "Queued") so the user can line up more jobs
+      overlay.dataset.qid = enqueueScrape(async () => {
+        if (cancelled) { running = false; return; }   // cancelled before its turn
+        overlay.dataset.state = "running";
+      const runNo = nextRunNo();   // groups this set's buildings under one "Run #" in history
       const date = new Date().toISOString().slice(0, 10);
-      saveBtn.disabled = true;
-      try {
-        await saveLocalScrape(b, date, lastResult.incentives, lastResult.units);   // applies optimistically, then writes SQLite
-        close(); route();
-        toast(`Saved scrape for <b>${esc(b.name)}</b> · ${fmtDate(date)} — stored in local SQLite`);
-      } catch (e) {
-        close(); route();   // it's already applied in-memory; only the persist failed
-        toast(`Scrape applied, but saving to SQLite failed: ${esc(String((e && e.message) || e))}`);
+      let done = 0, ok = 0, failed = 0;
+      for (const x of targets) {
+        if (cancelled) break;
+        setRow(x.b.id, "running", "Scraping…");
+        current.innerHTML = `<div class="scrape-set__current-head">${icon("refresh")} ${esc(x.b.name)}</div><div data-prog></div>`;
+        prog = runScrapeProgress(current.querySelector("[data-prog]"), { waitMs: x.b.initialWaitMs, scroll: x.b.scroll, strategy: x.b.strategy });
+        controller = new AbortController();
+        jobId = newJobId();
+        try {
+          const r = await performScrape(x.b, controller.signal, jobId);
+          if (prog) { prog.finish(); prog = null; }
+          const priced = r.units.filter((u) => u.rent != null).length;
+          if (!priced) {
+            setRow(x.b.id, "fail", `${r.units.length} units, 0 priced — not saved`); failed++;
+            logScrapeEvent({ kind: "building", id: x.b.id, name: x.b.name, status: "empty", units: r.units.length, priced: 0, incentive: r.incentives || null, via: "set", setName: a.name, runNo, runId: runNo });
+          } else {
+            try {
+              await saveLocalScrape(x.b, date, r.incentives, r.units, { id: "run-" + runNo, no: runNo, label: a.name });
+              anySaved = true; ok++;
+              setRow(x.b.id, "done", `${r.units.length} units · ${priced} priced — saved`);
+              logScrapeEvent({ kind: "building", id: x.b.id, name: x.b.name, status: "success", units: r.units.length, priced, incentive: r.incentives || null, via: "set", setName: a.name, runNo, runId: runNo });
+            } catch (e) {
+              anySaved = true; failed++;   // applied in-memory even if persist failed
+              setRow(x.b.id, "fail", `Scraped, save failed: ${(e && e.message) || e}`);
+              logScrapeEvent({ kind: "building", id: x.b.id, name: x.b.name, status: "failed", units: r.units.length, priced, via: "set", setName: a.name, runNo, runId: runNo, message: "saved to memory; SQLite write failed" });
+            }
+          }
+        } catch (e) {
+          if (prog) { prog.stop(); prog = null; }
+          if (cancelled) { setRow(x.b.id, "", "Cancelled"); break; }
+          setRow(x.b.id, "fail", `Failed: ${(e && e.message) || e}`); failed++;
+          logScrapeEvent({ kind: "building", id: x.b.id, name: x.b.name, status: "failed", units: 0, priced: 0, via: "set", setName: a.name, runNo, runId: runNo, message: String((e && e.message) || e) });
+        } finally {
+          controller = null;
+        }
+        done++; setOverall(done);
       }
+      current.innerHTML = "";
+      running = false;
+      const cb = $("#ss-cancel"); if (cb) cb.style.display = "none";
+      if (!cancelled) {
+        overlay.dataset.state = "done";
+        if (anySaved) route();   // refresh the page behind the modal
+      }
+      });   // end queued task
+    }
+    if (startBtn) startBtn.onclick = start;
+  }
+
+  // ========================================================= Scrape History =
+  // Merge the live activity log with historical scrape records already in the dataset/DB
+  // (D.history per building) so the catalog is backfilled. Dedup by building+date; live wins.
+  function scrapeHistoryEntries() {
+    const live = (_scrapeLog || []).map((e) => Object.assign({}, e));
+    const seen = new Set(live.map((e) => (e.id || "") + "|" + (e.ts || "").slice(0, 10)));
+    const out = live.slice();
+    // DB-saved scrapes carry run_id/run_no/run_label → runs stay groupable even without the
+    // live log (after a clear, or in a fresh session/another browser synced to the same DB).
+    Object.keys(_localScrapes || {}).forEach((bid) => {
+      const b = bld(bid);
+      (_localScrapes[bid] || []).forEach((s) => {
+        const date = (s.date || "").slice(0, 10); if (!date) return;
+        const key = bid + "|" + date; if (seen.has(key)) return; seen.add(key);
+        const priced = (s.units || []).filter((u) => u && u.rent != null).length;
+        out.push({ ts: date + "T00:00:00", id: bid, name: b ? b.name : bid,
+          status: priced ? "success" : "empty",
+          units: (s.units || []).length, priced, incentive: s.incentives || null,
+          via: s.run_id ? "set" : "single", runId: s.run_id || null, runNo: s.run_no != null ? s.run_no : null, setName: s.run_label || null });
+      });
+    });
+    // seed-only historical records (no run linkage available in the dataset)
+    Object.keys(D.history || {}).forEach((bid) => {
+      const b = bld(bid);
+      (D.history[bid] || []).forEach((h) => {
+        const date = (h.date || "").slice(0, 10); if (!date) return;
+        const key = bid + "|" + date; if (seen.has(key)) return; seen.add(key);
+        out.push({ ts: date + "T00:00:00", id: bid, name: b ? b.name : bid,
+          status: h.status === "error" ? "failed" : "success",
+          units: h.units != null ? h.units : null, priced: null, incentive: h.incentives || null,
+          via: "history", backfill: true });
+      });
+    });
+    inferRuns(out);   // retroactively bundle same-day scrapes that cover an analysis into a run
+    return out.sort((a, c) => (c.ts || "").localeCompare(a.ts || ""));
+  }
+  // Retroactive run inference: scrapes WITHOUT a real run id that landed on the same day and
+  // together cover an analysis's membership (≥70%, ≥2 buildings) were almost certainly a bundle,
+  // so tag them as one inferred run. Order-agnostic (set coverage, not list adjacency). Greedy:
+  // each building joins the best-covered analysis once, so it can't be double-counted.
+  function inferRuns(entries) {
+    if (!D.analyses || !D.analyses.length) return;
+    const memberships = D.analyses.map((a) => {
+      const ids = new Set();
+      if (a.benchmark) ids.add(a.benchmark);
+      (a.comps || []).forEach((c) => ids.add(c.building));
+      return { a, ids };
+    }).filter((m) => m.ids.size >= 2);
+    if (!memberships.length) return;
+    const byDate = {};
+    entries.forEach((e) => { if (e.runId) return; const d = (e.ts || "").slice(0, 10); if (d) (byDate[d] = byDate[d] || []).push(e); });
+    Object.keys(byDate).forEach((date) => {
+      const dayEntries = byDate[date];
+      const scraped = new Set(dayEntries.map((e) => e.id));
+      if (scraped.size < 2) return;
+      const cands = memberships.map((m) => {
+        let matched = 0; m.ids.forEach((id) => { if (scraped.has(id)) matched++; });
+        return { m, matched, cover: matched / m.ids.size };
+      }).filter((c) => c.matched >= 2 && c.cover >= 0.7)
+        .sort((x, y) => y.matched - x.matched || y.m.ids.size - x.m.ids.size);
+      const assigned = new Set();
+      cands.forEach((c) => {
+        const claim = new Set();
+        c.m.ids.forEach((id) => { if (scraped.has(id) && !assigned.has(id)) claim.add(id); });
+        if (claim.size < 2) return;                     // not enough left to be a bundle
+        const runId = "infer-" + date + "-" + c.m.a.id;
+        claim.forEach((id) => assigned.add(id));
+        dayEntries.forEach((e) => {
+          if (claim.has(e.id)) { e.via = "set"; e.runId = runId; e.runNo = null; e.setName = c.m.a.name; e.inferred = true; }
+        });
+      });
+    });
+  }
+  // A catalog of every scrape: live activity + backfilled history, filterable and grouped into
+  // analysis "runs" (a set scrape = one collapsible Run #N) to keep the list short.
+  let shState = { q: "", status: "all", source: "set", range: "all", city: "all", open: {} };   // source slider (set|single) is separate from the resettable filters
+  function renderScrapeHistory() {
+    const all = scrapeHistoryEntries();
+    const rel = (ts) => {
+      const m = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+      if (m < 1) return "just now"; if (m < 60) return m + "m ago";
+      const h = Math.round(m / 60); if (h < 24) return h + "h ago";
+      return Math.round(h / 24) + "d ago";
     };
+    const badge = (s) => s === "success" ? `<span class="sh-badge sh-badge--ok">Success</span>`
+      : s === "failed" ? `<span class="sh-badge sh-badge--err">Failed</span>`
+      : `<span class="sh-badge sh-badge--warn">No priced units</span>`;
+    const cityOf = (e) => { const b = bld(e.id); return (b && b.city) || ""; };
+    const opt = (sel, list) => list.map(([v, lbl]) => `<option value="${esc(v)}" ${sel === v ? "selected" : ""}>${esc(lbl)}</option>`).join("");
+
+    const head = `<div class="page-head"><div class="page-head__main">
+          <h1 class="page-title">Scrape History</h1>
+          <div class="page-sub">${all.length} scrape${all.length === 1 ? "" : "s"} catalogued</div>
+        </div></div>`;
+
+    if (!all.length) {
+      $view.innerHTML = head + `<div class="card"><div class="empty">${icon("clock")}<br/>No scrapes yet.<br/><span class="sub">Run a scrape from a building or analysis — it'll be catalogued here.</span></div></div>`;
+      return;
+    }
+
+    // Static shell (rendered once) — filter bar persists so the search box keeps focus while
+    // typing; only #sh-results is repainted (same approach as Building Universe's grid).
+    const cities = Array.from(new Set(all.map(cityOf).filter(Boolean))).sort();
+    const seg = (v, lbl) => `<button data-src="${v}" class="${shState.source === v ? "active" : ""}">${lbl}</button>`;
+    const filterBar = `<div class="sh-filters">
+        <div class="search sh-search">${icon("search")}<input type="search" id="shf-q" placeholder="Search building or analysis…" value="${esc(shState.q)}"/></div>
+        <div class="segmented sh-source-seg" data-seg="sh-source">${seg("set", "Analysis")}${seg("single", "Single")}</div>
+        <select id="shf-status" class="fsel">${opt(shState.status, [["all", "All statuses"], ["success", "Success"], ["empty", "No priced units"], ["failed", "Failed"]])}</select>
+        <select id="shf-range" class="fsel">${opt(shState.range, [["all", "All time"], ["today", "Today"], ["7d", "Last 7 days"], ["30d", "Last 30 days"]])}</select>
+        <select id="shf-city" class="fsel">${opt(shState.city, [["all", "All cities"]].concat(cities.map((c) => [c, c])))}</select>
+        <button class="btn sh-reset" id="shf-reset" disabled>${icon("refresh")} Reset</button>
+      </div>`;
+    $view.innerHTML = head + filterBar + `<div id="sh-results"></div>`;
+
+    const now = Date.now();
+    const inRange = (ts) => {
+      if (shState.range === "all") return true;
+      if (shState.range === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return new Date(ts).getTime() >= d.getTime(); }
+      return (now - new Date(ts).getTime()) <= (shState.range === "7d" ? 7 : 30) * 86400000;
+    };
+    // Source slider: Analysis = grouped runs (via set), Single = individual property scrapes.
+    const inSource = (e) => shState.source === "single" ? e.via !== "set" : e.via === "set";
+    const clip = (s, n) => (s && s.length > n ? s.slice(0, n).trim() + "…" : (s || ""));
+    const rowHtml = (e, runId) => {
+      const b = bld(e.id);
+      const name = esc(e.name || (b && b.name) || e.id || "—");
+      const whenAbs = esc(new Date(e.ts).toLocaleString());
+      const src = e.backfill ? "Historical" : "Single";   // (omitted inside a run group)
+      let result;
+      if (e.status === "failed") result = `<span class="shist-inc">${esc(clip(e.message || "error", 72))}</span>`;
+      else {
+        const units = e.units != null ? e.units : 0;
+        const core = e.backfill ? `${units} unit${units === 1 ? "" : "s"}` : `${units} units · ${e.priced || 0} priced`;
+        const inc = e.incentive ? ` <span class="shist-inc">· ${esc(clip(e.incentive, 56))}</span>` : "";
+        result = `<span class="shist-units">${core}</span>${inc}`;
+      }
+      const hidden = runId != null && !shState.open[runId];
+      return `<tr class="shist-row${runId != null ? " shist-sub" : ""}${e.backfill ? " shist-row--hist" : ""}${e.status === "success" ? " is-go" : ""}"${runId != null ? ` data-run="${esc(String(runId))}"` : ""} data-bid="${esc(e.id || "")}" data-date="${esc((e.ts || "").slice(0, 10))}"${hidden ? ' style="display:none"' : ""}>
+          <td><div class="shist-name">${name}</div>${runId != null ? "" : `<div class="shist-src">${src}</div>`}</td>
+          <td class="shist-when" title="${whenAbs}">${esc(rel(e.ts))}</td>
+          <td class="shist-result">${result}</td>
+          <td>${badge(e.status)}</td>
+        </tr>`;
+    };
+
+    // Repaint ONLY the results (KPIs + table) — leaves the filter bar (and the focused search) intact.
+    function paint() {
+      const q = shState.q.trim().toLowerCase();
+      const filtered = all.filter((e) =>
+        (shState.status === "all" || e.status === shState.status) && inSource(e) && inRange(e.ts) &&
+        (shState.city === "all" || cityOf(e) === shState.city) &&
+        (!q || (e.name || "").toLowerCase().includes(q) || (e.setName || "").toLowerCase().includes(q)));
+
+      const runMap = new Map(); const items = [];
+      filtered.forEach((e) => {
+        if (e.via === "set" && e.runId != null) {
+          let g = runMap.get(e.runId);
+          if (!g) { g = { type: "run", runId: e.runId, runNo: e.runNo, name: e.setName, inferred: !!e.inferred, ts: e.ts, entries: [] }; runMap.set(e.runId, g); items.push(g); }
+          g.entries.push(e); if ((e.ts || "") > g.ts) g.ts = e.ts;
+        } else items.push({ type: "row", ts: e.ts, e });
+      });
+      items.sort((a, c) => (c.ts || "").localeCompare(a.ts || ""));
+
+      const fTotal = filtered.length;
+      const okN = filtered.filter((e) => e.status === "success").length;
+      const emN = filtered.filter((e) => e.status === "empty").length;
+      const failN = filtered.filter((e) => e.status === "failed").length;
+      const kpis = `<div class="kpis">
+        <div class="kpi"><div class="kpi__val tnum">${fTotal}</div><div class="kpi__label">Scrapes shown</div></div>
+        <div class="kpi"><div class="kpi__val success tnum">${okN}</div><div class="kpi__label">Successful</div></div>
+        <div class="kpi"><div class="kpi__val tnum">${emN}</div><div class="kpi__label">No priced units</div></div>
+        <div class="kpi"><div class="kpi__val tnum">${failN}</div><div class="kpi__label">Failed</div></div>
+      </div>`;
+
+      const CAP = 400;
+      let rows = "";
+      items.slice(0, CAP).forEach((it) => {
+        if (it.type === "run") {
+          const n = it.entries.length;
+          const s = it.entries.filter((e) => e.status === "success").length;
+          const f = it.entries.filter((e) => e.status === "failed").length;
+          const em = it.entries.filter((e) => e.status === "empty").length;
+          const parts = [`${s} saved`]; if (em) parts.push(`${em} empty`); if (f) parts.push(`${f} failed`);
+          const runLabel = it.runNo != null ? `Run #${esc(String(it.runNo))} · ${esc(it.name || "Analysis")}` : `${esc(it.name || "Analysis")}`;
+          rows += `<tr class="shist-run ${shState.open[it.runId] ? "open" : ""}" data-run="${esc(String(it.runId))}">
+            <td colspan="4"><span class="shist-run__chev">${icon("chevron-down")}</span><span class="sh-sticker">analysis</span><b>${runLabel}</b> <span class="sub">· ${n} building${n === 1 ? "" : "s"} · ${parts.join(" · ")}</span><span class="shist-run__when sub">${esc(rel(it.ts))}</span></td>
+          </tr>`;
+          it.entries.forEach((e) => { rows += rowHtml(e, it.runId); });
+        } else rows += rowHtml(it.e, null);
+      });
+      const moreNote = items.length > CAP ? `<div class="sub" style="padding:10px 12px">Showing ${CAP} of ${items.length} entries — narrow with the filters above.</div>` : "";
+      const emptyNote = filtered.length ? "" : `<div class="empty" style="padding:28px">No scrapes match these filters.</div>`;
+      const res = document.getElementById("sh-results");
+      res.innerHTML = kpis + `<div class="card"><div class="shist-wrap"><table class="shist">
+        <thead><tr><th>Building</th><th>When</th><th>Result</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>${emptyNote}${moreNote}</div>`;
+
+      const dirty = !!(shState.q || shState.status !== "all" || shState.range !== "all" || shState.city !== "all");   // slider isn't a "filter" — excluded
+      const rb = document.getElementById("shf-reset"); if (rb) rb.disabled = !dirty;   // always visible; greyed when nothing's changed
+
+      res.querySelectorAll(".shist-run").forEach((h) => (h.onclick = () => {
+        const rid = h.dataset.run; shState.open[rid] = !shState.open[rid];
+        h.classList.toggle("open", shState.open[rid]);
+        res.querySelectorAll(`.shist-sub[data-run="${rid}"]`).forEach((r) => (r.style.display = shState.open[rid] ? "" : "none"));
+      }));
+      res.querySelectorAll(".shist-row.is-go[data-bid]").forEach((r) => (r.onclick = (ev) => {
+        ev.stopPropagation();
+        const id = r.dataset.bid; if (!id || !bld(id)) return;
+        pendingScrapeFocus = { id, date: r.dataset.date || null };   // open this exact scrape on the building page
+        goToBuildingFrom(id);                                        // back arrow returns to Scrape History
+      }));
+    }
+
+    const bindSel = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = () => { shState[key] = el.value; paint(); }; };
+    bindSel("shf-status", "status"); bindSel("shf-range", "range"); bindSel("shf-city", "city");
+    const sourceSeg = $view.querySelector('[data-seg="sh-source"]');
+    if (sourceSeg) sourceSeg.querySelectorAll("button").forEach((b) => (b.onclick = () => {
+      shState.source = b.dataset.src;
+      sourceSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
+      placeThumb(sourceSeg);
+      paint();
+    }));
+    const qIn = document.getElementById("shf-q");
+    if (qIn) { qIn.oninput = () => { shState.q = qIn.value; paint(); }; qIn.onsearch = () => { shState.q = qIn.value; paint(); }; }   // live search-as-you-type (focus never lost — only #sh-results repaints)
+    const resetBtn = document.getElementById("shf-reset");
+    if (resetBtn) resetBtn.onclick = () => {   // resets the filters only — leaves the Analysis/Single slider as-is
+      shState.q = ""; shState.status = "all"; shState.range = "all"; shState.city = "all";
+      const qe = document.getElementById("shf-q"); if (qe) qe.value = "";
+      ["shf-status", "shf-range", "shf-city"].forEach((id) => { const el = document.getElementById(id); if (el) el.value = "all"; });
+      paint();
+    };
+
+    paint();
   }
 
   // ========================================================= Building Detail =
   function renderBuilding(id) {
     const b = bld(id);
     if (!b) return renderUniverse();
+    // If we arrived from a comp-table property click, the back arrow returns to that analysis
+    // (and route() restores its scroll). Otherwise it defaults to the Building Universe.
+    const origin = (navOrigin && navOrigin.bid === id) ? navOrigin : null;
+    const backHref = origin ? origin.hash : "#/universe";
+    let backLabel = "Building Universe";
+    if (origin && origin.hash.startsWith("#/analysis/")) {
+      const oa = analysisById(origin.hash.split("/")[2]);
+      backLabel = oa ? oa.name + " analysis" : "analysis";
+    } else if (origin && origin.hash.startsWith("#/scrapes")) {
+      backLabel = "Scrape History";
+    }
     const hist = D.history[id] || [];
+    // Normally show the 15 most recent scrapes; if deep-linked from Scrape History to an older
+    // one, extend the window so that exact scrape row is rendered (and can be expanded).
+    const focusDate = (pendingScrapeFocus && pendingScrapeFocus.id === id) ? pendingScrapeFocus.date : null;
+    let histLimit = 15;
+    if (focusDate) { const ti = hist.findIndex((h) => (h.date || "").slice(0, 10) === focusDate); if (ti >= histLimit) histLimit = ti + 1; }
     const total = hist.length, ok = hist.filter((h) => h.status === "success").length, err = hist.filter((h) => h.status === "error").length;
     const sum = D.summary[id];
     const q = D.quarterly[id] || [];
@@ -3536,7 +4307,7 @@
       return html + `</div>`;
     };
     const scrapeHist = `<div class="card"><div class="card__title">${icon("clock")} Scrape History <span class="sub" style="font-weight:400">· click a row for detail</span></div>
-      <div class="scrape-hist">${hist.slice(0, 15).map((h, i) => {
+      <div class="scrape-hist">${hist.slice(0, histLimit).map((h, i) => {
         const det = snapByDate[(h.date || "").slice(0, 10)];
         return `<div class="row sh-row" data-i="${i}">
           <span class="${h.status === "success" ? "dot-ok" : "dot-err"}">${icon(h.status === "success" ? "check" : "edit")}</span>
@@ -3552,7 +4323,7 @@
     $view.innerHTML = `
       <div class="page-head">
         <div class="page-head__main">
-          <div class="eyebrow"><a href="#/universe" id="b-back" style="color:var(--info)">${icon("chevron-left")} Building Universe</a></div>
+          <div class="eyebrow"><a href="${backHref}" id="b-back" style="color:var(--info)">${icon("chevron-left")} ${esc(backLabel)}</a></div>
         </div>
         ${b.custom ? `<div class="page-actions"><button class="btn" id="b-remove">Remove building</button></div>` : ""}
       </div>
@@ -3568,6 +4339,7 @@
             ${b.owner ? `<span class="badge badge--orange">${esc(b.owner)}</span>` : ""}
           </div>
           <div class="detail-actions">
+            <button class="btn" id="b-settings">${icon("building")} Building Settings</button>
             <button class="btn" id="b-scrape">${icon("settings")} Scrape Settings</button>
             ${(window.COMP_CONFIG || {}).scrapeApi ? `<button class="btn" id="b-runscrape">${icon("refresh")} Run scrape</button>` : ""}
             <button class="btn btn--accent" id="b-addto">${icon("plus")} Add to Analysis</button>
@@ -3584,6 +4356,8 @@
     const bk = document.getElementById("b-back");
     if (bk) bk.onclick = () => { wantUniverseRestore = true; };   // href still navigates to #/universe
 
+    const bSettings = document.getElementById("b-settings");
+    if (bSettings) bSettings.onclick = () => openBuildingSettingsModal(b);
     const bScrape = document.getElementById("b-scrape");
     if (bScrape) bScrape.onclick = () => openScrapeSettingsModal(b);
     const bRun = document.getElementById("b-runscrape");
@@ -3613,6 +4387,24 @@
       if (!panel) return;
       r.classList.toggle("open", panel.classList.toggle("open"));   // smooth grid-row accordion (CSS)
     }));
+    // Deep-link from Scrape History: open + scroll to the clicked scrape's row.
+    if (pendingScrapeFocus && pendingScrapeFocus.id === id && pendingScrapeFocus.date) {
+      const target = pendingScrapeFocus.date; pendingScrapeFocus = null;
+      let matched = null;
+      $view.querySelectorAll(".sh-row").forEach((r) => {
+        const h = hist[+r.dataset.i];
+        if (h && (h.date || "").slice(0, 10) === target) matched = r;
+      });
+      if (matched) {
+        const panel = $view.querySelector(`.sh-panel[data-panel="${matched.dataset.i}"]`);
+        if (panel) { matched.classList.add("open"); panel.classList.add("open"); }
+        matched.classList.add("sh-row--flash");
+        setTimeout(() => { try { matched.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { matched.scrollIntoView(); } }, 60);
+      } else {
+        const card = $view.querySelector(".scrape-hist");
+        if (card) setTimeout(() => { try { card.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} }, 60);
+      }
+    }
     // fill the lazy individual-listing slots once this building's unit file loads
     const slots = $view.querySelectorAll(".sh-uslot");
     if (slots.length) loadUnits(id).then((map) => {
@@ -3683,12 +4475,11 @@
     $view.classList.remove("view-enter"); void $view.offsetWidth; $view.classList.add("view-enter");
   }
 
-  // Back-to-top: a floating button on the Building Universe *list* that appears once you've
-  // scrolled past the first screen and glides you back to the top.
+  // Back-to-top: a floating button shown on ANY page once you've scrolled past most of the
+  // first screen; glides you back to the top. Hidden while a modal is open.
   let toTopBtn = null;
   function updateToTop() {
-    const onListUniverse = (location.hash || "#/universe").startsWith("#/universe") && buState.view === "list";
-    const show = onListUniverse && window.scrollY > window.innerHeight * 0.75;
+    const show = !document.querySelector(".modal-overlay") && window.scrollY > window.innerHeight * 0.6;
     if (show && !toTopBtn) {
       toTopBtn = document.createElement("button");
       toTopBtn.className = "to-top"; toTopBtn.setAttribute("aria-label", "Back to top"); toTopBtn.title = "Back to top";
@@ -3705,6 +4496,14 @@
   window.addEventListener("resize", () => { if (compStickyWrap && compStickyWrap.isConnected) buildCompSticky(compStickyWrap); });
 
   let routeCur = null, savedUniverseScroll = null, savedMapView = null, wantUniverseRestore = false, universeInstant = false;
+  let navOrigin = null;   // {hash, scroll, bid}: where a comp-table property click came from — drives the building back-arrow + scroll restore
+  let pendingScrapeFocus = null;   // {id, date}: deep-link to a specific scrape row on the building page (from Scrape History)
+  // Open a building from a known origin (a comp-table property cell, or Scrape History) so its
+  // back arrow returns there and the page lands back at the same scroll position.
+  function goToBuildingFrom(id) {
+    navOrigin = { hash: location.hash, scroll: window.scrollY, bid: id };
+    location.hash = "#/building/" + id;
+  }
   function route() {
     if (!D) return;   // ignore navigation until the dataset has loaded
     const h = location.hash || "#/universe";
@@ -3719,6 +4518,10 @@
     // Reaching a building any other way clears them, so a restore only ever applies to a
     // building opened directly from the universe.
     if (h.startsWith("#/building/")) {
+      // Keep navOrigin only if THIS building was opened straight from the recorded click;
+      // any other path here (sidebar, card, links) drops it so the back arrow stays default.
+      const bid = h.split("/")[2];
+      if (!(navOrigin && navOrigin.bid === bid && prev === navOrigin.hash)) navOrigin = null;
       const fromU = !!(prev && prev.startsWith("#/universe"));
       savedUniverseScroll = fromU ? window.scrollY : null;
       savedMapView = (fromU && uMap && buState.view === "map")
@@ -3728,6 +4531,9 @@
     // Restore only when the building's back arrow brought us here (not sidebar/other nav).
     const restoreScroll = (h.startsWith("#/universe") && wantUniverseRestore && savedUniverseScroll != null) ? savedUniverseScroll : null;
     wantUniverseRestore = false;
+    // Returning to the page a property click came from (via back arrow OR browser Back): land
+    // exactly where they clicked, no re-fade, then consume the origin.
+    const originRestore = (navOrigin && h === navOrigin.hash && prev === "#/building/" + navOrigin.bid) ? navOrigin.scroll : null;
     // On a back-arrow restore, render the universe statically (no card stagger, no map
     // intro, no page fade) so it reappears instantly at the saved spot — feels like you
     // never left, instead of re-animating for a beat. On the map, also drop onto the saved
@@ -3738,16 +4544,21 @@
     destroyMap();
     teardownCompSticky();   // renderSummary rebuilds it for the comp tab; other pages stay clear
     renderNav();
-    if (!tabSwitch && restoreScroll == null) window.scrollTo(0, 0);
+    if (!tabSwitch && restoreScroll == null && originRestore == null) window.scrollTo(0, 0);
+    // Scrape History opens fresh each time (filters/slider/expansions reset) — EXCEPT when
+    // returning via a building's back arrow (originRestore), where we keep state + scroll.
+    if (h.startsWith("#/scrapes") && originRestore == null) shState = { q: "", status: "all", source: "set", range: "all", city: "all", open: {} };
     if (h.startsWith("#/universe")) renderUniverse();
+    else if (h.startsWith("#/scrapes")) renderScrapeHistory();
     else if (am) renderAnalysis(am[1], am[2]);
     else if (h.startsWith("#/building/")) renderBuilding(h.split("/")[2]);
     else renderUniverse();
     if (restoreScroll != null) { window.scrollTo(0, restoreScroll); savedUniverseScroll = null; savedMapView = null; mapRestoreView = null; }   // back to the exact spot
+    if (originRestore != null) { window.scrollTo(0, originRestore); navOrigin = null; }   // back to where the property was clicked
     if (tabSwitch) {
       const tb = document.getElementById("tabbody");
       if (tb && !prefersReduced) { tb.classList.remove("tab-fade"); void tb.offsetWidth; tb.classList.add("tab-fade"); }
-    } else if (!universeInstant) playViewEnter();
+    } else if (!universeInstant && originRestore == null) playViewEnter();
     universeInstant = false;   // one render only
     initSegmenteds($view);
     animateCounts($view);
@@ -3786,6 +4597,8 @@
   function boot() {
     loadCustomBuildings();
     loadScrapeOverrides();
+    loadBuildingOverrides();
+    loadScrapeLog();
     loadCustomAnalyses();
     // Always land on Building Universe on open/refresh, regardless of a persisted hash.
     if (location.hash && location.hash !== "#/universe") history.replaceState(null, "", "#/universe");
