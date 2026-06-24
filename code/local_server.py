@@ -60,20 +60,22 @@ def _next_rid():
         return f"#{_req_seq:03d}"
 
 
-# ---- Cooperative cancellation: the frontend POSTs /cancel {jobId}; run_scrape checks this set
+# ---- Cooperative cancellation: the frontend POSTs /cancel {jobId}; run_scrape checks this map
 # at checkpoints (incl. between Claude's streamed tokens) and aborts instead of finishing.
-_cancelled_jobs = set()
+# A plain dict is insertion-ordered (FIFO); the cap evicts the OLDEST id, so a just-requested
+# cancel for an in-flight scrape is never wiped (the old set.clear() backstop could drop it).
+_cancelled_jobs = {}
 _cancel_lock = threading.Lock()
+_CANCEL_CAP = 256
 
 
 def request_cancel(job_id):
     if not job_id:
         return
     with _cancel_lock:
-        _cancelled_jobs.add(job_id)
-        if len(_cancelled_jobs) > 1000:          # backstop against unbounded growth
-            _cancelled_jobs.clear()
-            _cancelled_jobs.add(job_id)
+        _cancelled_jobs[job_id] = True
+        while len(_cancelled_jobs) > _CANCEL_CAP:
+            _cancelled_jobs.pop(next(iter(_cancelled_jobs)))   # evict oldest, never the new one
 
 
 def is_cancelled(job_id):
@@ -87,7 +89,7 @@ def clear_cancel(job_id):
     if not job_id:
         return
     with _cancel_lock:
-        _cancelled_jobs.discard(job_id)
+        _cancelled_jobs.pop(job_id, None)
 
 
 # ---- Per-building rich scrape configs (code/sites/*.json) --------------------
@@ -203,7 +205,22 @@ async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_ca
              rid, url, strategy, config.get("initial_wait_ms"), config.get("scroll"))
     fetcher = PageFetcher(headless=True)          # fetch() opens + closes its own browser
     extractor = RentExtractor(API_KEY, MODEL)
-    html = await fetcher.fetch(url, config)
+    # Run fetch as a task so a cancel mid-fetch (page waits, scrolls, floor pagination) actually
+    # interrupts it — Playwright's awaits are cancellable, and fetch() closes its browser in a
+    # finally, so cancellation can't leak a browser. (The Claude phase is cancelled separately,
+    # between streamed tokens.)
+    fetch_task = asyncio.ensure_future(fetcher.fetch(url, config))
+    while not fetch_task.done():
+        if should_cancel():
+            fetch_task.cancel()
+            try:
+                await fetch_task
+            except BaseException:
+                pass
+            log.info("%s cancelled at fetch", rid)
+            raise ScrapeCancelled()
+        await asyncio.sleep(0.2)
+    html = fetch_task.result()
     log.info("%s fetch    ok %d chars in %.1fs", rid, len(html), time.perf_counter() - t0)
     ck("before-extract")                          # skip the (expensive) Claude call if already cancelled
     if strategy == "tricon_api":                  # API strategies bypass Claude
@@ -323,6 +340,8 @@ class Handler(BaseHTTPRequestHandler):
         if site:
             cfg = {**cfg, **site}
             log.info("%s applied sites/ config for '%s' (strategy=%s, +%d keys)", rid, name, site.get("strategy"), len(site))
+            if site.get("_TODO"):   # stub config — don't let the "applied" line imply it's complete
+                log.warning("%s sites/ config for '%s' is INCOMPLETE (_TODO): %s", rid, name, site.get("_TODO"))
         log.info("%s POST /scrape from %s name=%s job=%s", rid, self.client_address[0], name or "(unnamed)", job_id)
         try:
             result = asyncio.run(run_scrape(url, name, cfg, rid=rid, should_cancel=lambda: is_cancelled(job_id)))
