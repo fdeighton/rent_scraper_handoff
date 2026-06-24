@@ -12,7 +12,8 @@ import socket
 import sys
 import urllib.error
 import urllib.request
-from urllib.parse import quote, urljoin, urlsplit
+from datetime import date, timedelta
+from urllib.parse import parse_qsl, quote, urljoin, urlsplit
 from typing import Optional
 from playwright.async_api import async_playwright, Page, BrowserContext
 
@@ -787,9 +788,12 @@ class PageFetcher:
     # ------------------------------------------------------------------
     # Tricon (and any Yardi-backed property feeding triconliving.com) exposes a
     # public JSON API that's the SAME source the marketing site renders from.
-    # Hitting it directly is faster, deterministic, and yields the true
-    # 12-month-equivalent rent (`min_rent`) instead of the inflated
-    # shortest-term rate (`max_rent`) we used to extract from HTML.
+    # Hitting it directly is faster and deterministic. NOTE: `min_rent` is the
+    # CHEAPEST lease term (the LRO "BestPrice" across ~6-16 months), NOT the
+    # 12-month rent — recon found 12mo runs ~10% (up to ~26%) higher, sometimes
+    # above `max_rent`. The normal scrape stores `min_rent` (smallest term); the
+    # true 12-month rent is fetched ON DEMAND only, via fetch_tricon_12mo() ->
+    # the RentCafe LRO behind each unit's apply_url (see helpers below).
     #
     # We still load the marketing HTML page to:
     #   1. Capture the public-facing UnitID set as a structural guard
@@ -832,6 +836,11 @@ class PageFetcher:
         if slug:
             return slug
         m = re.search(r"triconresidential\.com/apartment/([^/?#]+)", scrape_url)
+        if m:
+            return m.group(1)
+        # Also accept the raw API URL form (triconliving.com/api/v1/apartments/<slug>),
+        # so the on-demand 12mo endpoint works whether given the marketing or API URL.
+        m = re.search(r"triconliving\.com/api/v1/apartments/([^/?#]+)", scrape_url)
         if m:
             return m.group(1)
         return None
@@ -1012,6 +1021,141 @@ class PageFetcher:
 
         # Return the raw API JSON as snapshot content (for debugging / re-extraction)
         return json.dumps(payload, default=str)
+
+    # ------------------------------------------------------------------
+    # Tricon 12-month rent — ON-DEMAND ONLY (never part of the normal scrape).
+    # The real 12-month lease rent isn't in the triconliving API; it lives in the
+    # RentCafe LRO behind each unit's apply_url. Cloudflare gates that host by TLS
+    # fingerprint, so we use curl_cffi (chrome impersonation) — plain httpx is 403'd.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _tricon_parse_12mo_quote(fragment_html: str) -> Optional[float]:
+        """Extract the 12-month monthly rent from an olequotesheet HTML fragment.
+        Returns None unless the fragment is a valid 12-month quote. Pure / no I/O."""
+        if not fragment_html:
+            return None
+        plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment_html))
+        if "12 months" not in plain:        # the fragment echoes "12 months <start> - <end>"
+            return None
+        m = (re.search(r"Main charge \$([\d,]+(?:\.\d{2})?)", plain)
+             or re.search(r"Monthly Charges Rent \$([\d,]+(?:\.\d{2})?)", plain))
+        if not m:
+            return None
+        try:
+            val = float(m.group(1).replace(",", ""))
+        except ValueError:
+            return None
+        return val if val > 0 else None
+
+    @staticmethod
+    def _tricon_movein_candidates(unit: dict, today: date) -> list[str]:
+        """Ordered DD/MM/YYYY move-in dates to try for a unit: its availability date
+        (or today+14d if already Available / past), then a +30d retry."""
+        iso = (unit.get("availability") or {}).get("date")
+        base = None
+        if iso:
+            try:
+                y, m, d = (int(x) for x in iso[:10].split("-"))
+                base = date(y, m, d)
+            except Exception:
+                base = None
+        if base is None or base < today:
+            base = today + timedelta(days=14)
+        return [f"{c.day:02d}/{c.month:02d}/{c.year}" for c in (base, base + timedelta(days=30))]
+
+    async def _tricon_fetch_12mo(self, apply_url: str, movein_dates: list[str]) -> Optional[float]:
+        """True 12-month monthly rent for ONE unit, from the RentCafe LRO behind
+        apply_url. Bootstraps the session (Cloudflare + app cookies), then tries each
+        move-in date until a valid 12-month quote parses. Returns float or None on ANY
+        failure — never raises into the caller."""
+        if not apply_url:
+            return None
+        try:
+            from curl_cffi.requests import AsyncSession
+        except Exception as e:
+            print(f"      [tricon_12mo] curl_cffi unavailable: {e}", file=sys.stderr)
+            return None
+        q = dict(parse_qsl(urlsplit(apply_url).query))
+        uid, pid = q.get("UnitID"), q.get("myOlePropertyId")
+        if not (uid and pid):
+            return None
+        host = f"https://{urlsplit(apply_url).netloc}"
+        quote_url = f"{host}/onlineleasing/rcLoadContent.ashx"
+        try:
+            async with AsyncSession(impersonate="chrome", timeout=30) as s:
+                await s.get(apply_url)                       # bootstrap CF + app session cookies
+                for movein in movein_dates:
+                    r = await s.get(quote_url, params={
+                        "contentclass": "olequotesheet", "MoveinDate": movein,
+                        "sLeaseTerm": "12", "UnitId": uid, "PropertyId": pid,
+                    }, headers={"X-Requested-With": "XMLHttpRequest", "Referer": apply_url})
+                    price = self._tricon_parse_12mo_quote(r.text)
+                    if price is not None:
+                        return price
+        except Exception as e:
+            print(f"      [tricon_12mo] fetch failed for unit {uid}: {e}", file=sys.stderr)
+            return None
+        return None
+
+    async def fetch_tricon_12mo(self, url: str, config: Optional[dict] = None,
+                                should_cancel=None) -> list[dict]:
+        """ON-DEMAND: fetch the 12-month rent for every current unit of a Tricon
+        property. Re-uses the API payload (units + apply_urls), then hits the LRO per
+        unit (concurrency-capped, polite). Returns one row per unit:
+            {unit_code, unit_type, beds, baths, sqft, floor, status,
+             lowest_term_rent, rent_12mo, gap, gap_pct, source}
+        Does NOT touch the normal scrape path or self._last_* state."""
+        config = _clean_config(config or {})
+        should_cancel = should_cancel or (lambda: False)
+        slug = self._tricon_derive_slug(url, config)
+        if not slug:
+            raise RuntimeError(f"tricon_12mo: cannot derive slug from '{url}'")
+        payload = self._tricon_fetch_api(slug)
+        if payload is None:
+            await asyncio.sleep(5)
+            payload = self._tricon_fetch_api(slug)
+        if payload is None:
+            raise RuntimeError(f"tricon_12mo: API unreachable for slug='{slug}'")
+        ok, reason = self._tricon_validate_payload(payload)
+        if not ok:
+            raise RuntimeError(f"tricon_12mo: schema validation failed — {reason}")
+
+        units = [u for u in (payload.get("units") or [])
+                 if (u.get("status") or "") in self._TRICON_PUBLIC_STATUSES]
+        today = date.today()
+        sem = asyncio.Semaphore(2)          # politeness: ~2 concurrent LRO sessions
+
+        async def _one(u):
+            async with sem:
+                if should_cancel():
+                    return u, None
+                await asyncio.sleep(0.3)
+                r12 = await self._tricon_fetch_12mo(
+                    u.get("apply_url") or "", self._tricon_movein_candidates(u, today))
+                return u, r12
+
+        results = await asyncio.gather(*[_one(u) for u in units])
+        rows = []
+        for u, r12 in results:
+            try:
+                low = float(u.get("min_rent")) if u.get("min_rent") is not None else None
+            except (TypeError, ValueError):
+                low = None
+            gap = round(r12 - low, 2) if (r12 is not None and low is not None) else None
+            gap_pct = round(gap / low * 100, 1) if (gap is not None and low) else None
+            rows.append({
+                "unit_code": u.get("unit_code"),
+                "unit_type": self._tricon_beds_to_unit_type(u.get("beds"), u.get("unit_type_code")),
+                "beds": u.get("beds"), "baths": u.get("baths"),
+                "sqft": u.get("sqft"), "floor": u.get("floor"), "status": u.get("status"),
+                "lowest_term_rent": low,
+                "rent_12mo": r12,
+                "gap": gap, "gap_pct": gap_pct,
+                "source": "lro_12mo" if r12 is not None else "missing",
+            })
+        got = sum(1 for r in rows if r["rent_12mo"] is not None)
+        print(f"      [tricon_12mo] {got}/{len(rows)} units returned a 12-month quote")
+        return rows
 
     async def _fetch_static(self, url: str) -> str:
         """Simple HTTP fetch without browser rendering."""

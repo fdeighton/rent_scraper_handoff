@@ -1,7 +1,17 @@
 """Tests for fetcher.py — static helper methods (no browser needed)."""
 
+import os
+from datetime import date
+
 import pytest
 from fetcher import PageFetcher
+
+FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
+
+
+def _fixture(name):
+    with open(os.path.join(FIXTURES, name), encoding="utf-8") as f:
+        return f.read()
 
 
 class TestHasPromoKeywords:
@@ -80,3 +90,43 @@ class TestPrependPromo:
     def test_returns_content_unchanged_when_no_promo(self):
         assert PageFetcher._prepend_promo("", "Page content") == "Page content"
         assert PageFetcher._prepend_promo(None, "Page content") == "Page content"
+
+
+class TestTriconParse12moQuote:
+    """Tests for PageFetcher._tricon_parse_12mo_quote() — against saved RentCafe
+    olequotesheet HTML fragments (no live calls)."""
+
+    def test_extracts_12mo_rent_from_real_fragment(self):
+        # Real captured fragment for The Selby unit 3407: "Main charge $3,255 per month".
+        html = _fixture("tricon_olequotesheet_12mo.html")
+        assert PageFetcher._tricon_parse_12mo_quote(html) == 3255.0
+
+    def test_missing_12mo_term_returns_none(self):
+        # Fragment with no valid "12 months" term / $0 rent → not a usable quote.
+        html = _fixture("tricon_olequotesheet_missing.html")
+        assert PageFetcher._tricon_parse_12mo_quote(html) is None
+
+    def test_empty_and_garbage_return_none(self):
+        assert PageFetcher._tricon_parse_12mo_quote("") is None
+        assert PageFetcher._tricon_parse_12mo_quote(None) is None
+        assert PageFetcher._tricon_parse_12mo_quote("<div>no price here</div>") is None
+
+
+class TestTriconMoveinCandidates:
+    """Tests for PageFetcher._tricon_movein_candidates()."""
+
+    def test_uses_availability_date_then_plus_30(self):
+        unit = {"availability": {"display": "Coming Soon", "date": "2026-08-07"}}
+        out = PageFetcher._tricon_movein_candidates(unit, date(2026, 6, 24))
+        assert out == ["07/08/2026", "06/09/2026"]
+
+    def test_available_now_falls_back_to_today_plus_14(self):
+        # No availability date (already Available) → today+14d, then +30d.
+        unit = {"availability": {"display": "Available", "date": None}}
+        out = PageFetcher._tricon_movein_candidates(unit, date(2026, 6, 24))
+        assert out == ["08/07/2026", "07/08/2026"]
+
+    def test_past_availability_date_is_bumped_forward(self):
+        unit = {"availability": {"date": "2020-01-01"}}
+        out = PageFetcher._tricon_movein_candidates(unit, date(2026, 6, 24))
+        assert out[0] == "08/07/2026"   # today+14d, not the stale past date

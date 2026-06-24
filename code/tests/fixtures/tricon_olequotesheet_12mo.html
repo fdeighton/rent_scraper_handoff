@@ -1,0 +1,696 @@
+<link rel="stylesheet" type="text/css" href="https://cdngeneralcf.rentcafe.com/css/rentaloptions.min.1782282840.css" />
+<div class="row-bs3 block" id="QuotesheetWrapper">
+   <div class="msgContainer" id="noticeboxdiv_olequotesheet"></div>
+   <div class="col-xs-12 col-lg-10 col-lg-offset-1">
+      <!-- first row property details name, address ,city -->
+      <div class="row-bs3 m-b">
+         <div class="col-xs-12 col-lg-6">
+             <h3 class="m-n text-4xl"><span class="donotsplit"><span class="font-semibold">Quote</span> Sheet</span></h3>
+            <h4 class="text-md m-t-xs m-b-md font-thin text-xl hide showPrint"></h4>
+         </div>
+         <div class="col-xs-12 col-lg-6 text-right hiupdateQSPricesdePrint">
+            <a href="javascript:void(0);" id="back_to_calc" class="btn btn-info close_overlay hidePrint" data-selenium-id="back_to_RO"><i class="iconm-arrow-left4"></i> Back to Leasing Options</a>
+         </div>
+      </div>
+      <!-- end first row-->
+      <!-- second row unit information -->
+       <div class="row-bs3 unit_info">
+           <div class="col-xs-12">
+               <ul class="m-n no-border list-inline p-b-sm">
+                   <li><span class="font-semibold">Floor Plan:</span></li>
+                   <li><span data-selenium-id='QSTermsFPBedBath'>1 bedroom / 1 bathroom</span></li>
+                   <li style=''><span data-selenium-id='QSTermsFPSQFT'>603<span>Sq.Ft.</span></span></li>
+                   <li><span data-selenium-id='QSTermsFPName'>A13</span></li>
+               </ul>
+           </div>
+       </div>
+      <!--end of third row -->
+      <!-- fourth row lease/unit information -->
+       <div class="row-bs3 unit_info m-b">
+           <div class="col-xs-12">
+               <ul class="m-n no-border list-inline">
+                   <li><span class="font-semibold">Lease Terms:</span></li>
+                   <li><span data-selenium-id='QSUnitCode'>Apartment3407</span></li>
+                   <li style=' '><span data-selenium-id='QSLeaseTerm'>12 months</span></li>
+                   <li class="lease_range"><span data-selenium-id='QSMIDateRange'>15/07/2026 - 14/07/2027</span></li>
+               </ul>
+           </div>
+           <!-- end of fourth row -->
+       </div>
+        <div class="romance m-t-lg m-b-lg" id="QSRomanceParaText"></div>
+      <div class="row-bs3" id="divQSMonthlyCharges" style='' >
+         <div class="col-xs-12">
+            <div class="well font-thin" id="monthly_charges">
+               <h4 class="prepend-icon-money b-b b-lightgray m-t-n m-b-md font-thin text-xl">Monthly Charges</h4>
+               <div class="row-bs3 equal-sm border-between">
+                  <div class="col-xs-12 col-sm-8">
+                      <div>
+                          <div id="monthly_charges_ct">
+                              <div class="row-bs3 breakdown-row m-b-sm rentalOptionCT"><div class="col-xs-5">Rent</div> <div class="col-xs-2 text-right" data-selenium-id="Monthly_Rent_amt">$3,255</div><div class="col-xs-5">Main charge</div> </div> <div id='qs_rental_options'></div>
+                              
+                          </div>
+                      </div>
+                     
+                  </div>
+                  <div class="col-xs-12 col-sm-4 vertical-align">
+                     <div class="qs_sum text-center">
+                        <span class="qs_tp text-sm-block text-heavy" id="QSTotalMonthlychgAmt" data-selenium-id='QSMonthlyTotalChg'>$3,255</span> <span class="text-sm-block text-smaller">per month</span>
+                        <div class="text-base m-t-sm l-h-1x" id="divMonthlySpecial"></div>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+      </div>
+      <div class="row-bs3">
+         <div class="col-xs-12">
+            <div class="well">
+               <h4 class="prepend-icon-money b-b b-lightgray m-t-n m-b-md font-thin text-xl">Move-In Charges</h4>
+               <div class="row-bs3 equal-sm border-between">
+                  <div class="col-xs-12 col-sm-8">
+                     <div>
+                        <div id="move_in_costs_ct" class="m-b-md">
+                           <div class="row-bs3 breakdown-row m-b-sm rentalOptionCT"><div class="col-xs-5">Rent for 17 days</div> <div class="col-xs-2 text-right" data-selenium-id="Movein_Rentfor17days_amt">$1,819.23</div> </div>
+                        </div>
+                        <p class='muted text-sm m-b-none'>Monthly charges prorated over 17 days.</p>
+                     </div>
+                  </div>
+                  <div class="col-xs-12 col-sm-4 vertical-align hidePrint">
+                      <div class="qs_sum text-center">
+                          <span style="" class="text-sm-block text-heavy move_in_cost qs_tp" id="QSTotalMoveinchgAmt" data-selenium-id='QSMoveinTotalChg'>$1,819.23</span> <span style="" class="text-sm-block text-smaller">due upon move-in</span>
+                          <div class="text-base m-t-sm l-h-1x" id="divMoveinSpecial" data-selenium-id='QSMoveinSpecials'></div>
+                          <div><button type="button" class="btn " name="do_apply_quote_sheet" id="do_apply_quote_sheet" class="btn btn-success btn-flat btn-block btn-apply hidePrint" data-selenium-id="apply_quote_sheet" onclick="$(&#39;#sLeaseTerm&#39;).val(&#39;12&#39;);$(&#39;#dtMIDateSel&#39;).val(&#39;15/07/2026&#39;); $(&#39;#btnStartApplication&#39;).click();" style="width:60%;margin:20px auto 0 auto;">Apply Now</button></div>
+                      </div>
+                  </div>
+               </div>
+            </div>
+         </div>
+      </div>
+      <!-- payment schedule -->
+      <div id="payment_schedule_wrapper" class="row-bs3 m-t-md hidePrint" style="display: none;page-break-before:always;">
+         <div class="col-xs-12 ">
+            <div class="well">
+               <h4 class="prepend-icon-schedule m-n font-thin text-xl" style="margin-bottom:0px;">Payment Schedule</h4>
+               <a class="show_payment_schedule hidePrint" href="javascript:void(0);" data-selenium-id="show_payment_schedule"><i class="iconm-plus3"></i></a>
+               <div id="payment_schedule" class="hidden m-t-md">
+                  <div class="row-bs3">
+                     
+                  </div>
+                  <div class="well_footer b-t-none p-t-none m-t-none">
+                     <p class="muted text-sm m-t">Payments are based on rent plus any rentable items selected.</p>
+                  </div>
+               </div>
+            </div>
+         </div>
+      </div>
+      <!--end of payment schedule-->
+      <div class="row-bs3 block hidePrint">
+         <div class="col-xs-12 text-right action_btns m-t">
+            <a class="btn btn-default btn-flat uppercase text-lg p-l-md p-r-md p-t-sm p-b-sm" id="PrintButton" data-selenium-id="PrintQS" >Print</a>
+            <a style='display: none; ' class="btn btn-default btn-flat uppercase text-lg p-l-md p-r-md p-t-sm p-b-sm" id="btnQSEmail" data-selenium-id="EmailQS">Email</a>
+         </div>
+      </div>
+      <div class="row-bs3">
+         <div class="col-xs-12">
+            <!--<p id="generated_on" class="text-right muted">Quote generated on <span id="datetime">DATE</span>. Rates are subject to change without notice.</p>-->
+			<p id="datetime" class="text-right muted">Quote generated on DATE. Rates are subject to change without notice.</p>
+         </div>
+      </div>
+   </div>
+     <input id="qsTotalMoveinAmt" autocomplete="xoff" name="qsTotalMoveinAmt" type="hidden" class="" value="1819.23" /><input id="qsTotalMonthlyAmt" autocomplete="xoff" name="qsTotalMonthlyAmt" type="hidden" class="" value="3255.00" /><input id="qsTotalMoveinAmtMax" autocomplete="xoff" name="qsTotalMoveinAmtMax" type="hidden" class="" value="1819.23" /><input id="qsUnitRent" autocomplete="xoff" name="qsUnitRent" type="hidden" class="" value="3255.00" /><input id="qsTotalMoveinSpecialAmt" autocomplete="xoff" name="qsTotalMoveinSpecialAmt" type="hidden" class="" value="0.00" /><input id="qsTotalMonthlySpecialAmt" autocomplete="xoff" name="qsTotalMonthlySpecialAmt" type="hidden" class="" value="0.00" /><input id="IsMEIntProperty" autocomplete="xoff" name="IsMEIntProperty" type="hidden" class="" value="1" /><input id="Proration" autocomplete="xoff" name="Proration" type="hidden" class="" value="1" /><input id="AmountPeriod" autocomplete="xoff" name="AmountPeriod" type="hidden" class="" value="2" /><input id="InvoicePeriod" autocomplete="xoff" name="InvoicePeriod" type="hidden" class="" value="0" /><input id="IsChargeMoveIn" autocomplete="xoff" name="IsChargeMoveIn" type="hidden" class="" value="False" /><input id="IsChargeMoveOut" autocomplete="xoff" name="IsChargeMoveOut" type="hidden" class="" value="False" /><input id="IsLastAdded" autocomplete="xoff" name="IsLastAdded" type="hidden" class="" value="0" /><input id="LeaseTo" autocomplete="xoff" name="LeaseTo" type="hidden" class="" value="7/14/2027 12:00:00 AM" />
+</div>
+
+<!-- EMAIL QUOTE SHEET MODAL -->
+<div id="email_qs_modal_1" class="modal fade" role="dialog" aria-labelledby="myModalLabel" style="top: 600px;">
+    <div class="modal-header m-b-lg">
+        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+        <h2 class="text-xxxl"><span class="heavy" id="myModalLabel">Email</span> Quote Sheet</h2>
+    </div>
+    <div>
+        <!-- START THE FORM -->
+        <form class="form-horizontal" method="POST" id="FrmOLEQuteSheet" action="/rcformsave.ashx">
+            <input type="hidden" value="olequotesheet" class="" name="formName2" id="formName2">
+            <div class="container-fluid-bs3" id="OLEQuoteSheetBody">
+                <div class="row-bs3">
+                    <div class="col-xs-12">
+                        <div class="control-group">
+                            <label class="control-label w-xs" for="email_addresses">Send to</label>
+                            <div class="controls">
+                                <input type="text" class="input-block-level r-n required myMultiEmailValidation" id="txtEmail" data-selenium-id="txtEmail" name="txtEmail" placeholder="Email address(es)">
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label w-xs" for="your_name">Your Name</label>
+                            <div class="controls">
+                                <input type="text" class="input-block-level r-n required" id="txtName" name="txtName" data-selenium-id="txtName" placeholder="First & Last">
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label w-xs" for="your_message">Message</label>
+                            <div class="controls">
+                                <textarea id="txtMessage" class="input-block-level r-n no-resize-x" name="txtMessage" data-selenium-id="txtMessage"  placeholder="I thought you'd be interested!"></textarea>
+                            </div>
+                        </div>
+						  <div class="control-group">
+						   <label class="control-label w-xs"></label>
+						   <div class="controls">
+                           <style>.grecaptcha-badge { visibility: hidden; }</style><script type='text/javascript'>
+function getCaptchaV3Token() {
+    grecaptcha.enterprise.ready(function() { 
+        grecaptcha.enterprise.execute('6LfBeqEaAAAAALsbENKGUsE98xFoA3ZpqkbzogBI', {action: 'QuoteSheet'}).then(function(token) {
+            $('#g-recaptcha-response-v3').val(token); 
+        });
+    });
+} 
+ var onSubmitV2 = function(token) { 
+    $('#g-recaptcha-response').val(token); 
+ } 
+function callV2() { 
+    if($('#failed-captcha-3').val() == 'false') { 
+        grecaptcha.enterprise.render('recaptcha-container', { 
+            'sitekey': '6Led3AcTAAAAAMU9N0MWjGzH1EM2ewS_DHHVol3p'
+        ,'callback': 'onSubmitV2'
+        }); 
+    $('#failed-captcha-3').val('true'); 
+    } else { 
+        grecaptcha.enterprise.reset(); 
+    } 
+ } 
+</script>
+<div id="olequotesheet_ReCaptcha" style="display:block">
+	
+</div>
+<div id="olequotesheet_ReCaptchagrecaptchabadge" lang="xx" class="donotsplit">
+	This site is protected by reCAPTCHA and the Google <a href="https://policies.google.com/privacy" target="_blank">Privacy Policy</a> and <a href="https://policies.google.com/terms" target="_blank">Terms of Service</a> apply.
+	
+</div>
+<div class="controls" id="recaptcha-container">
+	
+</div>
+<div>
+	<div class>
+		<input id="g-recaptcha-response-v3" autocomplete="xoff" name="g-recaptcha-response-v3" type="hidden" class="" value="no token" />
+	</div>
+	<div class>
+		<input id="failed-captcha-3" autocomplete="xoff" name="failed-captcha-3" type="hidden" class="" value="false" />
+	</div>
+	<div class>
+		<input id="recaptchaEnterpriseFormId" autocomplete="xoff" name="recaptchaEnterpriseFormId" type="hidden" class="" value="" />
+	</div>
+
+</div>
+						   </div>
+                        </div>
+                        <div class="text-right">
+                            <button class="btn btn-primary btn-flat btn-block" data-dismiss="modal" id="btnOLEQuoteSheet" data-selenium-id="SendEmailQS">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+
+    function getClockTime() {
+        var now = new Date();
+        var hour = now.getHours();
+        var minute = now.getMinutes();
+        var second = now.getSeconds();
+
+        var month = now.getMonth() + 1; // Because months are 0-11 in javascript
+        var day = now.getDate();
+        var year = now.getFullYear();
+
+        var ap = "AM";
+        if (hour > 11) {
+            ap = "PM";
+        }
+        if (hour > 12) {
+            hour = hour - 12;
+        }
+        if (hour == 0) {
+            hour = 12;
+        }
+        if (hour < 10) {
+            hour = "0" + hour;
+        }
+        if (minute < 10) {
+            minute = "0" + minute;
+        }
+        if (second < 10) {
+            second = "0" + second;
+        }
+
+        var split = new Date().toString().split(" ");
+        var timeZoneFormatted =" "+ split[split.length - 4] + " " + split[split.length - 3] + " " + split[split.length - 2] + " " + split[split.length - 1]
+
+        //var timeString = month + '/' + day + '/' + year + ' @ ' + hour + ':' + minute + ':' + second + " " + ap + timeZoneFormatted;
+       var timeString = month + '/' + day + '/' + year;
+        return timeString;
+    }
+
+
+
+    $(document).ready(function () {
+        $('#lease_info_panel').slideToggle('fast');
+        $('#quote_sheet').slideToggle('fast', function () {
+            $('html, body').animate({
+                scrollTop: $("#quote_sheet").offset().top
+            }, 500);
+        });
+
+        $('.showQS').html('view details');
+        $('#CVQS.showQS').html('view details <span class="sr-only">for current selection</span>');
+        $('#BVQS.showQS').html('view details <span class="sr-only">for Best Value</span>');
+        $('#GVQS.showQS').html('view details <span class="sr-only">for Great Value</span>');
+              
+
+        $('#rental_options_Form').appendTo('#qs_rental_options');
+
+        if ($('#divMoveinSpecial').html().length == 0) { $('#divMoveinSpecial').hide(); }
+
+        $('.close_overlay').click(function (e) {
+            e.preventDefault();
+            $('#rental_options_Form').appendTo('#rental_options_ct_inner');
+            $(this).closest('.page_overlay').slideToggle('fast');
+            $('#lease_info_panel').slideToggle('fast');
+            AdjustLeaseCardsHeight();
+            return true;
+        });
+
+        $('.show_payment_schedule').click(function (e) {
+            e.preventDefault();
+            $(this).toggleClass('active');
+            $('#payment_schedule').toggleClass('hidden');
+			$('#payment_schedule_wrapper').toggleClass('hidePrint');
+        });
+
+        $("#PrintButton").click(function () {
+			// use jqPrint, not native printing
+            $('#QuotesheetWrapper').jqprint();
+            return false;
+        });
+
+        $("#btnQSEmail").click(function () {
+			 
+             $('#email_qs_modal_1').modal();
+        });
+
+        $('#datetime').html('Quote generated on ' + getClockTime() + ' .Rates are subject to change without notice.');
+
+        $('#txtEmail').tagsInput({
+            'delimiter': [';'],
+            'height': 'auto',
+            'width': 'auto',
+            'defaultText': 'Email address(es)',
+            placeholderColor: '#999'
+        });
+
+        updateQSPrices();
+
+
+        $('.RT').each(function (i, elm) {
+
+            if ($(elm).attr("value") > 0) {
+
+                var OptionElement = $('#option' + $(elm).data("code"));
+                var splitOn = '/';
+                if ($('#dtMIDateSel').val().indexOf('-') !== -1) {
+                    splitOn = '-'
+                } else if ($('#dtMIDateSel').val().indexOf('.') !== -1) {
+                    splitOn = '.'
+                }
+                var date = $('#dtMIDateSel').val().split(splitOn);
+                var noOfDaysinMonth = daysinMonthfromInput(date[1], date[2])
+                var daysFirstMonth = noOfDaysinMonth - date[1];
+                var ProrateDays = (noOfDaysinMonth - date[0]) + 1;
+                var proratedAmt;
+                var amt = OptionElement.data('price') * OptionElement.val();
+                if ($('#IsProrate').val() == 1) {
+                    proratedAmt = GetProratedAmount(amt, noOfDaysinMonth, ProrateDays);
+                }
+                else {
+                    proratedAmt = amt;
+                }
+
+                var qs_movein_item = $('#move_in_costs_ct').find('div.' + $(elm).attr("itemid") + '_optionqs');
+                if (qs_movein_item.length) {
+
+                }
+
+                else {
+
+                    $('#move_in_costs_ct').append('<div class="row-bs3 breakdown-row m-b rentalOptionCT ' + OptionElement.data('itemid') + '_optionqs" data-count=1>' +
+                                 '<div class="col-xs-5">' + OptionElement.data('item') + '</div>' +
+                                 '<div class="col-xs-2 text-right qs_movein_item_amt" data-price="' + OptionElement.data('amt') + '">' + currency(proratedAmt.toFixed(2)) + '</div>' +
+                                 '<div class="col-xs-5"></div>' +
+                                 '</div>');
+
+                }
+            }
+        });
+
+
+        //btnOLEQuoteSheet
+        $('#btnOLEQuoteSheet').unbind('click');
+
+        $('#btnOLEQuoteSheet').bind('click', function (e) {
+            if ($('#FrmOLEQuteSheet').valid()) {
+
+                grecaptcha.enterprise.ready(function() { grecaptcha.enterprise.execute('6LfBeqEaAAAAALsbENKGUsE98xFoA3ZpqkbzogBI', {action: 'QuoteSheet'}).then(function(token) { $('#g-recaptcha-response-v3').val(token);
+                var RTQSData = [];
+                $('.RT').each(function () {
+
+                    ItemTypes = $(this).attr('id');
+                    ItemQty = $(this).val();
+                    if (!isNaN(parseInt(ItemQty))) {
+                        if (parseInt(ItemQty) > 0) {
+                            TypesQty = ItemTypes + '^' + ItemQty;
+                            RTQSData.push(TypesQty);
+                        }
+                    }
+                });
+
+                var data = { PropertyID: '1124419', UnitID: '19547906', sLeaseTerm: '12',PluginURLParams:'', method: 'SendEmail', MoveInDate: '15/07/2026 12:00:00 AM', RT: RTQSData.join(","), HideCaptcha: '0' };
+                var postData = $('#FrmOLEQuteSheet').serialize();
+
+
+                $.ajax({
+                    url: "/rcformsave.ashx",
+                    type: "POST",
+                    data: postData + '&' + $.param(data),
+                    success: function (html) {
+                        var notifymsg = "";
+                        notifymsg = $.format(html, "#noticeboxdiv_olequotesheet");
+                        $('#noticeboxdiv_olequotesheet').append(notifymsg);
+                    }
+                });
+                }); });
+            }
+            e.preventDefault(); e.stopPropagation();
+        });
+
+        $.validator.addMethod('myMultiEmailValidation', function (value, element) {
+            var allValid = true;
+            var reg1 = /(@.*@)|(\.\.)|(@\.)|(\.@)|(^\.)|\s/; // invalid
+            var reg2 = /^.+\@(\[?)[a-zA-Z0-9\-\.]+\.([a-zA-Z]{2,4}|[0-9]{1,4})(\]?)$/; // valid
+            var str = value;
+            var emailaddrs = str.split(";");
+            for (var i = 0; i < emailaddrs.length; i++) {
+                if (!reg1.test(emailaddrs[i].trim()) && reg2.test(emailaddrs[i].trim())) { }
+                else { allValid = false; }
+            }
+
+            if (allValid) { return true; }
+            else { return false; }
+        },
+              "Please enter a semi-colon separated list of valid email addreses");
+
+        if ($('#qsUnitRent').val() == 0) {
+            $('#do_apply_quote_sheet').remove();
+        }
+    }); // document.ready end
+
+    function GetProratedAmount(BaseAmount, DaysinMonth, ProrateDays) {
+        var Proration = $('#Proration').val();
+        var AmtPeriod = $('#AmountPeriod').val();
+        var InvoicePeriod = $('#InvoicePeriod').val();
+        var PeriodDays = $('#PeriodDays').val();
+        var proratedAmt = BaseAmount;
+        if (DaysinMonth == ProrateDays) {
+            //do not prorate
+            if (AmtPeriod == 2) {
+                //2 = monthly
+                proratedAmt = BaseAmount;
+            }
+            else if (AmtPeriod == 0) {
+                // 0 = Annual
+                proratedAmt = BaseAmount / 12;
+            }
+            else if (AmtPeriod == 1) {
+                // 1 = Quaterly
+                proratedAmt = BaseAmount / 3;
+            }
+            else if (AmtPeriod == 4) {
+                // 4 = Weekly
+                proratedAmt = BaseAmount * 4.348;
+            }
+            return proratedAmt;
+        }
+        else {
+            if (Proration == 0 || Proration == 4) {
+                //0,4 = monthly or thirtyday
+                if (AmtPeriod == 2) {
+                    //2 = monthly
+                    BaseAmount = BaseAmount;
+                }
+                else if (AmtPeriod == 0) {
+                    // 0 = Annual
+                    BaseAmount = BaseAmount / 12;
+                }
+                else if (AmtPeriod == 1) {
+                    // 1 = Quaterly
+                    BaseAmount = BaseAmount / 3;
+                }
+                else if (AmtPeriod == 4) {
+                    // 4 = Weekly
+                    BaseAmount = BaseAmount * 4.348;
+                }
+                proratedAmt = (BaseAmount / DaysinMonth) * ProrateDays;
+                return proratedAmt;
+            }
+            else if (Proration == 1) {
+                // 1 = annualy
+                if (AmtPeriod == 2) {
+                    //2 = monthly
+                    BaseAmount = BaseAmount * 12;
+                }
+                else if (AmtPeriod == 0) {
+                    // 0 = Annual
+                    BaseAmount = BaseAmount;
+                }
+                else if (AmtPeriod == 1) {
+                    // 1 = Quaterly
+                    BaseAmount = BaseAmount * 4;
+                }
+                else if (AmtPeriod == 4) {
+                    // 4 = Weekly
+                    BaseAmount = (BaseAmount * 4.348) * 12;
+                }
+                return ProratedAmount = BaseAmount * (ProrateDays / 365);
+            }
+            else if (Proration == 3) {
+                //3 = period
+                if (InvoicePeriod == 0 || InvoicePeriod == 8) {
+                    //monthy = 0 and weekly = 8
+                    if (AmtPeriod == 2) {
+                        //2 = monthly
+                        BaseAmount = BaseAmount;
+                    }
+                    else if (AmtPeriod == 0) {
+                        // 0 = Annual
+                        BaseAmount = BaseAmount / 12;
+                    }
+                    else if (AmtPeriod == 1) {
+                        // 1 = Quaterly
+                        BaseAmount = BaseAmount / 3;
+                    }
+                    else if (AmtPeriod == 4) {
+                        // 4 = Weekly
+                        BaseAmount = BaseAmount * 4.348;
+                    }
+                    return ProratedAmount = BaseAmount * (ProrateDays / DaysinMonth)
+                }
+                else if (InvoicePeriod == 1) {
+                    // Quarterly = 1
+                    if (AmtPeriod == 2) {
+                        //2 = monthly
+                        BaseAmount = BaseAmount * 3;
+                    }
+                    else if (AmtPeriod == 0) {
+                        // 0 = Annual
+                        BaseAmount = BaseAmount / 4;
+                    }
+                    else if (AmtPeriod == 1) {
+                        // 1 = Quaterly
+                        BaseAmount = BaseAmount;
+                    }
+                    else if (AmtPeriod == 4) {
+                        // 4 = Weekly
+                        BaseAmount = (BaseAmount * 4.348) * 3;
+                    }
+                    ProratedAmount = BaseAmount * (ProrateDays / PeriodDays)
+                }
+                else if (InvoicePeriod == 10) {
+                    //bimonthly = 10
+                    if (AmtPeriod == 2) {
+                        //2 = monthly
+                        BaseAmount = BaseAmount * 2;
+                    }
+                    else if (AmtPeriod == 0) {
+                        // 0 = Annual
+                        BaseAmount = BaseAmount / 6;
+                    }
+                    else if (AmtPeriod == 1) {
+                        // 1 = Quaterly
+                        BaseAmount = (BaseAmount / 3) * 2;
+                    }
+                    else if (AmtPeriod == 4) {
+                        // 4 = Weekly
+                        BaseAmount = (BaseAmount * 4.348) * 2
+                    }
+                    ProratedAmount = BaseAmount * (ProrateDays / PeriodDays)
+                }
+                else if (InvoicePeriod == 4) {
+                    // Annual = 4
+                    if (AmtPeriod == 2) {
+                        //2 = monthly
+                        BaseAmount = BaseAmount * 12;
+                    }
+                    else if (AmtPeriod == 0) {
+                        // 0 = Annual
+                        BaseAmount = BaseAmount;
+                    }
+                    else if (AmtPeriod == 1) {
+                        // 1 = Quaterly
+                        BaseAmount = BaseAmount * 4;
+                    }
+                    else if (AmtPeriod == 4) {
+                        // 4 = Weekly
+                        BaseAmount = (BaseAmount * 4.348) * 12;
+                    }
+                    return ProratedAmount = BaseAmount * (ProrateDays / PeriodDays);
+                }
+                else if (InvoicePeriod == 5) {
+                    //HalfYearly = 5
+                    if (AmtPeriod == 2) {
+                        //2 = monthly
+                        BaseAmount = BaseAmount * 6;
+                    }
+                    else if (AmtPeriod == 0) {
+                        // 0 = Annual
+                        BaseAmount = BaseAmount / 2;
+                    }
+                    else if (AmtPeriod == 1) {
+                        // 1 = Quaterly
+                        BaseAmount = BaseAmount * 2;
+                    }
+                    else if (AmtPeriod == 4) {
+                        // 4 = Weekly
+                        BaseAmount = (BaseAmount * 4.348) * 6;
+                    }
+                    return ProratedAmount = BaseAmount * (ProrateDays / PeriodDays);
+                }
+                else if (InvoicePeriod == 11) {
+                    //Triannually = 11
+                    if (AmtPeriod == 2) {
+                        //2 = monthly
+                        BaseAmount = BaseAmount * 4;
+                    }
+                    else if (AmtPeriod == 0) {
+                        // 0 = Annual
+                        BaseAmount = BaseAmount / 3;
+                    }
+                    else if (AmtPeriod == 1) {
+                        // 1 = Quaterly
+                        BaseAmount = BaseAmount + (BaseAmount / 3);
+                    }
+                    else if (AmtPeriod == 4) {
+                        // 4 = Weekly
+                        BaseAmount = (BaseAmount * 4.348) * 4;
+                    }
+                    return ProratedAmount = BaseAmount * (ProrateDays / PeriodDays);
+                }
+            }
+        }
+    }
+
+</script>
+
+
+<script src="https://www.google.com/recaptcha/enterprise.js?render=6LfBeqEaAAAAALsbENKGUsE98xFoA3ZpqkbzogBI&hl=en" type="text/javascript" defer></script>
+<script type="text/javascript">
+
+    if (typeof ClickTrack != "undefined") {
+        ClickTrack._PageDisplayName = '';
+        ClickTrack.SiteSection = 'OLE';
+        ClickTrack._CCDisplayName = 'WVNJLkNhZmUuUkMuUHJvcGVydHlTaXRlQ29udGVudC5Db250ZW50Q2xhc3Nlcy5vbGVxdW90ZXNoZWV0IzAuODc4NTgyNg%3d%3d-oaAVWatVKWs%3d';
+        ClickTrack.CCQS = '&PropertyId=1124419';
+        ClickTrack._ULI = '';
+        ClickTrack._Property = 'MTEyNDQxOSMwLjUyNTcxNg%3d%3d-P2LTd%2fcMNzo%3d';
+        ClickTrack.isPreview = '0';
+        
+        
+        ClickTrack.init();
+    }
+
+    function CheckAndPassCTUserAndVisit() {
+        var fnCTUVCnt = 0;
+        var fnCTUVParamCheck;
+
+        fnCTUVParamCheck = setInterval(AddClickTrackUserAndVisitToURL, 1000);
+
+        function AddClickTrackUserAndVisitToURL() {
+            fnCTUVCnt = fnCTUVCnt + .5;
+            if (fnCTUVCnt >= 5) {
+                $('.AddClickTrackParams').each(function () {
+                    if ($(this).hasClass('ShowOnClickTrackParams')) $(this).css('display', '');
+                });
+                clearInterval(fnCTUVParamCheck);
+            }
+            if (typeof ClickTrack != "undefined") {
+                if (typeof ClickTrack.getCookie('_yTrackVisit') != 'undefined' && ClickTrack.getCookie('_yTrackVisit') != null && ClickTrack.getCookie('_yTrackVisit') != 'null') {
+                    $('.AddClickTrackParams').each(function () {
+                        var sURLVal = $(this).attr("href");
+                        $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams(sURLVal));
+                        if ($(this).hasClass('ShowOnClickTrackParams')) $(this).css('display', '');
+                    });
+
+                    $('#logo-container a').each(function () {
+                        $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams($(this).attr('href')));
+                        // Use Alttest of image and use it for anchor tag aria-label. Check for null, empty, or 'NA'
+                        var imgAlt = $(this).find('img').attr('alt');                       
+                        if (!imgAlt || $.trim(imgAlt).toLowerCase() === 'na') {
+                            imgAlt = 'Logo';
+                        }
+                        $(this).attr('aria-label', imgAlt);                        
+                    });
+                       
+                    $('#apldiv a').each(function () {
+                        $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams($(this).attr('href')));
+                    });
+                        
+                    $('#rpdiv a').each(function () {
+                        $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams($(this).attr('href')));
+                    });
+
+                    $('#mainNavbar ul li a:not(.donottrack)').each(function () {
+                        $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams($(this).attr('href')));
+                    });
+
+                    $('#login-links li a').each(function () {
+                        $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams($(this).attr('href')));
+                    });
+
+                    /* Seach Each Anchor Tag from where user navigting to the Secure Site then contact CT Variables */
+                    $("a:not(.donottrack)").each(function () {
+                        var href = $(this).attr('href');
+                        if (href != undefined) {
+                            if (href.trim().toLowerCase().indexOf('securecafe.com'.toLowerCase()) > -1) {
+                                $(this).attr('href', ClickTrack.GetTrackingCrossDomainURLParams(href));
+                            }
+                        }
+                    });
+
+                    clearInterval(fnCTUVParamCheck);
+                }
+            }
+        }
+    }
+
+    $(document).ready(CheckAndPassCTUserAndVisit());
+
+    $(document).ajaxComplete(CheckAndPassCTUserAndVisit());
+
+</script>
