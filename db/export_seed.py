@@ -20,6 +20,7 @@ Re-run any time to refresh the seed against the current database.
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -115,6 +116,8 @@ def sql_literal(value) -> str:
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
     if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            return "NULL"     # NaN/Infinity aren't valid SQL numeric literals
         return repr(value)
     if isinstance(value, (dict, list)):
         # JSONB column (scrape_config). Serialize then quote as a string literal.

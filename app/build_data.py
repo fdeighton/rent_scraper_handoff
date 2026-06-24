@@ -11,6 +11,7 @@ averages over the LATEST successful snapshot, with rent_price NOT NULL only
 """
 
 import json
+import math
 import os
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -28,15 +29,28 @@ MAX_RENT = 20000
 # Handles '' escaped quotes, tabs, commas inside strings, and NULL.
 # ---------------------------------------------------------------------------
 def parse_sql_values(path):
+    """Yield each INSERT … VALUES tuple as a list of Python values.
+
+    A SQL string literal becomes its (unquoted) text; an UNQUOTED NULL becomes
+    Python None — so a quoted literal 'NULL' is preserved as the string "NULL",
+    distinct from a real NULL. Unquoted numbers/tokens are returned as their raw
+    text for to_int/to_float to parse. Whitespace between tokens is skipped, so
+    quoted content (which may legitimately contain spaces) is captured exactly."""
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
     i = text.find("VALUES")
     if i == -1:
         return
     s = text[i + len("VALUES"):]
-
     n = len(s)
     p = 0
+
+    def finish(cur, quoted):
+        if quoted:
+            return "".join(cur)
+        tok = "".join(cur)
+        return None if tok == "NULL" else tok
+
     while p < n:
         # find start of a tuple
         while p < n and s[p] != "(":
@@ -47,11 +61,12 @@ def parse_sql_values(path):
         fields = []
         cur = []
         in_str = False
+        quoted = False          # did the current field contain a quoted literal?
         while p < n:
             c = s[p]
             if in_str:
                 if c == "'":
-                    if p + 1 < n and s[p + 1] == "'":  # escaped quote
+                    if p + 1 < n and s[p + 1] == "'":  # escaped '' inside a string
                         cur.append("'")
                         p += 2
                         continue
@@ -64,30 +79,25 @@ def parse_sql_values(path):
             # not in string
             if c == "'":
                 in_str = True
+                quoted = True
+                p += 1
+                continue
+            if c.isspace():        # skip whitespace between tokens (never inside a quote)
                 p += 1
                 continue
             if c == ",":
-                fields.append("".join(cur).strip())
+                fields.append(finish(cur, quoted))
                 cur = []
+                quoted = False
                 p += 1
                 continue
             if c == ")":
-                fields.append("".join(cur).strip())
+                fields.append(finish(cur, quoted))
                 p += 1
                 break
             cur.append(c)
             p += 1
-        # `fields` are raw token strings; quoted values already had quotes stripped
-        # but unquoted NULL/numbers retain their text. We need to know which were
-        # quoted. Re-derive: re-walk is overkill — instead treat 'NULL' (exact,
-        # unquoted) as None and numbers as numbers; everything else is a string.
         yield fields
-
-
-def coerce(tok):
-    if tok == "NULL":
-        return None
-    return tok
 
 
 # The simple parser above loses the quoted-vs-unquoted distinction. For our
@@ -96,9 +106,10 @@ def to_float(tok):
     if tok in (None, "NULL", ""):
         return None
     try:
-        return float(tok)
+        f = float(tok)
     except ValueError:
         return None
+    return f if math.isfinite(f) else None
 
 
 def to_int(tok):
@@ -117,10 +128,12 @@ def main():
     comp_sets = load_json("comp_sets.json")
 
     # snapshots: id, comp_building_id, scraped_at, status, incentives, error_message
-    snapshots = {}
+    all_snaps = {}
     snaps_by_building = defaultdict(list)
+    skipped_snaps = 0
     for row in parse_sql_values(os.path.join(SEED, "scrape_snapshots.sql")):
         if len(row) < 6:
+            skipped_snaps += 1     # malformed row — surface it instead of silently dropping
             continue
         sid, bid, scraped_at, status, incentives, _err = row[:6]
         rec = {
@@ -129,16 +142,20 @@ def main():
             "date": scraped_at[:10] if scraped_at else None,
             "ts": scraped_at,
             "status": status,
-            "incentives": None if incentives == "NULL" else incentives,
+            "incentives": incentives,   # parser already yields None for a real NULL
         }
-        snapshots[sid] = rec
+        all_snaps[sid] = rec
         snaps_by_building[bid].append(rec)
+    if skipped_snaps:
+        print(f"[!] scrape_snapshots.sql: skipped {skipped_snaps} malformed row(s) (<6 columns)")
 
     # units grouped by snapshot
     units_by_snap = defaultdict(list)
+    skipped_units = 0
     for row in parse_sql_values(os.path.join(SEED, "unit_data.sql")):
         # id, snapshot_id, unit_type, bathrooms, square_footage, rent_price, rent_psf, raw_text, notes, created_at
         if len(row) < 7:
+            skipped_units += 1
             continue
         snap = row[1]
         utype = row[2]
@@ -149,12 +166,14 @@ def main():
             rent = None
             psf = None
         note = row[8] if len(row) > 8 else ""
-        if note == "NULL":
+        if note is None:           # real NULL → empty (a quoted 'NULL' is left intact)
             note = ""
         bath = row[3] if len(row) > 3 else ""
-        if bath == "NULL":
+        if bath is None:
             bath = ""
         units_by_snap[snap].append({"type": utype, "bath": bath, "sqft": sqft, "rent": rent, "psf": psf, "note": note[:48]})
+    if skipped_units:
+        print(f"[!] unit_data.sql: skipped {skipped_units} malformed row(s) (<7 columns)")
 
     def aggregate(units):
         """building_summary-style aggregate. rent NOT NULL only."""
@@ -251,9 +270,8 @@ def main():
         # data.js lean, the full individual-listing array is retained only for the
         # 8 most recent; older scrapes still expand to a by-type + weighted summary.
         window = succ[-15:]
-        nwin = len(window)
         sfull = []
-        for i, s in enumerate(window):
+        for s in window:
             us = units_by_snap.get(s["id"], [])
             by, w = aggregate(us)
             if not w:
@@ -264,14 +282,19 @@ def main():
                 "byType": {t: {"avgRent": by[t]["avgRent"], "avgPsf": by[t]["avgPsf"],
                                "avgSqft": by[t]["avgSqft"], "count": by[t]["count"]} for t in by},
                 "weighted": w,
+                "_units": us,  # stashed; attached to the 8 most recent below
             }
-            if i >= nwin - 8:        # individual listings for the 8 most recent only
-                entry["units"] = [
-                    {"type": u["type"], "bath": u["bath"], "rent": round(u["rent"]), "sqft": u["sqft"],
-                     "psf": u["psf"], "note": u["note"]}
-                    for u in us if u["rent"] is not None
-                ]
             sfull.append(entry)
+        # individual listings for the 8 most recent EMITTED snapshots only — gate on
+        # appended order, not raw window index (unpriced snapshots are skipped above).
+        for entry in sfull[-8:]:
+            entry["units"] = [
+                {"type": u["type"], "bath": u["bath"], "rent": round(u["rent"]), "sqft": u["sqft"],
+                 "psf": u["psf"], "note": u["note"]}
+                for u in entry["_units"] if u["rent"] is not None
+            ]
+        for entry in sfull:
+            entry.pop("_units", None)
         sfull.reverse()
         if sfull:
             snapshots[bid] = sfull
@@ -353,7 +376,7 @@ def main():
         "counts": {
             "buildings": len(comp_buildings),
             "analyses": len(fitz_properties),
-            "snapshots": len(snapshots),
+            "snapshots": len(all_snaps),
             "units": sum(len(v) for v in units_by_snap.values()),
         },
         "buildings": buildings,
@@ -367,6 +390,13 @@ def main():
     }
 
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    # Harden the JS payload: json.dumps doesn't escape "/", so a scraped string
+    # containing "</script>" could close the tag if data.js is ever inlined; and raw
+    # U+2028/U+2029 (emitted by ensure_ascii=False) are illegal in JS string literals.
+    # All three forms below survive JSON.parse unchanged.
+    payload = (payload.replace("</", "<\/")
+                      .replace(" ", "\u2028")
+                      .replace(" ", "\u2029"))
     with open(OUT, "w", encoding="utf-8") as f:
         f.write("// Auto-generated by build_data.py — do not edit by hand.\n")
         f.write("window.COMP_DATA = ")
