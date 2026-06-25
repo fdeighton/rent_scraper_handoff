@@ -1,0 +1,9 @@
+{
+  "building_name": "VIE Apartments",
+  "strategy": "playwright_render",
+  "scroll": true,
+  "initial_wait_ms": 6000,
+  "extraction_hint": "This page is for VIE Apartments, located at 2255 Saint-Mathieu, Montreal. Every floor plan / suite shown on this page belongs to THIS building — plan names like \"2255 Saint-Mathieu - Plan A\" and \"Studio Promotional Price\" ARE this building, not other buildings. Extract ALL of them. Note: \"0 Bd\" means a studio/bachelor; \"From $X\" is the starting rent for that plan.",
+  "pre_capture_js": "(async function(){function s(ms){return new Promise(function(r){setTimeout(r,ms);});}for(var i=0;i<30;i++){if(document.querySelectorAll('span.text-4xl').length>=3)break;window.scrollTo(0,document.body.scrollHeight*((i%6)+1)/6);await s(600);}await s(1000);var out=[],seen={};document.querySelectorAll('span.text-4xl').forEach(function(x){var c=x;for(var k=0;k<8&&c;k++){if(c.querySelector&&c.querySelector('h3'))break;c=c.parentElement;}if(!c)return;var t=(c.innerText||'').replace(/\\s+/g,' ').trim();if(t.length>15&&!seen[t]){seen[t]=1;out.push(t);}});if(out.length){var d=document.createElement('div');d.id='vie-units';d.textContent=out.join('\\n---\\n');document.body.appendChild(d);}}())",
+  "_note": "Tier-2: irent.com (InterRent, Next.js) renders floor plans as a CSS carousel (~3 of ~10 visible; advanced via dots). All cards are server-rendered into the DOM, but hydration sometimes swaps to a loading state, so a plain render flakily captures 0. pre_capture_js polls until the rent spans (span.text-4xl) have rendered, then harvests every card (name/rent/beds/baths/sqft/availability) into #vie-units for the innerText capture. No carousel-clicking needed since all cards are in the DOM."
+}

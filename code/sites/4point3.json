@@ -1,0 +1,9 @@
+{
+  "building_name": "4POINT3",
+  "strategy": "playwright_render",
+  "scroll": true,
+  "initial_wait_ms": 8000,
+  "additional_urls": ["https://app.planpoint.io/kevlar/4point3?lang=French"],
+  "extraction_hint": "The availability list for 4POINT3 is in an embedded Planpoint widget (the rows after the page content). Columns are French: Unité = unit number, Superficie = square footage (pi² = sq ft), Chambres = bedrooms (Studio = bachelor, 1 Chambre = 1-bed, 2 Chambres = 2-bed, 3 Chambres = 3-bed), Prix = monthly rent (e.g. '3 650 $' = 3650), Statut: Disponible = available. EVERY row in that table is a unit in THIS building (4POINT3) — extract them all, one entry per unit.",
+  "_note": "Tier-2: 4point3.ca has no units in its own DOM — the availability table is an embedded cross-origin Planpoint widget (app.planpoint.io/kevlar/4point3). tier-1 scraped the homepage and got nothing. additional_urls fetches the Planpoint widget (which renders the full ~unit table server-fetched, not virtualized) and appends it for extraction. extraction_hint maps the French columns + tells Claude every row belongs to 4POINT3."
+}
