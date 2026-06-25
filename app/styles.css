@@ -299,6 +299,13 @@ button { font-family: inherit; cursor: pointer; }
 }
 .card__title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-4); }
 .card__title .ic { color: var(--orange); }
+/* Collapsible 12-Month Rents card */
+.t12-head { cursor: pointer; user-select: none; }
+.t12-caret { display: inline-flex; transition: transform .15s ease; }
+.t12-card.collapsed .t12-caret { transform: rotate(-90deg); }
+.t12-card.collapsed .card__title { margin-bottom: 0; }
+.t12-card.collapsed .t12-body { display: none; }
+.t12-copy { padding: 4px 10px; font-size: 12px; font-weight: 500; }
 
 /* Badges */
 .badge {

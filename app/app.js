@@ -44,6 +44,7 @@
     "refresh": '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/>',
     "chevron-down": '<path d="M6 9l6 6 6-6"/>',
     "alert": '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    "copy": '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   };
   const icon = (n) => `<span class="ic">${ICONS[n] ? `<svg viewBox="0 0 24 24">${ICONS[n]}</svg>` : ""}</span>`;
   const cssVar = (name, fallback) => {
@@ -56,6 +57,10 @@
 
   // ---- helpers -------------------------------------------------------------
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // Only allow http(s) URLs into href/src — blocks javascript:/data:/etc. from
+  // user-entered fields (scrapeUrl, photo) that round-trip through localStorage.
+  // Returns "" for anything else so the caller renders text/placeholder instead.
+  const safeUrl = (u) => { try { return /^https?:$/i.test(new URL(u, location.href).protocol) ? String(u) : ""; } catch (e) { return ""; } };
   const money = (n) => (n == null ? "—" : "$" + Math.round(n).toLocaleString());
   const psf = (n) => (n == null ? "—" : "$" + Number(n).toFixed(2));
   const fmtDate = (iso) => {
@@ -392,11 +397,17 @@
     try { _runSeq = parseInt(localStorage.getItem(RUN_SEQ_KEY) || "0", 10) || 0; } catch (e) { _runSeq = 0; }
   }
   function nextRunNo() { _runSeq++; try { localStorage.setItem(RUN_SEQ_KEY, String(_runSeq)); } catch (e) {} return _runSeq; }
+  let _shRefreshTimer = null;
   function logScrapeEvent(ev) {
     _scrapeLog.unshift(Object.assign({ ts: new Date().toISOString() }, ev));   // newest first
     if (_scrapeLog.length > 300) _scrapeLog.length = 300;
     try { localStorage.setItem(SCRAPE_LOG_KEY, JSON.stringify(_scrapeLog)); } catch (e) {}
-    if ((location.hash || "").startsWith("#/scrapes")) route();   // live-refresh the history view if open
+    // Live-refresh the history view if it's open — but DEBOUNCED: a set scrape fires one event
+    // per building, and re-rendering on each would thrash the view (flicker, lost search caret).
+    if ((location.hash || "").startsWith("#/scrapes")) {
+      clearTimeout(_shRefreshTimer);
+      _shRefreshTimer = setTimeout(() => { if ((location.hash || "").startsWith("#/scrapes")) route(); }, 600);
+    }
   }
   function clearScrapeLog() { _scrapeLog = []; try { localStorage.removeItem(SCRAPE_LOG_KEY); } catch (e) {} }
 
@@ -405,6 +416,9 @@
   // the dataset so the building page + analyses reflect them. Migrating to Supabase later
   // swaps the server's SQLite endpoints for DB writes/reads; this UI is unchanged.
   let _localScrapes = {};   // in-memory mirror of the SQLite store: { bid: [{date,incentives,units}] }
+  // 12-month (Tricon, on-demand) records, kept SEPARATE so they never enter D.* and thus
+  // never reach comp analyses/trends/exports: { bid: {date, units, total, quoted} } (latest).
+  let _local12mo = {};
   const scrapeApiBase = () => ((window.COMP_CONFIG || {}).scrapeApi || "").replace(/\/$/, "");
   const mapServerUnits = (us) => (us || []).map((u) => ({
     type: u.unit_type, bath: u.bathrooms != null ? String(u.bathrooms) : null,
@@ -454,12 +468,27 @@
     fetch(base + "/scrapes", { headers: { Accept: "application/json" } })
       .then((r) => (r.ok ? r.json() : {}))
       .then((data) => {
-        _localScrapes = (data && data.scrapes) || {};
+        const all = (data && data.scrapes) || {};
+        // Partition by pricing basis: '12mo' records go to _local12mo (building-page
+        // display only); everything else is the canonical 'lowest' series that feeds
+        // analyses. Only 'lowest' records are applied into D.*, so the 12-month numbers
+        // can never leak into a comp/trend/export.
+        _localScrapes = {}; _local12mo = {};
         let any = false;
-        Object.keys(_localScrapes).forEach((bid) => {
+        Object.keys(all).forEach((bid) => {
+          const recs = all[bid] || [];
+          const lowest = recs.filter((s) => (s.pricingBasis || "lowest") !== "12mo");
+          const twelve = recs.filter((s) => (s.pricingBasis || "lowest") === "12mo");
+          _localScrapes[bid] = lowest;
+          if (twelve.length) {
+            const latest = twelve.slice().sort((a, c) => (c.date || "").localeCompare(a.date || ""))[0];
+            _local12mo[bid] = { date: latest.date, units: latest.units || [],
+              total: (latest.units || []).length,
+              quoted: (latest.units || []).filter((u) => u.rent != null).length };
+          }
           const b = bld(bid); if (!b) return;
-          any = true;
-          (_localScrapes[bid] || []).slice().sort((a, c) => (a.date || "").localeCompare(c.date || ""))
+          if (lowest.length || twelve.length) any = true;
+          lowest.slice().sort((a, c) => (a.date || "").localeCompare(c.date || ""))
             .forEach((s) => applyScrape(b, s.date, s.incentives, s.units));
         });
         if (any) { Object.keys(_unitsCache).forEach((k) => delete _unitsCache[k]); route(); }   // reflect applied scrapes
@@ -478,6 +507,92 @@
     if (!base) return Promise.reject(new Error("no scrape server configured"));
     return fetch(base + "/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buildingId: b.id, date, incentives: incentives || null, units, runId: run.id || null, runNo: run.no != null ? run.no : null, runLabel: run.label || null }) })
       .then((r) => { if (!r.ok) return r.json().then((j) => { throw new Error(j.error || ("HTTP " + r.status)); }); });
+  }
+  // ---- Tricon 12-month rents (on-demand, building-page only) ------------------
+  // Persisted with pricingBasis:"12mo" so it stays OUT of analyses; shown on the
+  // building page with a "12mo" badge so it's visibly a different basis.
+  function tricon12moCard(b) {
+    const rec = _local12mo[b.id];
+    if (!rec) return "";
+    const priced = (rec.units || []).filter((u) => u.rent != null).sort((a, c) => (c.rent || 0) - (a.rent || 0));
+    const rows = priced.map((u) => {
+      const low = u.lowest_term_rent, gap = u.gap, gp = u.gap_pct;
+      const gapStr = gap != null ? `${gap > 0 ? "+" : ""}${money(gap)}${gp != null ? ` (${gp > 0 ? "+" : ""}${gp}%)` : ""}` : "—";
+      return `<tr><td>${TYPE_LABEL[u.type] || esc(u.type)}</td><td class="tnum">${u.sqft || "—"}</td>` +
+        `<td class="tnum"><b>${money(u.rent)}</b></td><td class="tnum">${low != null ? money(low) : "—"}</td>` +
+        `<td class="tnum">${gapStr}</td></tr>`;
+    }).join("");
+    // Collapsible card (header toggles the body) with a Copy-to-clipboard button. The
+    // `data-t12` id lets the click + copy handlers find it after render.
+    return `<div class="card t12-card" data-t12="${esc(b.id)}">` +
+      `<div class="card__title t12-head">` +
+        `<span class="t12-caret">${icon("chevron-down")}</span>${icon("chart")} 12-Month Rents ` +
+        `<span class="badge badge--orange" title="True 12-month lease rent, fetched on demand from the RentCafe pricing engine. NOT used in comp analyses — those use the lowest-term price like every other building.">12mo&nbsp;*</span>` +
+        `<button class="btn t12-copy" type="button" style="margin-left:auto">${icon("copy")} Copy</button>` +
+      `</div>` +
+      `<div class="t12-body">` +
+        `<div class="sub" style="margin:0 0 12px">As of ${esc(rec.date)} · ${rec.quoted}/${rec.total} units quoted · excluded from analysis sets (different basis than the lowest-term prices shown everywhere else).</div>` +
+        `<table class="um-tbl t12-table"><thead><tr><th>Unit Type</th><th>SF</th><th>12-mo Rent</th><th>Lowest term</th><th>Δ vs lowest</th></tr></thead>` +
+        `<tbody>${rows || `<tr><td colspan="5" class="sub">No 12-month quotes returned (units may not offer a 12-month term yet).</td></tr>`}</tbody></table>` +
+      `</div></div>`;
+  }
+  // Copy an HTMLTableElement to the clipboard as TSV (pastes cleanly into Excel/Sheets).
+  function copyTableTSV(table, onDone) {
+    const rows = Array.from(table.querySelectorAll("tr")).map((tr) =>
+      Array.from(tr.querySelectorAll("th,td")).map((c) => (c.innerText || "").replace(/\s+/g, " ").trim()).join("\t")
+    ).join("\n");
+    const done = (ok) => onDone && onDone(ok);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(rows).then(() => done(true), () => done(false));
+    } else {                                   // file:// / older browsers — execCommand fallback
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = rows; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+        done(true);
+      } catch (e) { done(false); }
+    }
+  }
+  // Persist a 12-month fetch (optimistic local update + SQLite save, flagged '12mo').
+  function saveLocal12mo(b, date, units) {
+    _local12mo[b.id] = { date, units, total: units.length, quoted: units.filter((u) => u.rent != null).length };
+    const base = scrapeApiBase();
+    if (!base) return Promise.reject(new Error("no scrape server configured"));
+    return fetch(base + "/save", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ buildingId: b.id, date, incentives: null, units, pricingBasis: "12mo" }) })
+      .then((r) => { if (!r.ok) return r.json().then((j) => { throw new Error(j.error || ("HTTP " + r.status)); }); });
+  }
+  // Trigger the on-demand 12-month fetch for a Tricon building, then persist + re-render.
+  function fetchTricon12mo(b) {
+    const base = scrapeApiBase();
+    if (!base) { toast("No scrape server configured"); return; }
+    if (!b.scrapeUrl) { toast("No scrape URL set for this building"); return; }
+    const btn = document.getElementById("b-tricon12");
+    if (btn) { btn.disabled = true; btn.textContent = "Fetching 12-month rents…"; }
+    const jobId = newJobId();
+    fetch(base + "/tricon-12mo", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: b.scrapeUrl, name: b.name, jobId }) })
+      .then((res) => res.json().catch(() => ({})).then((data) => {
+        if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+        return data;
+      }))
+      .then((data) => {
+        const date = new Date().toISOString().slice(0, 10);
+        const units = (data.units || []).map((r) => ({
+          type: r.unit_type, bath: r.baths != null ? String(r.baths) : null,
+          sqft: r.sqft != null ? +r.sqft : null,
+          rent: r.rent_12mo != null ? +r.rent_12mo : null,
+          psf: (r.rent_12mo && r.sqft) ? +(r.rent_12mo / r.sqft).toFixed(2) : null,
+          note: `Unit ${r.unit_code || ""} · ${r.status || ""}`.trim(),
+          lowest_term_rent: r.lowest_term_rent != null ? +r.lowest_term_rent : null,
+          gap: r.gap, gap_pct: r.gap_pct, unit_code: r.unit_code,
+        }));
+        return saveLocal12mo(b, date, units).then(() => {
+          toast(`12-month rents fetched · ${data.quoted}/${data.total} units quoted`);
+        });
+      })
+      .catch((e) => { toast("12-month fetch failed: " + esc(e.message || String(e))); })
+      .finally(() => { route(); });   // re-render (restores button + shows the 12mo card)
   }
   // One scrape round-trip to the local server → { incentives, units, fetchedChars } (no save).
   // jobId lets us cancel server-side (POST /cancel) so the scrape actually stops, not just the
@@ -992,7 +1107,7 @@
   // (view toggle / bucket / search / city / navigation) rebuilds the layer.
   function popupHtml(b) {
     const sum = D.summary[b.id];
-    const photo = `<div class="pop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(b.photo)}" loading="lazy" onerror="this.style.display='none'"/>` : ""}</div>`;
+    const photo = `<div class="pop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(safeUrl(b.photo))}" loading="lazy" onerror="this.style.display='none'"/>` : ""}</div>`;
     const badges = [b.assetType, b.yearBuilt ? "Built " + b.yearBuilt : null, b.unitCount ? b.unitCount + " units" : null]
       .filter(Boolean).map((x) => `<span class="badge">${esc(x)}</span>`).join("");
     const stats = sum && sum.weighted
@@ -1255,7 +1370,7 @@
     const sum = D.summary[b.id];
     const delay = `style="animation-delay:${Math.min(i || 0, 16) * 32}ms"`;   // staggered entrance (capped)
     const photo = `<div class="bcard__ph">${icon("building")}</div>` +
-      (b.photo ? `<img src="${esc(b.photo)}" alt="" loading="lazy" onerror="this.style.display='none'"/>` : "");
+      (b.photo ? `<img src="${esc(safeUrl(b.photo))}" alt="" loading="lazy" onerror="this.style.display='none'"/>` : "");
     const badges = [];
     if (b.assetType) badges.push(`<span class="badge">${esc(b.assetType)}</span>`);
     if (b.yearBuilt) badges.push(`<span class="badge">Built ${b.yearBuilt}</span>`);
@@ -1464,6 +1579,7 @@
   function exportAnalysisExcel(a) {
     const cols = compSetBuildings(a);
     const snap = selectedSnap(a);
+    const base = compareBaseline(a);   // deltas compare against the user-selected baseline (match the on-screen table), not the immediately-prior scrape
     const types = presentTypes(cols);
     const bench = bld(a.benchmark);
     const ncomp = cols.filter((c) => !c.bench).length;
@@ -1484,8 +1600,10 @@
     const bRent = benchSum && benchSum.weighted ? benchSum.weighted.avgRent : null;
     const bPsf = benchSum && benchSum.weighted ? benchSum.weighted.avgPsf : null;
     const compSums = cols.filter((c) => !c.bench).map((c) => snapOf(c.b.id)).filter(Boolean);
-    const avgOf = (fn) => compSums.length ? compSums.reduce((s, x) => s + (fn(x) || 0), 0) / compSums.length : null;
-    const mktRent = compSums.length ? Math.round(avgOf((x) => x.weighted && x.weighted.avgRent)) : null;
+    // Average only over comps that have the metric (don't count data-less comps as 0).
+    const avgOf = (fn) => { const vs = compSums.map(fn).filter((v) => v != null); return vs.length ? vs.reduce((s, v) => s + v, 0) / vs.length : null; };
+    const mktRentRaw = avgOf((x) => x.weighted && x.weighted.avgRent);
+    const mktRent = mktRentRaw != null ? Math.round(mktRentRaw) : null;
     const mktPsf = avgOf((x) => x.weighted && x.weighted.avgPsf);
     const posn = bRent != null && mktRent != null ? Math.round(((bRent - mktRent) / mktRent) * 100) : null;
 
@@ -1554,7 +1672,8 @@
     let wBuild = 0, wRank = 0, wUnit = wpx("Weighted average", 11, true), wRent = 0, wD = 0, wDp = 0, wPsf = 0, wSize = 0, wVs = 0, wVsP = 0, wDist = 0;
     types.forEach((t) => (wUnit = Math.max(wUnit, wpx(TYPE_LABEL[t], 10, false))));
     ordered.forEach((c) => {
-      const { cur, prev } = colSnap(c.b.id, snap);
+      const cur = colSnap(c.b.id, snap).cur;
+      const prev = base ? snapshotAt(c.b.id, base).cur : null;
       if (!cur) return;
       const subj = c.bench, rank = rankMap[c.b.id];
       wBuild = Math.max(wBuild, wpx(c.b.name + (subj ? " ★" : ""), 12, true));
@@ -1623,7 +1742,8 @@
 
     let zeb = 0;
     ordered.forEach((c) => {
-      const { cur, prev } = colSnap(c.b.id, snap);
+      const cur = colSnap(c.b.id, snap).cur;
+      const prev = base ? snapshotAt(c.b.id, base).cur : null;
       if (!cur) return;
       const subj = c.bench;
       const dist = subj ? "Benchmark" : (c.distance != null ? c.distance : "");
@@ -1684,7 +1804,7 @@
     });
 
     s1.row(6);
-    s1.row(); s1.cell("vs Subj = weighted-avg premium / discount vs benchmark (rent and $/sf) · Rank by weighted avg rent (1 = highest) · Distance to subject (m) · Δ vs prior scrape", { colspan: NCOL, s: sFoot });
+    s1.row(); s1.cell(`vs Subj = weighted-avg premium / discount vs benchmark (rent and $/sf) · Rank by weighted avg rent (1 = highest) · Distance to subject (m) · Δ vs ${base ? fmtDate(base) : "prior scrape"}`, { colspan: NCOL, s: sFoot });
 
     // ===================== SHEET 2 — BUILDING DETAILS ======================
     const s2 = wb.addSheet("Building Details");
@@ -1811,8 +1931,12 @@
     const bench = cols.find((c) => c.bench);
     const benchSum = bench ? colSnap(bench.b.id, snapDate).cur : null;
     const compSums = cols.filter((c) => !c.bench).map((c) => colSnap(c.b.id, snapDate).cur).filter(Boolean);
-    const mktRent = compSums.length ? Math.round(compSums.reduce((s, x) => s + (x.weighted ? x.weighted.avgRent : 0), 0) / compSums.length) : null;
-    const mktPsf = compSums.length ? (compSums.reduce((s, x) => s + (x.weighted && x.weighted.avgPsf ? x.weighted.avgPsf : 0), 0) / compSums.length) : null;
+    // Average only over comps that actually have the metric — dividing by all comps (counting
+    // data-less ones as 0) understates the market figures.
+    const rentVals = compSums.map((x) => x.weighted && x.weighted.avgRent).filter((v) => v != null);
+    const psfVals = compSums.map((x) => x.weighted && x.weighted.avgPsf).filter((v) => v != null);
+    const mktRent = rentVals.length ? Math.round(rentVals.reduce((s, v) => s + v, 0) / rentVals.length) : null;
+    const mktPsf = psfVals.length ? (psfVals.reduce((s, v) => s + v, 0) / psfVals.length) : null;
     const bRent = benchSum && benchSum.weighted ? benchSum.weighted.avgRent : null;
     const posn = bRent != null && mktRent != null ? Math.round(((bRent - mktRent) / mktRent) * 100) : null;
     const bPsfV = benchSum && benchSum.weighted ? benchSum.weighted.avgPsf : null;
@@ -1847,7 +1971,7 @@
     rows += `<tr class="group-row"><td class="rowlabel">Property</td><td colspan="${cols.length}"></td></tr>`;
     rows += rowMeta("", (c) => {
       const b = c.b;
-      const ph = `<div class="prop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(b.photo)}" onerror="this.style.display='none'"/>` : ""}</div>`;
+      const ph = `<div class="prop-media"><span class="ph">${icon("building")}</span>${b.photo ? `<img src="${esc(safeUrl(b.photo))}" onerror="this.style.display='none'"/>` : ""}</div>`;
       const inner = `${ph}<div class="prop-name ${c.bench ? "bench" : ""}">${esc(b.name)}</div>`;
       return pdf ? inner : `<div class="prop-go" data-go-bid="${b.id}" role="link" tabindex="0" title="Open ${esc(b.name)} →">${inner}</div>`;
     });
@@ -2077,7 +2201,7 @@
     const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
 
     function renderTabs() {
-      const tab = (key, label, cnt) => `<button class="um-tab ${st.type === key ? "active" : ""}" data-t="${key}">${label} (${cnt})</button>`;
+      const tab = (key, label, cnt) => `<button class="um-tab ${st.type === key ? "active" : ""}" data-t="${esc(key)}">${esc(label)} (${cnt})</button>`;
       let html = tab("__all", "All", all.length);
       typesPresent.forEach((t) => { html += tab(t, TYPE_LABEL[t] || t, all.filter((u) => u.type === t).length); });
       $("#um-tabs").innerHTML = html;
@@ -2089,7 +2213,7 @@
       if (!rows.length) { $("#um-table").innerHTML = `<div class="empty">${icon("list")}<br/>No individual listings in this snapshot.</div>`; return; }
       const head = COLS.map((c) => `<th class="um-th" data-s="${c.k}">${c.label}<span class="um-sorti">${arrow(c.k)}</span></th>`).join("");
       const body = rows.map((u) => `<tr>
-        <td>${TYPE_LABEL[u.type] || u.type}</td>
+        <td>${TYPE_LABEL[u.type] || esc(u.type)}</td>
         <td class="tnum">${u.bath || "—"}</td>
         <td class="tnum">${u.sqft || "—"}</td>
         <td class="tnum"><b>${money(u.rent)}</b></td>
@@ -2108,7 +2232,7 @@
         const sf = avg(us.filter((u) => u.sqft != null).map((u) => +u.sqft));
         const r = avg(us.map((u) => u.rent));
         const p = avg(us.filter((u) => u.psf != null).map((u) => +u.psf));
-        return `<tr class="${bold ? "um-wavg" : ""}"><td>${label}</td><td class="tnum">${us.length}</td><td class="tnum">${sf != null ? Math.round(sf).toLocaleString() : "—"}</td><td class="tnum">${r != null ? money(r) : "—"}</td><td class="tnum">${p != null ? psf(p) : "—"}</td></tr>`;
+        return `<tr class="${bold ? "um-wavg" : ""}"><td>${esc(label)}</td><td class="tnum">${us.length}</td><td class="tnum">${sf != null ? Math.round(sf).toLocaleString() : "—"}</td><td class="tnum">${r != null ? money(r) : "—"}</td><td class="tnum">${p != null ? psf(p) : "—"}</td></tr>`;
       };
       let rows = "";
       typesPresent.forEach((t) => { rows += sumRow(TYPE_LABEL[t] || t, all.filter((u) => u.type === t), false); });
@@ -2240,8 +2364,10 @@
 
   // Date-picker popup for the band buttons. Rendered at body level + fixed-positioned so
   // it escapes the comp table's overflow clipping. opts = [{d, label}]; calls onPick(date).
+  let _activeDateMenuClose = null;
   function openDateMenu(btn, opts, current, onPick) {
-    document.querySelectorAll(".snap-menu--float").forEach((m) => m.remove());
+    if (_activeDateMenuClose) _activeDateMenuClose();             // fully close a prior menu (removes its scroll/resize listeners, not just the node)
+    document.querySelectorAll(".snap-menu--float").forEach((m) => m.remove());   // belt-and-suspenders for any stragglers
     const menu = document.createElement("div");
     menu.className = "snap-menu snap-menu--float";
     menu.innerHTML = opts.map((o) => `<button class="snap-opt ${o.d === current ? "active" : ""}" data-d="${o.d}">${o.label}</button>`).join("");
@@ -2262,7 +2388,8 @@
     };
     place();
     let onScroll;
-    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", place); };
+    const close = () => { menu.remove(); document.removeEventListener("click", close); window.removeEventListener("scroll", onScroll, true); window.removeEventListener("resize", place); if (_activeDateMenuClose === close) _activeDateMenuClose = null; };
+    _activeDateMenuClose = close;
     onScroll = (e) => { if (!menu.contains(e.target)) place(); };   // follow the button; do NOT close
     menu.querySelectorAll(".snap-opt").forEach((o) => (o.onclick = (e) => { e.stopPropagation(); onPick(o.dataset.d); close(); }));
     setTimeout(() => {
@@ -2710,7 +2837,7 @@
           ${reportGrid(cols, wowCol, "avgPsf", snap)}
         </div>
         <div class="rp-section rp-section--flow">
-          ${reportBand("Detailed Comparables", `Subject + ${n} comps · snapshot ${snap ? fmtDate(snap) : "latest"} · vs prior Δ`, "DETAIL")}
+          ${reportBand("Detailed Comparables", `Subject + ${n} comps · snapshot ${snap ? fmtDate(snap) : "latest"} · Δ vs ${compareBaseline(a) ? fmtDate(compareBaseline(a)) : "prior scrape"}`, "DETAIL")}
           ${reportTables(a, cols, snap)}
         </div>
       </div>
@@ -3070,25 +3197,25 @@
     const svgY = (ev.clientY - rect.top) / rect.height * hv.H;
 
     // nearest scrape date to the cursor
-    let D = null, best = Infinity;
-    hv.dates.forEach((d) => { const dd = Math.abs(hv.x(d) - svgX); if (dd < best) { best = dd; D = d; } });
-    if (D == null) { trendHoverLeave(cache); return; }
+    let nearDate = null, best = Infinity;   // renamed from D to not shadow the module dataset
+    hv.dates.forEach((d) => { const dd = Math.abs(hv.x(d) - svgX); if (dd < best) { best = dd; nearDate = d; } });
+    if (nearDate == null) { trendHoverLeave(cache); return; }
 
     const countMode = trendMetricIsCount(hv.metric);
 
-    // value + comparison vs the subject (★) at D, for each visible series.
-    // If the subject wasn't scraped at D, carry forward its last observed value.
+    // value + comparison vs the subject (★) at nearDate, for each visible series.
+    // If the subject wasn't scraped at nearDate, carry forward its last observed value.
     const benchS = hv.series.find((s) => s.bench);
-    let subjV = benchS ? benchS.vmap[D] : null;
+    let subjV = benchS ? benchS.vmap[nearDate] : null;
     let subjCarried = false;
     if (benchS && subjV == null) {
       for (let i = benchS.pts.length - 1; i >= 0; i--) {
-        if (benchS.pts[i].d <= D && benchS.pts[i].v != null) { subjV = benchS.pts[i].v; subjCarried = true; break; }
+        if (benchS.pts[i].d <= nearDate && benchS.pts[i].v != null) { subjV = benchS.pts[i].v; subjCarried = true; break; }
       }
     }
     const rows = [];
     hv.series.forEach((s) => {
-      const v = s.vmap[D];
+      const v = s.vmap[nearDate];
       if (v == null) return;                       // no observation here → omit (no $0/NaN)
       const vs = (!s.bench && subjV)
         ? (countMode ? Math.round(v - subjV) : Math.round(((v - subjV) / subjV) * 100))
@@ -3104,7 +3231,7 @@
     const hovered = nd <= 22 ? near : null;
 
     // crosshair + point markers
-    const cx = hv.x(D);
+    const cx = hv.x(nearDate);
     let g = `<line class="trend-cross" x1="${cx.toFixed(1)}" y1="${hv.padT}" x2="${cx.toFixed(1)}" y2="${hv.H - hv.padB}"/>`;
     rows.forEach((r) => { g += `<circle class="trend-cross-dot" cx="${cx.toFixed(1)}" cy="${r.y.toFixed(1)}" r="${r.id === hovered ? 5 : 3.5}" fill="${r.color}"/>`; });
     cache.hoverG.innerHTML = g;
@@ -3130,7 +3257,7 @@
       const val = countMode ? Math.abs(r.vs).toLocaleString() : Math.abs(r.vs) + "%";
       return ` <span class="tt-chg ${r.vs > 0 ? "up" : r.vs < 0 ? "down" : ""}">(${r.vs > 0 ? "+" : r.vs < 0 ? "−" : ""}${val})</span>`;
     };
-    let html = `<div class="tt-date">${fmtDate(D)}</div>`;
+    let html = `<div class="tt-date">${fmtDate(nearDate)}</div>`;
     rows.forEach((r) => { html += `<div class="tt-row ${r.id === hovered ? "tt-hi" : ""}"><span class="tt-dot" style="background:${r.color}"></span><span class="tt-name">${esc(r.name)}${r.bench ? " ★" : ""}</span><span class="tt-val">${fmtV(r.v)}${fmtVs(r)}</span></div>`; });
     if (subjV) html += `<div class="tt-note">( ) = ${countMode ? "listing count delta" : "premium / discount"} vs subject${subjCarried ? " (last obs.)" : ""}</div>`;
     const tip = cache.tip;
@@ -3433,7 +3560,7 @@
         <div class="field"><label for="bs-owner">Owner / manager</label><input type="text" id="bs-owner" value="${esc(b.owner || "")}"/></div>
         <div class="field"><label for="bs-photo">Photo URL <span class="sub">(building image)</span></label>
           <input type="text" id="bs-photo" placeholder="https://…/photo.jpg" value="${esc(b.photo || "")}"/>
-          <div class="bs-photo-prev"><img id="bs-photo-img" alt="" src="${esc(b.photo || "")}" style="${b.photo ? "" : "display:none"}" onerror="this.style.display='none'"/><span class="sub" id="bs-photo-none" style="${b.photo ? "display:none" : ""}">No image</span></div>
+          <div class="bs-photo-prev"><img id="bs-photo-img" alt="" src="${esc(safeUrl(b.photo || ""))}" style="${b.photo ? "" : "display:none"}" onerror="this.style.display='none'"/><span class="sub" id="bs-photo-none" style="${b.photo ? "display:none" : ""}">No image</span></div>
         </div>
         <div class="field"><label for="bs-addr">Address</label><input type="text" id="bs-addr" value="${esc(b.address || "")}"/></div>
         <div class="field-row">
@@ -3457,7 +3584,7 @@
     // live photo preview as the URL is typed
     const photoImg = $("#bs-photo-img"), photoNone = $("#bs-photo-none");
     $("#bs-photo").oninput = (e) => {
-      const v = e.target.value.trim();
+      const v = safeUrl(e.target.value.trim());
       if (v) { photoImg.src = v; photoImg.style.display = ""; photoNone.style.display = "none"; }
       else { photoImg.style.display = "none"; photoNone.style.display = ""; }
     };
@@ -4267,11 +4394,11 @@
     const q = D.quarterly[id] || [];
 
     const ph = `<div class="detail-media"><div class="ph">${icon("building")}</div>` +
-      (b.photo ? `<img src="${esc(b.photo)}" loading="lazy" onerror="this.style.display='none'"/>` : "") + `</div>`;
+      (b.photo ? `<img src="${esc(safeUrl(b.photo))}" loading="lazy" onerror="this.style.display='none'"/>` : "") + `</div>`;
 
     const cfg = `<div class="card"><div class="card__title">${icon("settings")} Scrape Configuration</div>
       <dl class="kv">
-        <dt>URL</dt><dd>${b.scrapeUrl ? `<a href="${esc(b.scrapeUrl)}" target="_blank" style="color:var(--info)">${esc(b.scrapeUrl)}</a>` : "—"}</dd>
+        <dt>URL</dt><dd>${b.scrapeUrl ? (safeUrl(b.scrapeUrl) ? `<a href="${esc(safeUrl(b.scrapeUrl))}" target="_blank" rel="noopener noreferrer" style="color:var(--info)">${esc(b.scrapeUrl)}</a>` : esc(b.scrapeUrl)) : "—"}</dd>
         <dt>Strategy</dt><dd>${esc(b.strategy || "—")}</dd>
         <dt>Initial wait</dt><dd>${b.initialWaitMs != null ? b.initialWaitMs + " ms" : "—"}</dd>
         <dt>Scroll</dt><dd>${b.scroll ? "Yes" : "No"}</dd>
@@ -4285,6 +4412,10 @@
       </div>
       <div class="sub" style="margin-top:16px">${sum ? "Last scraped " + fmtDate(sum.date) + " · " + (sum.weighted ? sum.weighted.count : 0) + " units from latest snapshot" : "No successful scrape yet"}</div>
     </div>`;
+
+    // Tricon-only: on-demand 12-month rent enrichment (separate from the normal scrape).
+    const isTricon = b.strategy === "tricon_api" || /triconliving\.com/i.test(b.scrapeUrl || "");
+    const tricon12Card = isTricon ? tricon12moCard(b) : "";
 
     let qrows = "";
     q.forEach((row, qi) => {
@@ -4354,11 +4485,13 @@
             <button class="btn" id="b-settings">${icon("building")} Building Settings</button>
             <button class="btn" id="b-scrape">${icon("settings")} Scrape Settings</button>
             ${(window.COMP_CONFIG || {}).scrapeApi ? `<button class="btn" id="b-runscrape">${icon("refresh")} Run scrape</button>` : ""}
+            ${(window.COMP_CONFIG || {}).scrapeApi && isTricon ? `<button class="btn" id="b-tricon12">${icon("chart")} 12-month rents</button>` : ""}
             <button class="btn btn--accent" id="b-addto">${icon("plus")} Add to Analysis</button>
           </div>
         </div>
       </div>
       <div class="detail-grid">${cfg}${stats}</div>
+      ${tricon12Card ? `${tricon12Card}<div style="height:24px"></div>` : ""}
       ${histTable}
       <div style="height:24px"></div>
       ${scrapeHist}`;
@@ -4374,6 +4507,34 @@
     if (bScrape) bScrape.onclick = () => openScrapeSettingsModal(b);
     const bRun = document.getElementById("b-runscrape");
     if (bRun) bRun.onclick = () => openRunScrapeModal(b);
+    const bT12 = document.getElementById("b-tricon12");
+    if (bT12) bT12.onclick = () => fetchTricon12mo(b);
+    // 12-Month Rents card: collapsible header + copy-table-to-clipboard.
+    const t12card = $view.querySelector(".t12-card");
+    if (t12card) {
+      const head = t12card.querySelector(".t12-head");
+      // Toggle via inline styles (not only the CSS class) so it works even if a stale
+      // cached styles.css lacks the .t12-card.collapsed rules.
+      if (head) head.onclick = (e) => {
+        if (e.target.closest(".t12-copy")) return;
+        const collapsed = t12card.classList.toggle("collapsed");
+        const body = t12card.querySelector(".t12-body");
+        const caret = t12card.querySelector(".t12-caret");
+        if (body) body.style.display = collapsed ? "none" : "";
+        if (caret) caret.style.transform = collapsed ? "rotate(-90deg)" : "";
+      };
+      const copyBtn = t12card.querySelector(".t12-copy");
+      if (copyBtn) copyBtn.onclick = (e) => {
+        e.stopPropagation();
+        const tbl = t12card.querySelector(".t12-table");
+        if (!tbl) return;
+        const orig = copyBtn.innerHTML;
+        copyTableTSV(tbl, (ok) => {
+          copyBtn.innerHTML = ok ? `${icon("check")} Copied` : "Copy failed";
+          setTimeout(() => { copyBtn.innerHTML = orig; }, 1500);
+        });
+      };
+    }
     const bAddTo = document.getElementById("b-addto");
     if (bAddTo) bAddTo.onclick = () => openAddToAnalysisModal(b);
 
