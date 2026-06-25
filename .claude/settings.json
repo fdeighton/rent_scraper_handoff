@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(git fetch *)",
+      "Bash(python -m py_compile code/fetcher.py code/local_server.py code/extractor.py code/main.py app/build_data.py db/export_seed.py)",
+      "Bash(git branch *)",
+      "PowerShell(\"$env:PROCESSOR_ARCHITECTURE  \\(PROCESSOR_ARCHITEW6432=$env:PROCESSOR_ARCHITEW6432\\)\"; \\(Get-CimInstance Win32_Processor\\).Name)",
+      "Bash(python -m py_compile jobstore.py worker.py)",
+      "Bash(python -c \"import jobstore, worker; print\\('import OK; worker_id sample:', __import__\\('socket'\\).gethostname\\(\\)[:12]\\)\")",
+      "Bash(git -C .. status --short)"
     ]
   }
 }
