@@ -419,6 +419,197 @@
   // 12-month (Tricon, on-demand) records, kept SEPARATE so they never enter D.* and thus
   // never reach comp analyses/trends/exports: { bid: {date, units, total, quoted} } (latest).
   let _local12mo = {};
+
+  // ---- Fitzrovia Agent -------------------------------------------------------
+  // REAL mode (config.supabaseUrl + supabaseAnonKey set, via window.SBScrape):
+  //   "Run via Agent" enqueues a job into Supabase; a Fitzrovia Agent running on a
+  //   machine claims it, scrapes, and writes results back (scrape_snapshots +
+  //   unit_data) — we poll the job, then read + render the saved units.
+  // MOCK mode (only scrapeApi set): a client-side simulation of that same UX.
+  const agentRealMode = () => !!(window.SBScrape && window.SBScrape.configured());
+  const agentCardEnabled = () => agentRealMode() || !!(window.COMP_CONFIG || {}).scrapeApi;
+
+  let _agentMock = { online: true, running: false };
+  function agentPreviewCard(b) {
+    if (agentRealMode()) return agentLiveCard(b);
+    const on = _agentMock.online;
+    return `<div class="card agent-card">
+      <div class="card__title">${icon("refresh")} Fitzrovia Agent <span class="badge badge--orange" title="Simulated preview of the agent-driven scrape flow — not yet connected to a live agent">preview</span></div>
+      <div class="agent-status">
+        <span class="agent-dot ${on ? "on" : "off"}"></span>
+        <span class="sub">${on ? "Agent online — scrapes run on your machine" : "Agent offline — start the Fitzrovia Agent to run scrapes"}</span>
+        <a href="#" class="agent-toggle" style="margin-left:auto;color:var(--info)">${on ? "simulate offline" : "simulate online"}</a>
+      </div>
+      <div class="agent-actions">
+        <button class="btn btn--accent agent-run" ${on ? "" : "disabled"}>${icon("refresh")} Run via Agent</button>
+        <span class="sub">Simulated — the real flow streams from the agent once it's live.</span>
+      </div>
+      <div class="agent-job" hidden></div>
+    </div>`;
+  }
+  function agentLiveCard(b) {
+    const hasUrl = !!b.scrapeUrl;
+    return `<div class="card agent-card" data-mode="live">
+      <div class="card__title">${icon("refresh")} Fitzrovia Agent <span class="badge badge--green" title="Live — runs on a Fitzrovia Agent and saves results to the database">live</span></div>
+      <div class="agent-status">
+        <span class="agent-dot off" data-dot></span>
+        <span class="sub" data-status>Checking for an online agent…</span>
+      </div>
+      <div class="agent-actions">
+        <button class="btn btn--accent agent-run" ${hasUrl ? "" : "disabled"}>${icon("refresh")} Run via Agent</button>
+        <span class="sub">${hasUrl ? "Enqueues a real scrape; results save to the database." : "No scrape URL set — add one in Scrape Settings."}</span>
+      </div>
+      <div class="agent-job" hidden></div>
+    </div>`;
+  }
+  // Best-effort OS detection so the download button points at the right installer.
+  function detectAgentPlatform() {
+    const ua = ((navigator.userAgent || "") + " " + (navigator.platform || ""));
+    if (/Mac|iPhone|iPad/i.test(ua)) return "mac";
+    if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return "linux";
+    return "windows";
+  }
+  // The "install the agent once" block, shown when no agent is detected online.
+  function agentDownloadHtml() {
+    const dl = (window.COMP_CONFIG || {}).agentDownload || {};
+    const plat = detectAgentPlatform();
+    const url = dl[plat] || "";
+    const name = plat === "mac" ? "macOS" : plat === "linux" ? "Linux" : "Windows";
+    const ver = dl.version ? ` v${esc(dl.version)}` : "";
+    const btn = url
+      ? `<a class="btn btn--accent" href="${esc(url)}" download>${icon("download")} Download for ${name}${ver}</a>`
+      : `<button class="btn btn--accent" disabled title="Installer not published yet — packaging in progress">${icon("download")} Download for ${name} — coming soon</button>`;
+    return `<div class="agent-dl">
+      <div class="sub">Install the Fitzrovia Agent once — it runs quietly in your ${plat === "mac" ? "menu bar" : "system tray"} and picks up the scrape jobs you start here. Nothing connects in to your machine; it only reaches out.</div>
+      ${btn}
+      <ol class="agent-dl__steps">
+        <li>Download &amp; run the installer.</li>
+        <li>Sign in once to link it to your account.</li>
+        <li>Leave it running — this page detects it automatically.</li>
+      </ol>
+    </div>`;
+  }
+  function runAgentPreview(b, panel) {
+    if (_agentMock.running) return;
+    _agentMock.running = true;
+    const sum = D.summary[b.id];
+    const n = (sum && sum.weighted && sum.weighted.count) ||
+      (((D.snapshots[b.id] || [])[0] || {}).weighted || {}).count || 0;
+    const stages = [
+      { p: 5, s: "Job created — queued" },
+      { p: 18, s: "Your agent claimed the job" },
+      { p: 40, s: "Fetching listing page…" },
+      { p: 70, s: "Extracting units (Claude)…" },
+      { p: 92, s: "Saving results…" },
+    ];
+    let i = 0, cancelled = false;
+    panel.hidden = false;
+    const paint = (p, s, done) => {
+      panel.innerHTML =
+        `<div class="agent-prog"><div class="agent-prog__bar" style="width:${p}%"></div></div>
+         <div class="agent-prog__row"><span class="sub">${esc(s)}</span>` +
+        (done ? "" : `<button class="btn agent-cancel">Cancel</button>`) + `</div>`;
+      const c = panel.querySelector(".agent-cancel");
+      if (c) c.onclick = () => { cancelled = true; };
+    };
+    paint(stages[0].p, stages[0].s, false);
+    const tick = () => {
+      if (cancelled) { _agentMock.running = false; paint(0, "Cancelled", true); return; }
+      i += 1;
+      if (i < stages.length) { paint(stages[i].p, stages[i].s, false); setTimeout(tick, 850); }
+      else { _agentMock.running = false; paint(100, `✓ Done · ${n} units (preview)`, true); }
+    };
+    setTimeout(tick, 850);
+  }
+
+  // ---- REAL agent run (Supabase) --------------------------------------------
+  const AGENT_STAGE_LABEL = {
+    queued: "Job created — waiting for an agent…",
+    claimed: "Agent claimed the job",
+    fetching: "Fetching listing page…",
+    extracting: "Extracting units (Claude)…",
+    saving: "Saving results…",
+    done: "Done",
+  };
+  function agentPaint(panel, p, s, opts) {
+    opts = opts || {};
+    panel.hidden = false;
+    panel.innerHTML =
+      `<div class="agent-prog"><div class="agent-prog__bar" style="width:${p}%"></div></div>
+       <div class="agent-prog__row"><span class="sub">${esc(s)}</span>` +
+      (opts.cancel ? `<button class="btn agent-cancel">Cancel</button>` : "") + `</div>`;
+    if (opts.onCancel) { const c = panel.querySelector(".agent-cancel"); if (c) c.onclick = opts.onCancel; }
+  }
+  // Resolve a logged-in Supabase session, prompting for sign-in inline if needed.
+  function ensureAgentSession(panel) {
+    return window.SBScrape.session().catch(() => null).then((s) => {
+      if (s) return s;
+      return new Promise((resolve) => {
+        panel.hidden = false;
+        panel.innerHTML = `<div class="agent-login">
+          <div class="sub" style="margin-bottom:6px">Sign in to run a scrape</div>
+          <input type="email" class="agent-email" placeholder="email" autocomplete="username" />
+          <input type="password" class="agent-pw" placeholder="password" autocomplete="current-password" />
+          <button class="btn btn--accent agent-signin">Sign in</button>
+          <div class="sub agent-login-err" style="color:var(--danger);margin-top:4px"></div>
+        </div>`;
+        const btn = panel.querySelector(".agent-signin");
+        btn.onclick = () => {
+          const email = (panel.querySelector(".agent-email").value || "").trim();
+          const pw = panel.querySelector(".agent-pw").value || "";
+          const err = panel.querySelector(".agent-login-err");
+          err.textContent = ""; btn.disabled = true; btn.textContent = "Signing in…";
+          window.SBScrape.signIn(email, pw)
+            .then((sess) => resolve(sess))
+            .catch((e) => { err.textContent = (e && e.message) || "Sign-in failed"; btn.disabled = false; btn.textContent = "Sign in"; });
+        };
+      });
+    });
+  }
+  async function runAgentScrape(b, panel) {
+    if (_agentMock.running) return;
+    if (!b.scrapeUrl) { agentPaint(panel, 0, "No scrape URL set — add one in Scrape Settings.", {}); return; }
+    _agentMock.running = true;
+    let jobId = null, cancelled = false;
+    try {
+      const sess = await ensureAgentSession(panel);
+      if (!sess) { _agentMock.running = false; return; }
+      agentPaint(panel, 3, "Creating job…", {});
+      const config = { strategy: b.strategy || "playwright_render", scroll: !!b.scroll };
+      if (b.initialWaitMs) config.initial_wait_ms = b.initialWaitMs;
+      jobId = await window.SBScrape.enqueue({ url: b.scrapeUrl, comp_building_id: b.id, building_name: b.name, config });
+      const onCancel = () => { cancelled = true; window.SBScrape.requestCancel(jobId).catch(() => {}); };
+      const final = await window.SBScrape.watchJob(jobId, (j) => {
+        const label = AGENT_STAGE_LABEL[j.stage] || j.stage || AGENT_STAGE_LABEL[j.status] || "Working…";
+        const pct = j.status === "queued" ? 5 : Math.max(8, j.progress || 0);
+        agentPaint(panel, pct, label, { cancel: !cancelled, onCancel });
+      });
+      if (final.status === "cancelled") { agentPaint(panel, 0, "Cancelled", {}); }
+      else if (final.status === "error") { agentPaint(panel, 100, "✗ " + (final.error_message || "Scrape failed"), {}); }
+      else if (final.status === "done") {
+        agentPaint(panel, 96, "Loading results…", {});
+        let units = [], incentives = null;
+        if (final.result_snapshot_id) {
+          const [rows, meta] = await Promise.all([
+            window.SBScrape.snapshotUnits(final.result_snapshot_id),
+            window.SBScrape.snapshotMeta(final.result_snapshot_id).catch(() => null),
+          ]);
+          units = mapServerUnits(rows);
+          incentives = (meta && meta.incentives) || null;
+        }
+        const date = (final.finished_at || new Date().toISOString()).slice(0, 10);
+        applyScrape(b, date, incentives, units);
+        delete _unitsCache[b.id];
+        const n = units.filter((u) => u.rent != null).length;
+        agentPaint(panel, 100, `✓ Done · ${n} units saved`, {});
+        setTimeout(() => route(), 700);   // re-render the building with fresh data
+      }
+    } catch (e) {
+      agentPaint(panel, 100, "✗ " + ((e && e.message) || "Agent error"), {});
+    } finally {
+      _agentMock.running = false;
+    }
+  }
   const scrapeApiBase = () => ((window.COMP_CONFIG || {}).scrapeApi || "").replace(/\/$/, "");
   const mapServerUnits = (us) => (us || []).map((u) => ({
     type: u.unit_type, bath: u.bathrooms != null ? String(u.bathrooms) : null,
@@ -4491,6 +4682,7 @@
         </div>
       </div>
       <div class="detail-grid">${cfg}${stats}</div>
+      ${agentCardEnabled() ? `${agentPreviewCard(b)}<div style="height:24px"></div>` : ""}
       ${tricon12Card ? `${tricon12Card}<div style="height:24px"></div>` : ""}
       ${histTable}
       <div style="height:24px"></div>
@@ -4509,6 +4701,28 @@
     if (bRun) bRun.onclick = () => openRunScrapeModal(b);
     const bT12 = document.getElementById("b-tricon12");
     if (bT12) bT12.onclick = () => fetchTricon12mo(b);
+    // Fitzrovia Agent card: REAL run (Supabase) when configured, else mock preview.
+    const agentCard = $view.querySelector(".agent-card");
+    if (agentCard) {
+      const arun = agentCard.querySelector(".agent-run");
+      if (agentRealMode()) {
+        const dot = agentCard.querySelector("[data-dot]");
+        const status = agentCard.querySelector("[data-status]");
+        const job = agentCard.querySelector(".agent-job");
+        window.SBScrape.agentOnline().then((online) => {
+          if (dot) dot.className = "agent-dot " + (online ? "on" : "off");
+          if (status) status.textContent = online
+            ? "Agent online — scrapes run on a Fitzrovia Agent"
+            : "No agent detected — install the Fitzrovia Agent to run scrapes";
+          if (!online && job) { job.hidden = false; job.innerHTML = agentDownloadHtml(); }   // offer the download
+        }).catch(() => { if (status) status.textContent = "Sign in to check agent status"; });
+        if (arun) arun.onclick = () => runAgentScrape(b, agentCard.querySelector(".agent-job"));
+      } else {
+        const tog = agentCard.querySelector(".agent-toggle");
+        if (tog) tog.onclick = (e) => { e.preventDefault(); _agentMock.online = !_agentMock.online; route(); };
+        if (arun) arun.onclick = () => runAgentPreview(b, agentCard.querySelector(".agent-job"));
+      }
+    }
     // 12-Month Rents card: collapsible header + copy-table-to-clipboard.
     const t12card = $view.querySelector(".t12-card");
     if (t12card) {

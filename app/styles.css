@@ -310,6 +310,29 @@ button { font-family: inherit; cursor: pointer; }
 .t12-card.collapsed .card__title { margin-bottom: 0; }
 .t12-card.collapsed .t12-body { display: none; }
 .t12-copy { padding: 4px 10px; font-size: 12px; font-weight: 500; }
+/* Fitzrovia Agent (preview) card */
+.agent-status { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.agent-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.agent-dot.on { background: #3fb950; box-shadow: 0 0 0 3px rgba(63,185,80,.18); }
+.agent-dot.off { background: var(--on-chrome-muted, #8b949e); }
+.agent-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.agent-prog { height: 8px; border-radius: var(--r-pill); background: var(--navy-600, rgba(255,255,255,.08)); overflow: hidden; }
+.agent-prog__bar { height: 100%; background: var(--orange); border-radius: var(--r-pill); transition: width .5s var(--ease); }
+.agent-prog__row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-2); }
+.agent-cancel { padding: 4px 10px; font-size: 12px; }
+/* Inline sign-in (real agent mode, when there's no Supabase session yet) */
+.agent-login { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.agent-login > .sub { flex-basis: 100%; }
+.agent-login input {
+  padding: 6px 10px; font: inherit; font-size: 13px; border-radius: var(--r-md);
+  border: 1px solid var(--border, rgba(255,255,255,.14)); background: var(--surface-2); color: var(--ink);
+}
+.agent-login input:focus { outline: none; border-color: var(--orange); }
+.agent-login-err:empty { display: none; }
+/* "Install the agent once" block (shown when no agent is detected online) */
+.agent-dl { display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start; }
+.agent-dl .btn { margin: 2px 0; }
+.agent-dl__steps { margin: 4px 0 0; padding-left: 18px; color: var(--ink-soft); font-size: 12px; line-height: 1.7; }
 
 /* Badges */
 .badge {
@@ -319,6 +342,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .badge--blue { background: var(--light-blue); color: var(--ink); }
 .badge--orange { background: var(--orange-100); color: var(--orange-600); }
+.badge--green { background: rgba(63,185,80,.16); color: #3fb950; }
 
 /* ===================================================== Building Universe == */
 .bu-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Authorize Fitzrovia Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
+  <style>
+    :root { --orange:#f0641e; --ink:#1c2430; --soft:#5b6573; --bg:#f6f7f9; --card:#fff; --border:#e6e8ec; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Poppins,system-ui,sans-serif; background:var(--bg); color:var(--ink);
+           min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:32px;
+            max-width:420px; width:100%; box-shadow:0 8px 40px rgba(20,30,50,.08); text-align:center; }
+    .mark { width:56px; height:56px; border-radius:14px; object-fit:contain; margin:0 auto 16px; display:block; }
+    h1 { font-size:20px; margin:0 0 8px; font-weight:600; }
+    p { color:var(--soft); font-size:14px; line-height:1.6; margin:0 0 20px; }
+    .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%;
+           padding:12px 18px; font:inherit; font-size:15px; font-weight:600; border-radius:10px;
+           border:none; cursor:pointer; background:var(--orange); color:#fff; }
+    .btn:disabled { opacity:.55; cursor:default; }
+    .btn--ghost { background:transparent; color:var(--orange); border:1px solid var(--border); }
+    input { width:100%; padding:11px 13px; font:inherit; font-size:14px; border:1px solid var(--border);
+            border-radius:10px; margin-bottom:10px; }
+    input:focus { outline:none; border-color:var(--orange); }
+    .row { display:flex; gap:8px; }
+    .err { color:#d23f31; font-size:13px; min-height:18px; margin-top:8px; }
+    .ok { color:#2f9e44; }
+    .muted { font-size:12px; color:var(--soft); margin-top:14px; }
+    .hide { display:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="mark" src="fitzrovia-mark.png" alt="Fitzrovia" onerror="this.style.display='none'" />
+    <div id="view"><h1>Loading…</h1></div>
+    <div class="muted">This links the Fitzrovia Agent on your computer to your account. It runs locally and only reaches out — nothing connects in.</div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="supabase-scrape.js"></script>
+  <script>
+    (function () {
+      var view = document.getElementById("view");
+      var q = new URLSearchParams(location.search);
+      var port = q.get("port");
+      var state = q.get("state") || "";
+
+      function h(html) { view.innerHTML = html; }
+      function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+        return { "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]; }); }
+
+      if (!window.SBScrape || !SBScrape.configured()) {
+        h("<h1>Not configured</h1><p>This site isn't connected to Supabase yet (missing URL / anon key).</p>");
+        return;
+      }
+      if (!port || !/^\d+$/.test(port)) {
+        h("<h1>Open this from the Agent</h1><p>This page is launched automatically by the Fitzrovia Agent during setup. There's nothing to do here directly.</p>");
+        return;
+      }
+
+      function showAuthorize(email) {
+        h('<h1>Authorize this device?</h1>' +
+          '<p>Signed in as <b>' + esc(email) + '</b>. Allow the Fitzrovia Agent on this computer to run scrape jobs for your account.</p>' +
+          '<button class="btn" id="go">Authorize</button>' +
+          '<button class="btn btn--ghost" id="switch" style="margin-top:8px">Use a different account</button>' +
+          '<div class="err" id="err"></div>');
+        document.getElementById("go").onclick = authorize;
+        document.getElementById("switch").onclick = function () { SBScrape.signOut().then(showSignIn); };
+      }
+
+      function showSignIn() {
+        h('<h1>Sign in</h1><p>Sign in to authorize the Fitzrovia Agent.</p>' +
+          '<input id="email" type="email" placeholder="email" autocomplete="username" />' +
+          '<input id="pw" type="password" placeholder="password" autocomplete="current-password" />' +
+          '<button class="btn" id="go">Sign in</button>' +
+          '<div class="err" id="err"></div>');
+        document.getElementById("go").onclick = function () {
+          var email = (document.getElementById("email").value || "").trim();
+          var pw = document.getElementById("pw").value || "";
+          var err = document.getElementById("err");
+          var btn = document.getElementById("go");
+          err.textContent = ""; btn.disabled = true; btn.textContent = "Signing in…";
+          SBScrape.signIn(email, pw)
+            .then(function () { showAuthorize(email); })
+            .catch(function (e) { err.textContent = (e && e.message) || "Sign-in failed"; btn.disabled = false; btn.textContent = "Sign in"; });
+        };
+      }
+
+      function authorize() {
+        var btn = document.getElementById("go");
+        var err = document.getElementById("err");
+        err.textContent = ""; btn.disabled = true; btn.textContent = "Authorizing…";
+        SBScrape.issueWorkerToken()
+          .then(function (res) {
+            // Hand the scoped token (+ comps key) back to the agent's loopback listener.
+            var u = "http://127.0.0.1:" + port + "/callback?token=" + encodeURIComponent(res.token) +
+                    (res.anthropic_key ? "&akey=" + encodeURIComponent(res.anthropic_key) : "") +
+                    "&state=" + encodeURIComponent(state);
+            h('<h1 class="ok">✓ Authorized</h1><p>The Fitzrovia Agent is now linked to your account. You can close this tab.</p>');
+            location.href = u;   // agent serves a "connected" page + captures the token
+          })
+          .catch(function (e) {
+            err.textContent = (e && e.message) || "Authorization failed";
+            btn.disabled = false; btn.textContent = "Authorize";
+          });
+      }
+
+      SBScrape.session().then(function (s) {
+        if (s && s.user) showAuthorize(s.user.email || "your account");
+        else showSignIn();
+      }).catch(showSignIn);
+    })();
+  </script>
+</body>
+</html>

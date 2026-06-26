@@ -26,4 +26,23 @@ window.COMP_CONFIG = {
   // at a backend route if you serve them elsewhere. Requires HTTP (fetch is blocked on
   // file://) — the app degrades gracefully (drill-downs show "unavailable") when it can't.
   unitsBase: "data/units",
+
+  // --- Fitzrovia Agent (REAL, Supabase-backed) ------------------------------
+  // Set BOTH to turn the building "Run via Agent" card from a mock into the real
+  // loop: enqueue a job into Supabase → a running agent claims & scrapes it →
+  // results land in scrape_snapshots/unit_data → the card reads them back.
+  // Needs a logged-in Supabase Auth user (enqueue + reads are gated by RLS).
+  // Leave supabaseAnonKey blank to keep the card in mock-preview mode.
+  supabaseUrl: "https://vshalfxsydyjlouwbfmx.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzaGFsZnhzeWR5amxvdXdiZm14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MzMxMjMsImV4cCI6MjA5MzUwOTEyM30.cbJC66Q4-Hs-GphneggchWLw_RW-FIlUVgF0ieF73EE", // paste the project's anon/public key (safe for the browser)
+
+  // Downloadable Fitzrovia Agent installers. When an agent isn't detected online,
+  // the building card shows a "Download" button pointing at the right OS build here.
+  // Leave URLs blank until the installers are packaged + hosted (then paste links).
+  agentDownload: {
+    version: "0.1.0",
+    windows: "https://github.com/fdeighton/rent_scraper_handoff/releases/download/agent-v0.1.0/FitzroviaAgent-0.1.0-setup.exe",
+    mac: "",     // fill after you build + publish a .dmg
+    linux: "",
+  },
 };
