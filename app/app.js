@@ -444,8 +444,15 @@
     const el = document.getElementById("agent-banner");
     if (!el) return;
     if (!agentRealMode() || _agentBannerDismissed) { el.innerHTML = ""; return; }
-    const paint = (online) => {
-      if (online) { el.innerHTML = ""; return; }   // an agent is live → stay silent
+    const wireCommon = () => {
+      const x = el.querySelector(".agent-bar__x");
+      if (x) x.onclick = () => { _agentBannerDismissed = true; el.innerHTML = ""; };
+      const dlBtn = el.querySelector(".agent-bar__dl");
+      if (dlBtn) dlBtn.addEventListener("click", markAgentDownloaded);
+      const si = el.querySelector(".agent-bar__signin");
+      if (si) si.onclick = openSignInModal;
+    };
+    const paintOffline = () => {
       const dl = (window.COMP_CONFIG || {}).agentDownload || {};
       const plat = detectAgentPlatform();
       const url = dl[plat] || "";
@@ -463,12 +470,60 @@
           <span>${icon("download")} Install the <b>Fitzrovia Agent</b> to run scrapes on your machine — one-time setup, then it just runs.</span>
           ${btn}<button class="agent-bar__x" title="Dismiss">&times;</button></div>`;
       }
-      const x = el.querySelector(".agent-bar__x");
-      if (x) x.onclick = () => { _agentBannerDismissed = true; el.innerHTML = ""; };
-      const dlBtn = el.querySelector(".agent-bar__dl");
-      if (dlBtn) dlBtn.addEventListener("click", markAgentDownloaded);
+      wireCommon();
     };
-    window.SBScrape.agentOnline().then(paint).catch(() => paint(false));
+    // Must be signed in to even check agent status / enqueue (RLS). So: no session →
+    // prompt sign-in; signed in + agent online → silent; signed in + offline → install/start.
+    window.SBScrape.session().then((sess) => {
+      if (!sess) {
+        el.innerHTML = `<div class="agent-bar">
+          <span>${icon("refresh")} Sign in to use the Fitzrovia Agent (run scrapes &amp; check status).</span>
+          <button class="btn btn--accent agent-bar__signin">Sign in</button>
+          <button class="agent-bar__x" title="Dismiss">&times;</button></div>`;
+        wireCommon();
+        return;
+      }
+      return window.SBScrape.agentOnline()
+        .then((online) => { if (online) { el.innerHTML = ""; } else { paintOffline(); } })
+        .catch(paintOffline);
+    }).catch(paintOffline);
+  }
+  // Minimal Supabase sign-in (this standalone build has no auth gate of its own;
+  // in the hub, the host app supplies the session). Shares storage with authorize.html.
+  function openSignInModal() {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Sign in">
+      <div class="modal__head">
+        <div class="modal__chip">${icon("refresh")}</div>
+        <div class="modal__title">Sign in</div>
+        <button class="modal__x" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="modal__body">
+        <div class="sub" style="margin-bottom:10px">Sign in to use the Fitzrovia Agent — run scrapes and see agent status.</div>
+        <div class="field"><label>Email</label><input type="email" id="si-email" autocomplete="username" /></div>
+        <div class="field"><label>Password</label><input type="password" id="si-pw" autocomplete="current-password" /></div>
+        <div class="sub" id="si-err" style="color:var(--danger);min-height:18px"></div>
+      </div>
+      <div class="modal__foot">
+        <button class="btn" data-close>Cancel</button>
+        <button class="btn btn--accent" id="si-go">Sign in</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelectorAll("[data-close]").forEach((x) => (x.onclick = close));
+    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    const go = overlay.querySelector("#si-go");
+    go.onclick = () => {
+      const email = (overlay.querySelector("#si-email").value || "").trim();
+      const pw = overlay.querySelector("#si-pw").value || "";
+      const err = overlay.querySelector("#si-err");
+      err.textContent = ""; go.disabled = true; go.textContent = "Signing in…";
+      window.SBScrape.signIn(email, pw)
+        .then(() => { close(); refreshAgentBanner(); try { toast("Signed in"); } catch (e) {} })
+        .catch((e) => { err.textContent = (e && e.message) || "Sign-in failed"; go.disabled = false; go.textContent = "Sign in"; });
+    };
   }
   // Best-effort OS detection so the download button points at the right installer.
   function detectAgentPlatform() {
