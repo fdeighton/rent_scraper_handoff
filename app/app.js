@@ -427,40 +427,48 @@
   //   unit_data) — we poll the job, then read + render the saved units.
   // MOCK mode (only scrapeApi set): a client-side simulation of that same UX.
   const agentRealMode = () => !!(window.SBScrape && window.SBScrape.configured());
-  const agentCardEnabled = () => agentRealMode() || !!(window.COMP_CONFIG || {}).scrapeApi;
+  // Scrape buttons are available when EITHER the agent (cloud) or the legacy local
+  // server is configured. The agent is the default engine (see performScrape).
+  const scrapeEnabled = () => agentRealMode() || !!(window.COMP_CONFIG || {}).scrapeApi;
 
-  let _agentMock = { online: true, running: false };
-  function agentPreviewCard(b) {
-    if (agentRealMode()) return agentLiveCard(b);
-    const on = _agentMock.online;
-    return `<div class="card agent-card">
-      <div class="card__title">${icon("refresh")} Fitzrovia Agent <span class="badge badge--orange" title="Simulated preview of the agent-driven scrape flow — not yet connected to a live agent">preview</span></div>
-      <div class="agent-status">
-        <span class="agent-dot ${on ? "on" : "off"}"></span>
-        <span class="sub">${on ? "Agent online — scrapes run on your machine" : "Agent offline — start the Fitzrovia Agent to run scrapes"}</span>
-        <a href="#" class="agent-toggle" style="margin-left:auto;color:var(--info)">${on ? "simulate offline" : "simulate online"}</a>
-      </div>
-      <div class="agent-actions">
-        <button class="btn btn--accent agent-run" ${on ? "" : "disabled"}>${icon("refresh")} Run via Agent</button>
-        <span class="sub">Simulated — the real flow streams from the agent once it's live.</span>
-      </div>
-      <div class="agent-job" hidden></div>
-    </div>`;
-  }
-  function agentLiveCard(b) {
-    const hasUrl = !!b.scrapeUrl;
-    return `<div class="card agent-card" data-mode="live">
-      <div class="card__title">${icon("refresh")} Fitzrovia Agent <span class="badge badge--green" title="Live — runs on a Fitzrovia Agent and saves results to the database">live</span></div>
-      <div class="agent-status">
-        <span class="agent-dot off" data-dot></span>
-        <span class="sub" data-status>Checking for an online agent…</span>
-      </div>
-      <div class="agent-actions">
-        <button class="btn btn--accent agent-run" ${hasUrl ? "" : "disabled"}>${icon("refresh")} Run via Agent</button>
-        <span class="sub">${hasUrl ? "Enqueues a real scrape; results save to the database." : "No scrape URL set — add one in Scrape Settings."}</span>
-      </div>
-      <div class="agent-job" hidden></div>
-    </div>`;
+  // ---- App-level agent onboarding/status banner ------------------------------
+  // Shown once at the app level (not per building): prompts to INSTALL the agent if
+  // it's never been set up, to START it if installed-but-offline, and shows nothing
+  // when an agent is online. The actual scrape engine is the agent (see performScrape).
+  const AGENT_DL_KEY = "fitz_agent_downloaded_v1";
+  let _agentBannerDismissed = false;
+  function agentDownloadedBefore() { try { return !!localStorage.getItem(AGENT_DL_KEY); } catch (e) { return false; } }
+  function markAgentDownloaded() { try { localStorage.setItem(AGENT_DL_KEY, "1"); } catch (e) {} }
+
+  function refreshAgentBanner() {
+    const el = document.getElementById("agent-banner");
+    if (!el) return;
+    if (!agentRealMode() || _agentBannerDismissed) { el.innerHTML = ""; return; }
+    const paint = (online) => {
+      if (online) { el.innerHTML = ""; return; }   // an agent is live → stay silent
+      const dl = (window.COMP_CONFIG || {}).agentDownload || {};
+      const plat = detectAgentPlatform();
+      const url = dl[plat] || "";
+      const osName = plat === "mac" ? "macOS" : plat === "linux" ? "Linux" : "Windows";
+      const tray = plat === "mac" ? "menu bar" : "system tray";
+      if (agentDownloadedBefore()) {
+        el.innerHTML = `<div class="agent-bar agent-bar--warn">
+          <span>${icon("refresh")} Your Fitzrovia Agent isn't running — start it (it lives in your ${tray}) to run scrapes.</span>
+          <button class="agent-bar__x" title="Dismiss">&times;</button></div>`;
+      } else {
+        const btn = url
+          ? `<a class="btn btn--accent agent-bar__dl" href="${esc(url)}" download>${icon("download")} Download for ${osName}</a>`
+          : `<button class="btn btn--accent" disabled>${icon("download")} ${osName} build coming soon</button>`;
+        el.innerHTML = `<div class="agent-bar">
+          <span>${icon("download")} Install the <b>Fitzrovia Agent</b> to run scrapes on your machine — one-time setup, then it just runs.</span>
+          ${btn}<button class="agent-bar__x" title="Dismiss">&times;</button></div>`;
+      }
+      const x = el.querySelector(".agent-bar__x");
+      if (x) x.onclick = () => { _agentBannerDismissed = true; el.innerHTML = ""; };
+      const dlBtn = el.querySelector(".agent-bar__dl");
+      if (dlBtn) dlBtn.addEventListener("click", markAgentDownloaded);
+    };
+    window.SBScrape.agentOnline().then(paint).catch(() => paint(false));
   }
   // Best-effort OS detection so the download button points at the right installer.
   function detectAgentPlatform() {
@@ -468,147 +476,6 @@
     if (/Mac|iPhone|iPad/i.test(ua)) return "mac";
     if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return "linux";
     return "windows";
-  }
-  // The "install the agent once" block, shown when no agent is detected online.
-  function agentDownloadHtml() {
-    const dl = (window.COMP_CONFIG || {}).agentDownload || {};
-    const plat = detectAgentPlatform();
-    const url = dl[plat] || "";
-    const name = plat === "mac" ? "macOS" : plat === "linux" ? "Linux" : "Windows";
-    const ver = dl.version ? ` v${esc(dl.version)}` : "";
-    const btn = url
-      ? `<a class="btn btn--accent" href="${esc(url)}" download>${icon("download")} Download for ${name}${ver}</a>`
-      : `<button class="btn btn--accent" disabled title="Installer not published yet — packaging in progress">${icon("download")} Download for ${name} — coming soon</button>`;
-    return `<div class="agent-dl">
-      <div class="sub">Install the Fitzrovia Agent once — it runs quietly in your ${plat === "mac" ? "menu bar" : "system tray"} and picks up the scrape jobs you start here. Nothing connects in to your machine; it only reaches out.</div>
-      ${btn}
-      <ol class="agent-dl__steps">
-        <li>Download &amp; run the installer.</li>
-        <li>Sign in once to link it to your account.</li>
-        <li>Leave it running — this page detects it automatically.</li>
-      </ol>
-    </div>`;
-  }
-  function runAgentPreview(b, panel) {
-    if (_agentMock.running) return;
-    _agentMock.running = true;
-    const sum = D.summary[b.id];
-    const n = (sum && sum.weighted && sum.weighted.count) ||
-      (((D.snapshots[b.id] || [])[0] || {}).weighted || {}).count || 0;
-    const stages = [
-      { p: 5, s: "Job created — queued" },
-      { p: 18, s: "Your agent claimed the job" },
-      { p: 40, s: "Fetching listing page…" },
-      { p: 70, s: "Extracting units (Claude)…" },
-      { p: 92, s: "Saving results…" },
-    ];
-    let i = 0, cancelled = false;
-    panel.hidden = false;
-    const paint = (p, s, done) => {
-      panel.innerHTML =
-        `<div class="agent-prog"><div class="agent-prog__bar" style="width:${p}%"></div></div>
-         <div class="agent-prog__row"><span class="sub">${esc(s)}</span>` +
-        (done ? "" : `<button class="btn agent-cancel">Cancel</button>`) + `</div>`;
-      const c = panel.querySelector(".agent-cancel");
-      if (c) c.onclick = () => { cancelled = true; };
-    };
-    paint(stages[0].p, stages[0].s, false);
-    const tick = () => {
-      if (cancelled) { _agentMock.running = false; paint(0, "Cancelled", true); return; }
-      i += 1;
-      if (i < stages.length) { paint(stages[i].p, stages[i].s, false); setTimeout(tick, 850); }
-      else { _agentMock.running = false; paint(100, `✓ Done · ${n} units (preview)`, true); }
-    };
-    setTimeout(tick, 850);
-  }
-
-  // ---- REAL agent run (Supabase) --------------------------------------------
-  const AGENT_STAGE_LABEL = {
-    queued: "Job created — waiting for an agent…",
-    claimed: "Agent claimed the job",
-    fetching: "Fetching listing page…",
-    extracting: "Extracting units (Claude)…",
-    saving: "Saving results…",
-    done: "Done",
-  };
-  function agentPaint(panel, p, s, opts) {
-    opts = opts || {};
-    panel.hidden = false;
-    panel.innerHTML =
-      `<div class="agent-prog"><div class="agent-prog__bar" style="width:${p}%"></div></div>
-       <div class="agent-prog__row"><span class="sub">${esc(s)}</span>` +
-      (opts.cancel ? `<button class="btn agent-cancel">Cancel</button>` : "") + `</div>`;
-    if (opts.onCancel) { const c = panel.querySelector(".agent-cancel"); if (c) c.onclick = opts.onCancel; }
-  }
-  // Resolve a logged-in Supabase session, prompting for sign-in inline if needed.
-  function ensureAgentSession(panel) {
-    return window.SBScrape.session().catch(() => null).then((s) => {
-      if (s) return s;
-      return new Promise((resolve) => {
-        panel.hidden = false;
-        panel.innerHTML = `<div class="agent-login">
-          <div class="sub" style="margin-bottom:6px">Sign in to run a scrape</div>
-          <input type="email" class="agent-email" placeholder="email" autocomplete="username" />
-          <input type="password" class="agent-pw" placeholder="password" autocomplete="current-password" />
-          <button class="btn btn--accent agent-signin">Sign in</button>
-          <div class="sub agent-login-err" style="color:var(--danger);margin-top:4px"></div>
-        </div>`;
-        const btn = panel.querySelector(".agent-signin");
-        btn.onclick = () => {
-          const email = (panel.querySelector(".agent-email").value || "").trim();
-          const pw = panel.querySelector(".agent-pw").value || "";
-          const err = panel.querySelector(".agent-login-err");
-          err.textContent = ""; btn.disabled = true; btn.textContent = "Signing in…";
-          window.SBScrape.signIn(email, pw)
-            .then((sess) => resolve(sess))
-            .catch((e) => { err.textContent = (e && e.message) || "Sign-in failed"; btn.disabled = false; btn.textContent = "Sign in"; });
-        };
-      });
-    });
-  }
-  async function runAgentScrape(b, panel) {
-    if (_agentMock.running) return;
-    if (!b.scrapeUrl) { agentPaint(panel, 0, "No scrape URL set — add one in Scrape Settings.", {}); return; }
-    _agentMock.running = true;
-    let jobId = null, cancelled = false;
-    try {
-      const sess = await ensureAgentSession(panel);
-      if (!sess) { _agentMock.running = false; return; }
-      agentPaint(panel, 3, "Creating job…", {});
-      const config = { strategy: b.strategy || "playwright_render", scroll: !!b.scroll };
-      if (b.initialWaitMs) config.initial_wait_ms = b.initialWaitMs;
-      jobId = await window.SBScrape.enqueue({ url: b.scrapeUrl, comp_building_id: b.id, building_name: b.name, config });
-      const onCancel = () => { cancelled = true; window.SBScrape.requestCancel(jobId).catch(() => {}); };
-      const final = await window.SBScrape.watchJob(jobId, (j) => {
-        const label = AGENT_STAGE_LABEL[j.stage] || j.stage || AGENT_STAGE_LABEL[j.status] || "Working…";
-        const pct = j.status === "queued" ? 5 : Math.max(8, j.progress || 0);
-        agentPaint(panel, pct, label, { cancel: !cancelled, onCancel });
-      });
-      if (final.status === "cancelled") { agentPaint(panel, 0, "Cancelled", {}); }
-      else if (final.status === "error") { agentPaint(panel, 100, "✗ " + (final.error_message || "Scrape failed"), {}); }
-      else if (final.status === "done") {
-        agentPaint(panel, 96, "Loading results…", {});
-        let units = [], incentives = null;
-        if (final.result_snapshot_id) {
-          const [rows, meta] = await Promise.all([
-            window.SBScrape.snapshotUnits(final.result_snapshot_id),
-            window.SBScrape.snapshotMeta(final.result_snapshot_id).catch(() => null),
-          ]);
-          units = mapServerUnits(rows);
-          incentives = (meta && meta.incentives) || null;
-        }
-        const date = (final.finished_at || new Date().toISOString()).slice(0, 10);
-        applyScrape(b, date, incentives, units);
-        delete _unitsCache[b.id];
-        const n = units.filter((u) => u.rent != null).length;
-        agentPaint(panel, 100, `✓ Done · ${n} units saved`, {});
-        setTimeout(() => route(), 700);   // re-render the building with fresh data
-      }
-    } catch (e) {
-      agentPaint(panel, 100, "✗ " + ((e && e.message) || "Agent error"), {});
-    } finally {
-      _agentMock.running = false;
-    }
   }
   const scrapeApiBase = () => ((window.COMP_CONFIG || {}).scrapeApi || "").replace(/\/$/, "");
   const mapServerUnits = (us) => (us || []).map((u) => ({
@@ -694,6 +561,10 @@
     _localScrapes[b.id].push({ date, incentives: incentives || null, units, run_id: run.id || null, run_no: run.no != null ? run.no : null, run_label: run.label || null });
     delete _unitsCache[b.id];                 // bust the lazy units cache so the drill-down sees it
     applyScrape(b, date, incentives, units);
+    // Agent mode: the agent already persisted to the cloud DB (job_complete wrote the
+    // snapshot + units). Nothing to POST — the applyScrape above updates the UI now,
+    // and the canonical copy lives in Supabase.
+    if (agentRealMode()) return Promise.resolve();
     const base = scrapeApiBase();
     if (!base) return Promise.reject(new Error("no scrape server configured"));
     return fetch(base + "/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buildingId: b.id, date, incentives: incentives || null, units, runId: run.id || null, runNo: run.no != null ? run.no : null, runLabel: run.label || null }) })
@@ -795,9 +666,12 @@
     try { fetch(base + "/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId }), keepalive: true }).catch(() => {}); } catch (e) {}
   }
   function performScrape(b, signal, jobId) {
+    if (!b.scrapeUrl) return Promise.reject(new Error("no scrape URL set"));
+    // Default engine: the Fitzrovia Agent (cloud job → runs on the user's machine).
+    if (agentRealMode()) return performScrapeViaAgent(b, signal);
+    // Fallback: the local scrape server (dev, pre-agent).
     const base = scrapeApiBase();
     if (!base) return Promise.reject(new Error("no scrape server configured"));
-    if (!b.scrapeUrl) return Promise.reject(new Error("no scrape URL set"));
     return fetch(base + "/scrape", {
       method: "POST", headers: { "Content-Type": "application/json" }, signal,
       body: JSON.stringify({ url: b.scrapeUrl, name: b.name, jobId: jobId || null, config: { strategy: b.strategy || "playwright_render", initial_wait_ms: b.initialWaitMs != null ? b.initialWaitMs : null, scroll: b.scroll != null ? b.scroll : null } }),
@@ -805,6 +679,40 @@
       if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
       return { incentives: data.incentives, units: mapServerUnits(data.units), fetchedChars: data.fetchedChars || 0 };
     }));
+  }
+  // Run a scrape through the Fitzrovia Agent: enqueue a cloud job, poll it to completion,
+  // then read the saved snapshot back. Returns the same shape as the local engine.
+  // Honors `signal` for cancel (flips cancel_requested so the running agent aborts).
+  async function performScrapeViaAgent(b, signal) {
+    const sess = await window.SBScrape.session().catch(() => null);
+    if (!sess) throw new Error("Sign in to run scrapes via the agent");
+    const config = { strategy: b.strategy || "playwright_render", scroll: !!b.scroll };
+    if (b.initialWaitMs != null) config.initial_wait_ms = b.initialWaitMs;
+    const jid = await window.SBScrape.enqueue({ url: b.scrapeUrl, comp_building_id: b.id, building_name: b.name, config });
+    let requested = false;
+    for (;;) {
+      if (signal && signal.aborted) {
+        if (!requested) { requested = true; window.SBScrape.requestCancel(jid).catch(() => {}); }
+        throw new DOMException("aborted", "AbortError");
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+      let j;
+      try { j = await window.SBScrape.getJob(jid); } catch (e) { continue; }   // transient — keep polling
+      if (j.status === "done") {
+        let units = [], incentives = null;
+        if (j.result_snapshot_id) {
+          const [rows, meta] = await Promise.all([
+            window.SBScrape.snapshotUnits(j.result_snapshot_id),
+            window.SBScrape.snapshotMeta(j.result_snapshot_id).catch(() => null),
+          ]);
+          units = mapServerUnits(rows);
+          incentives = (meta && meta.incentives) || null;
+        }
+        return { incentives: incentives, units: units, fetchedChars: 0 };
+      }
+      if (j.status === "error") throw new Error(j.error_message || "scrape failed on the agent");
+      if (j.status === "cancelled") throw new DOMException("aborted", "AbortError");
+    }
   }
   function createBuilding(b) {
     const id = "cb-" + Date.now().toString(36);
@@ -2086,7 +1994,7 @@
           <button class="btn" id="a-xlsx">${icon("download")} Export Excel</button>
           <button class="btn" id="a-export">${icon("doc")} Export PDF</button>
           <button class="btn btn--accent" id="a-addcomp">${icon("plus")} Add building</button>
-          ${(window.COMP_CONFIG || {}).scrapeApi ? `<button class="btn btn--accent" id="a-scrapeset">${icon("refresh")} Scrape set</button>` : ""}
+          ${scrapeEnabled() ? `<button class="btn btn--accent" id="a-scrapeset">${icon("refresh")} Scrape set</button>` : ""}
           ${a.custom ? `<button class="btn btn--accent" id="a-remove">Remove analysis</button>` : ""}
         </div>
       </div>`;
@@ -4076,13 +3984,15 @@
         ${b.scrapeUrl
           ? `<div class="field"><label>Target</label><div class="sub">${esc(b.scrapeUrl)}</div><div class="sub" style="margin-top:2px">Strategy: ${esc(b.strategy || "playwright_render")}${b.scroll ? " · scroll" : ""}${b.initialWaitMs ? " · wait " + b.initialWaitMs + "ms" : ""} — change in Scrape Settings</div></div>`
           : `<div class="empty">${icon("settings")}<br/>No scrape URL set — add one in Scrape Settings first.</div>`}
-        <div class="geo-note">Runs against your local scrape server (<b>${esc(api || "not configured")}</b>). No database — the result saves to this browser. A real Claude call; ~15–40s.</div>
+        <div class="geo-note">${agentRealMode()
+          ? `Runs on your <b>Fitzrovia Agent</b> and saves to the database. A real Claude call; ~15–40s.`
+          : `Runs against your local scrape server (<b>${esc(api || "not configured")}</b>). No database — the result saves to this browser. A real Claude call; ~15–40s.`}</div>
         <div id="rs-out"></div>
       </div>
       <div class="modal__foot">
         <button class="btn" data-close>Close</button>
         <button class="btn btn--danger" id="rs-cancel" style="display:none">Cancel scrape</button>
-        <button class="btn btn--accent" id="rs-run" ${(!b.scrapeUrl || !api) ? "disabled" : ""}>${icon("refresh")} Run scrape</button>
+        <button class="btn btn--accent" id="rs-run" ${(!b.scrapeUrl || (!agentRealMode() && !api)) ? "disabled" : ""}>${icon("refresh")} Run scrape</button>
       </div>
     </div>`;
     document.body.appendChild(overlay);
@@ -4158,7 +4068,7 @@
         if (prog) { prog.stop(); prog = null; }
         if (cancelled) return;                         // aborted via Cancel — no error UI
         overlay.dataset.state = "error";
-        out.innerHTML = `<div class="empty" style="margin-top:12px">${icon("globe")}<br/>Scrape failed: ${esc(String((e && e.message) || e))}<br/><span class="sub">Make sure the local server is running: <code>cd code &amp;&amp; python local_server.py</code></span></div>`;
+        out.innerHTML = `<div class="empty" style="margin-top:12px">${icon("globe")}<br/>Scrape failed: ${esc(String((e && e.message) || e))}<br/><span class="sub">${agentRealMode() ? "Make sure your Fitzrovia Agent is running (system tray)." : "Make sure the local server is running: <code>cd code &amp;&amp; python local_server.py</code>"}</span></div>`;
         logScrapeEvent({ kind: "building", id: b.id, name: b.name, status: "failed", units: 0, priced: 0, via: "single", message: String((e && e.message) || e) });
       } finally { const cb = $("#rs-cancel"); if (cb) cb.style.display = "none"; controller = null; jobId = null; }
       });   // end queued task
@@ -4182,7 +4092,9 @@
         <button class="modal__x" data-close aria-label="Close">&times;</button>
       </div>
       <div class="modal__body">
-        <div class="geo-note">Runs each building against your local scrape server (<b>${esc(base || "not configured")}</b>) one at a time and saves each to local SQLite. ~15–40s per building.</div>
+        <div class="geo-note">${agentRealMode()
+          ? `Runs each building on your <b>Fitzrovia Agent</b>, one at a time, saving each to the database. ~15–40s per building.`
+          : `Runs each building against your local scrape server (<b>${esc(base || "not configured")}</b>) one at a time and saves each to local SQLite. ~15–40s per building.`}</div>
         <div class="scrape-set__overall">
           <div class="scrape-set__count"><b data-done>0</b> / ${targets.length} done${skipped ? ` · ${skipped} skipped (no URL)` : ""}</div>
           <div class="scrape-prog__bar"><div class="scrape-prog__fill" data-overall style="width:0%"></div></div>
@@ -4199,7 +4111,7 @@
       <div class="modal__foot">
         <button class="btn" data-close>Close</button>
         <button class="btn btn--danger" id="ss-cancel" style="display:none">Cancel</button>
-        <button class="btn btn--accent" id="ss-start" ${(!base || !targets.length) ? "disabled" : ""}>${icon("refresh")} Start — ${targets.length} building${targets.length === 1 ? "" : "s"}</button>
+        <button class="btn btn--accent" id="ss-start" ${((!base && !agentRealMode()) || !targets.length) ? "disabled" : ""}>${icon("refresh")} Start — ${targets.length} building${targets.length === 1 ? "" : "s"}</button>
       </div>
     </div>`;
     document.body.appendChild(overlay);
@@ -4675,14 +4587,13 @@
           <div class="detail-actions">
             <button class="btn" id="b-settings">${icon("building")} Building Settings</button>
             <button class="btn" id="b-scrape">${icon("settings")} Scrape Settings</button>
-            ${(window.COMP_CONFIG || {}).scrapeApi ? `<button class="btn" id="b-runscrape">${icon("refresh")} Run scrape</button>` : ""}
+            ${scrapeEnabled() ? `<button class="btn" id="b-runscrape">${icon("refresh")} Run scrape</button>` : ""}
             ${(window.COMP_CONFIG || {}).scrapeApi && isTricon ? `<button class="btn" id="b-tricon12">${icon("chart")} 12-month rents</button>` : ""}
             <button class="btn btn--accent" id="b-addto">${icon("plus")} Add to Analysis</button>
           </div>
         </div>
       </div>
       <div class="detail-grid">${cfg}${stats}</div>
-      ${agentCardEnabled() ? `${agentPreviewCard(b)}<div style="height:24px"></div>` : ""}
       ${tricon12Card ? `${tricon12Card}<div style="height:24px"></div>` : ""}
       ${histTable}
       <div style="height:24px"></div>
@@ -4701,28 +4612,6 @@
     if (bRun) bRun.onclick = () => openRunScrapeModal(b);
     const bT12 = document.getElementById("b-tricon12");
     if (bT12) bT12.onclick = () => fetchTricon12mo(b);
-    // Fitzrovia Agent card: REAL run (Supabase) when configured, else mock preview.
-    const agentCard = $view.querySelector(".agent-card");
-    if (agentCard) {
-      const arun = agentCard.querySelector(".agent-run");
-      if (agentRealMode()) {
-        const dot = agentCard.querySelector("[data-dot]");
-        const status = agentCard.querySelector("[data-status]");
-        const job = agentCard.querySelector(".agent-job");
-        window.SBScrape.agentOnline().then((online) => {
-          if (dot) dot.className = "agent-dot " + (online ? "on" : "off");
-          if (status) status.textContent = online
-            ? "Agent online — scrapes run on a Fitzrovia Agent"
-            : "No agent detected — install the Fitzrovia Agent to run scrapes";
-          if (!online && job) { job.hidden = false; job.innerHTML = agentDownloadHtml(); }   // offer the download
-        }).catch(() => { if (status) status.textContent = "Sign in to check agent status"; });
-        if (arun) arun.onclick = () => runAgentScrape(b, agentCard.querySelector(".agent-job"));
-      } else {
-        const tog = agentCard.querySelector(".agent-toggle");
-        if (tog) tog.onclick = (e) => { e.preventDefault(); _agentMock.online = !_agentMock.online; route(); };
-        if (arun) arun.onclick = () => runAgentPreview(b, agentCard.querySelector(".agent-job"));
-      }
-    }
     // 12-Month Rents card: collapsible header + copy-table-to-clipboard.
     const t12card = $view.querySelector(".t12-card");
     if (t12card) {
@@ -4943,6 +4832,7 @@
     else if (am) renderAnalysis(am[1], am[2]);
     else if (h.startsWith("#/building/")) renderBuilding(h.split("/")[2]);
     else renderUniverse();
+    refreshAgentBanner();   // app-level agent status/onboarding, on every page (install / start / silent)
     if (restoreScroll != null) { window.scrollTo(0, restoreScroll); savedUniverseScroll = null; savedMapView = null; mapRestoreView = null; }   // back to the exact spot
     if (originRestore != null) { window.scrollTo(0, originRestore); navOrigin = null; }   // back to where the property was clicked
     if (tabSwitch) {
