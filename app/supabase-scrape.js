@@ -31,6 +31,10 @@
   function url() { return cfg().supabaseUrl || ""; }
   function anon() { return cfg().supabaseAnonKey || ""; }
   function configured() { return !!(url() && anon()); }
+  // LOCAL-ONLY demo bypass (config.local.js): use the service_role key directly so
+  // there's no sign-in. Never set in the committed config — git-ignored, localhost only.
+  function demoKey() { return cfg().demoServiceKey || ""; }
+  function demoBypass() { return !!(cfg().demoBypassAuth && demoKey()); }
 
   var _libPromise = null;
   function loadLib() {
@@ -54,8 +58,9 @@
     if (_client) return Promise.resolve(_client);
     if (!configured()) return Promise.reject(new Error("Supabase not configured (set supabaseUrl + supabaseAnonKey in config.js)"));
     return loadLib().then(function (lib) {
-      _client = lib.createClient(url(), anon(), {
-        auth: { persistSession: true, autoRefreshToken: true, storageKey: "fitz_comp_auth" },
+      var keyToUse = demoBypass() ? demoKey() : anon();   // demo: service_role bypasses RLS
+      _client = lib.createClient(url(), keyToUse, {
+        auth: { persistSession: !demoBypass(), autoRefreshToken: !demoBypass(), storageKey: "fitz_comp_auth" },
       });
       return _client;
     });
@@ -63,6 +68,8 @@
 
   // --- auth -----------------------------------------------------------------
   function session() {
+    // Demo bypass: report a synthetic session so the UI proceeds without a real login.
+    if (demoBypass()) return Promise.resolve({ user: { email: "demo (local bypass)" } });
     return client().then(function (sb) { return sb.auth.getSession(); })
       .then(function (r) { return (r.data && r.data.session) || null; });
   }

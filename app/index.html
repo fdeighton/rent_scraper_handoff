@@ -52,6 +52,9 @@
 
   <!-- Data-source switch (window.COMP_CONFIG): inline data.js (default) or a backend URL -->
   <script src="config.js"></script>
+  <!-- LOCAL-ONLY demo override (git-ignored; absent in the repo/deploy → 404 ignored).
+       When present it bypasses sign-in via the service_role key for a local demo. -->
+  <script src="config.local.js"></script>
   <!-- Real agent loop (window.SBScrape): enqueue/poll/read via Supabase. supabase-js is
        lazy-loaded from CDN only when a real scrape runs; mock preview otherwise. -->
   <script src="supabase-scrape.js"></script>

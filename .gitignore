@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+# LOCAL-ONLY demo override (holds the service_role key) — never commit/deploy
+app/config.local.js
 
 # Python
 **/venv/
