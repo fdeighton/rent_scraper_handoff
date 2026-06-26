@@ -129,13 +129,13 @@
 
   function snapshotUnits(snapshotId) {
     return client().then(function (sb) {
-      return sb.from("unit_data").select("*").eq("snapshot_id", snapshotId);
+      return sb.from("comp_units").select("*").eq("snapshot_id", snapshotId);
     }).then(function (r) { if (r.error) throw r.error; return r.data || []; });
   }
 
   function snapshotMeta(snapshotId) {
     return client().then(function (sb) {
-      return sb.from("scrape_snapshots").select("*").eq("id", snapshotId).single();
+      return sb.from("comp_snapshots").select("*").eq("id", snapshotId).single();
     }).then(function (r) { if (r.error) throw r.error; return r.data; });
   }
 
