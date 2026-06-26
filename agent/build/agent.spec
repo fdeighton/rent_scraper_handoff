@@ -28,6 +28,7 @@ datas = [
     # The scraper engine + per-building recipes (unchanged), mirrored under code/.
     (os.path.join(CODE_DIR, "fetcher.py"), "code"),
     (os.path.join(CODE_DIR, "extractor.py"), "code"),
+    (os.path.join(CODE_DIR, "pipeline.py"), "code"),
     (os.path.join(CODE_DIR, "sites"), "code/sites"),
 ]
 # Baked non-secret config (SUPABASE_URL, AGENT_AUTHORIZE_URL). The build script

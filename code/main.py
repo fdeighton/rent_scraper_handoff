@@ -27,6 +27,7 @@ except ImportError:
 from config import Config
 from fetcher import PageFetcher
 from extractor import RentExtractor
+from pipeline import scrape_to_result
 from database import ScraperDB
 
 
@@ -63,140 +64,44 @@ async def scrape_building(
     snapshot_id = None
 
     try:
-        # 1. Fetch page content
-        html = await fetcher.fetch(scrape_url, scrape_config)
-        fetch_time = time.time() - start_time
-        print(f"    Fetched {len(html):,} chars in {fetch_time:.1f}s")
-
-        # Sentinel guard: when pre_capture_js injects a shadow-DOM->light-DOM bridge div
-        # (id derived from the JS, e.g. "collegewest-units"), confirm it made it into the
-        # captured text. Distinguishes a broken shadow-DOM walk from a genuinely empty building.
-        pcjs = scrape_config.get("pre_capture_js")
-        if pcjs:
-            m = re.search(r"""\.id\s*=\s*["']([^"']+)["']""", pcjs)
-            if m and m.group(1) not in html:
-                print(f"    [!] {name}: pre_capture_js ran but captured text lacks sentinel "
-                      f"'{m.group(1)}' — shadow-DOM walk may have broken (not just empty).")
-
-        # 1.5. Vision enrichment (optional — screenshots -> Haiku → sqft)
-        vision_config = scrape_config.get("vision_enrichment")
-        if vision_config and vision_config.get("enabled"):
-            print(f"    Running vision enrichment (screenshots -> Haiku)...")
-            try:
-                screenshots = await fetcher.fetch_screenshots(scrape_url, vision_config)
-                if screenshots:
-                    vision_model = vision_config.get("model", "claude-haiku-4-5-20251001")
-                    sqft_map = extractor.extract_sqft_from_screenshots(
-                        screenshots, name, vision_model=vision_model
-                    )
-                    if sqft_map:
-                        ref_block = "\n[SQFT REFERENCE]\n"
-                        for utype, sqft in sqft_map.items():
-                            ref_block += f"{utype}: {sqft} sqft\n"
-                        ref_block += "[/SQFT REFERENCE]\n"
-                        html = ref_block + html
-                        print(f"    Vision enrichment: {len(sqft_map)} plan types with sqft")
-                    else:
-                        print(f"    Vision enrichment: no sqft extracted from screenshots")
-                else:
-                    print(f"    Vision enrichment: no screenshots captured")
-            except Exception as e:
-                print(f"    Vision enrichment failed (continuing without sqft): {e}")
+        # Full scrape pipeline (fetch -> vision -> block-guard -> extract -> validate ->
+        # 0-units retry) via the shared code/pipeline.py — the SAME path the agent and the
+        # local server use, so scrape behaviour can never drift. DB / delta / QA / photo
+        # stay here in the seed scraper.
+        res = await scrape_to_result(scrape_url, name, scrape_config, extractor, fetcher=fetcher)
+        html = res["raw_content"]
+        print(f"    Fetched {len(html):,} chars")
 
         if dry_run:
             print(f"    [DRY RUN] Would extract and save data")
-            return {"success": True, "units": 0, "prev": None, "qa_status": "SKIP", "qa_note": "Dry run"}
+            return {"success": True, "units": len(res["units"]), "prev": None, "qa_status": "SKIP", "qa_note": "Dry run"}
 
-        # 2. Create snapshot
-        print(f"    Saving snapshot to database...")
+        # Create snapshot (stores captured content)
         snapshot_id = db.create_snapshot(building["id"], html)
 
-        # 2.5. Content guard — detect error / bot-challenge pages. Two signals:
-        #   (a) a short page that mentions a generic block keyword (most error pages
-        #       are small), with the length gate raised from 200 so multi-KB block
-        #       pages don't slip through; and
-        #   (b) an unambiguous challenge-page phrase at ANY length — these strings
-        #       (Cloudflare/Akamai/Incapsula interstitials) don't appear in real listings.
-        low = html.lower()
-        _challenge_markers = (
-            "access denied", "attention required! | cloudflare", "just a moment...",
-            "pardon our interruption", "request unsuccessful. incapsula",
-            "you don't have permission to access", "verify you are human",
-            "enable javascript and cookies to continue",
-        )
-        looks_blocked = (
-            (len(html) < 2000 and any(kw in low for kw in ["403", "forbidden", "access denied", "blocked"]))
-            or any(m in low for m in _challenge_markers)
-        )
-        if looks_blocked:
-            error_msg = f"Error page detected ({len(html)} chars): {html[:100]}"
+        # Block / challenge-page guard
+        if res["blocked"]:
+            error_msg = res["error"] or "blocked/challenge page"
             print(f"    [!] {error_msg}")
-            if snapshot_id:
-                db.update_snapshot_status(snapshot_id, status="error", error_msg=error_msg)
+            db.update_snapshot_status(snapshot_id, status="error", error_msg=error_msg)
             elapsed = time.time() - start_time
             print(f"    [FAIL] Done in {elapsed:.1f}s")
             return {"success": False, "units": 0, "prev": None, "qa_status": "FAIL", "qa_note": error_msg}
 
-        # 3. Extract structured data
-        # Strategies that produce structured units directly (e.g., tricon_api)
-        # bypass Claude — units come from `fetcher.last_api_units`.
-        # Assigned up-front (not just in the else) so the 0-units retry below can
-        # reference it regardless of which branch ran.
-        extraction_hint = scrape_config.get("extraction_hint", "")
-        if scrape_config.get("strategy") == "tricon_api":
-            raw_units = fetcher.last_api_units or []
-            incentives = fetcher.last_api_incentives
-            extract_time = 0.0
-            print(f"    Using API units directly (skipping Claude extraction)")
-        else:
-            print(f"    Sending to Claude for extraction (this takes 15-30s)...")
-            extract_start = time.time()
-            result = extractor.extract(html, name, extraction_hint=extraction_hint)
-            extract_time = time.time() - extract_start
-
-            incentives = result.get("incentives")
-            raw_units = result.get("units", [])
-
-        # 4. Validate and clean units
-        units = extractor.validate_units(raw_units)
-        print(f"    Extracted {len(units)} units in {extract_time:.1f}s")
+        units = res["units"]
+        incentives = res["incentives"]
+        print(f"    Extracted {len(units)} units")
         if incentives:
             print(f"    Incentives: {incentives}")
 
-        # 4.3. Delta check (always-on, free) — compare vs previous snapshot
+        # Delta check vs previous snapshot
         prev_count = db.get_previous_unit_count(building["id"], exclude_snapshot_id=snapshot_id)
         if prev_count is not None:
             delta = len(units) - prev_count
             delta_str = f"+{delta}" if delta > 0 else str(delta)
             print(f"    Delta: {delta_str} vs previous ({prev_count})")
-
-            # Warn if significant drop (< 50% of previous)
             if prev_count > 0 and len(units) < prev_count * 0.5:
                 print(f"    [!] DELTA WARNING: {len(units)} units (previous: {prev_count}, <50% of last run)")
-
-        # 4.5. Extraction retry — if 0 units from large HTML, retry once
-        # (Skip for API-based strategies — no Claude call to retry, the API
-        # itself was already retried internally inside the strategy.)
-        if (
-            scrape_config.get("strategy") != "tricon_api"
-            and len(units) == 0
-            and len(html) > 5000
-        ):
-            print(f"    [!] 0 units from {len(html):,} chars — retrying extraction...")
-            retry_start = time.time()
-            retry_result = extractor.extract(html, name, extraction_hint=extraction_hint)
-            retry_time = time.time() - retry_start
-            retry_raw = retry_result.get("units", [])
-            retry_units = extractor.validate_units(retry_raw)
-            print(f"    Retry extracted {len(retry_units)} units in {retry_time:.1f}s")
-
-            if len(retry_units) > 0:
-                units = retry_units
-                if retry_result.get("incentives") and not incentives:
-                    incentives = retry_result["incentives"]
-                print(f"    Retry succeeded — using {len(units)} units")
-            else:
-                print(f"    Retry also returned 0 units")
 
         # 4.7. Strategy-aware QA (--qa only)
         qa_status = "SKIP"

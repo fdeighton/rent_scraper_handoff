@@ -31,6 +31,7 @@ for _p in (AGENT_DIR, CODE_DIR):
 from runtime import JobCancelled, HandlerContext      # noqa: E402
 from fetcher import PageFetcher, _clean_config         # noqa: E402  (existing engine — unchanged)
 from extractor import RentExtractor, ScrapeCancelled   # noqa: E402
+from pipeline import scrape_to_result                  # noqa: E402  (shared scrape pipeline)
 
 log = logging.getLogger("agent.comps")
 SITES_DIR = os.path.join(CODE_DIR, "sites")
@@ -77,52 +78,25 @@ def make_comps_handler(api_key: str, model: str, headless: bool = True):
         site = site_config_for(name)
         if site:
             cfg = {**cfg, **site}
-        strategy = cfg.get("strategy") or "playwright_render"
 
-        if ctx.progress(10, "fetching"):
-            raise JobCancelled()
+        # Run the SHARED pipeline (code/pipeline.py) — the exact same fetch -> vision ->
+        # block-guard -> extract -> validate -> retry that main.py + local_server use.
+        # The agent is a liaison to code/: nothing the engine does can be lost here.
         fetcher = PageFetcher(headless=headless)      # fetch() opens + closes its own browser
-        html = asyncio.run(fetcher.fetch(url, cfg))
-
-        # Vision enrichment (optional): floorplan screenshots -> Haiku -> sqft, prepended as a
-        # [SQFT REFERENCE] block so extraction can assign square_footage (and thus PSF).
-        # Mirrors code/main.py; uses existing engine methods only (no scraper-logic change).
-        vision_config = cfg.get("vision_enrichment")
-        if vision_config and vision_config.get("enabled"):
-            if ctx.progress(35, "reading floorplans"):
-                raise JobCancelled()
-            try:
-                shots = asyncio.run(fetcher.fetch_screenshots(url, vision_config))
-                if shots:
-                    sqft_map = extractor.extract_sqft_from_screenshots(
-                        shots, name, vision_model=vision_config.get("model", "claude-haiku-4-5-20251001"))
-                    if sqft_map:
-                        ref = "\n[SQFT REFERENCE]\n" + "".join(
-                            f"{t}: {s} sqft\n" for t, s in sqft_map.items()) + "[/SQFT REFERENCE]\n"
-                        html = ref + html
-                        log.info("vision enrichment: %d plan types with sqft", len(sqft_map))
-            except Exception as e:
-                log.warning("vision enrichment failed (continuing without sqft): %s", e)
-
-        if ctx.progress(50, "extracting"):
+        try:
+            res = asyncio.run(scrape_to_result(
+                url, name, cfg, extractor, fetcher=fetcher,
+                should_cancel=ctx.should_cancel,
+                on_progress=lambda pct, stage: ctx.progress(pct, stage),
+            ))
+        except ScrapeCancelled:
             raise JobCancelled()
 
-        if strategy == "tricon_api":                  # API strategy bypasses Claude
-            raw_units = fetcher.last_api_units or []
-            incentives = fetcher.last_api_incentives
-        else:
-            try:
-                result = extractor.extract(
-                    html, name, extraction_hint=cfg.get("extraction_hint", ""),
-                    should_cancel=ctx.should_cancel,
-                )
-            except ScrapeCancelled:
-                raise JobCancelled()
-            raw_units = result.get("units", [])
-            incentives = result.get("incentives")
+        if res.get("blocked"):                        # bot/challenge page -> fail (don't save 0 units as success)
+            raise RuntimeError(res.get("error") or "blocked/challenge page")
 
-        units = extractor.validate_units(raw_units)
         ctx.progress(95, "saving")
-        return {"incentives": incentives, "units": units, "fetched_chars": len(html)}
+        return {"incentives": res["incentives"], "units": res["units"],
+                "fetched_chars": res["fetched_chars"]}
 
     return handle

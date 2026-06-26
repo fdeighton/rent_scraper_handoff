@@ -33,6 +33,7 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fetcher import PageFetcher, is_public_http_url  # noqa: E402
 from extractor import RentExtractor, ScrapeCancelled  # noqa: E402
+from pipeline import scrape_to_result               # noqa: E402  (shared scrape pipeline)
 
 PORT = int(os.environ.get("SCRAPE_PORT", "8787"))
 API_KEY = os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS") or os.environ.get("ANTHROPIC_API_KEY")
@@ -212,64 +213,22 @@ def db_all():
 
 
 async def run_scrape(url: str, name: str, config: dict, rid: str = "", should_cancel=None) -> dict:
-    """Mirror of main.py's fetch -> extract -> validate, minus the database."""
+    """Full per-building pipeline via code/pipeline.py — fetch -> vision -> block-guard ->
+    extract -> validate -> 0-units retry (single source of truth, shared with main.py +
+    the agent), minus the database. Returns {ok, incentives, units, fetchedChars, error}."""
     should_cancel = should_cancel or (lambda: False)
-
-    def ck(where):
-        if should_cancel():
-            log.info("%s cancelled at %s", rid, where)
-            raise ScrapeCancelled()
-
-    # Drop null-valued keys: the frontend sends e.g. initial_wait_ms:null for "unset", but
-    # the fetcher relies on dict.get(key, default), which only defaults when the key is ABSENT.
-    config = {k: v for k, v in (config or {}).items() if v is not None}
-    strategy = config.get("strategy") or "playwright_render"
     t0 = time.perf_counter()
-    ck("start")
-    log.info("%s fetch    start url=%s strategy=%s wait=%sms scroll=%s",
-             rid, url, strategy, config.get("initial_wait_ms"), config.get("scroll"))
-    fetcher = PageFetcher(headless=True)          # fetch() opens + closes its own browser
+    log.info("%s scrape   start url=%s strategy=%s", rid, url, (config or {}).get("strategy") or "playwright_render")
+    fetcher = PageFetcher(headless=True)           # fetch() opens + closes its own browser
     extractor = RentExtractor(API_KEY, MODEL)
-    # Run fetch as a task so a cancel mid-fetch (page waits, scrolls, floor pagination) actually
-    # interrupts it — Playwright's awaits are cancellable, and fetch() closes its browser in a
-    # finally, so cancellation can't leak a browser. (The Claude phase is cancelled separately,
-    # between streamed tokens.)
-    fetch_task = asyncio.ensure_future(fetcher.fetch(url, config))
-    while not fetch_task.done():
-        if should_cancel():
-            fetch_task.cancel()
-            try:
-                await asyncio.wait_for(fetch_task, timeout=8)   # bound the responsive cleanup wait (the common case)
-                # NOTE: a browser that fully ignores cancellation can still hold this worker thread
-                # during asyncio.run() teardown — extreme/rare; impact is one leaked thread, the
-                # server keeps serving on fresh threads.
-            except BaseException:
-                pass
-            log.info("%s cancelled at fetch", rid)
-            raise ScrapeCancelled()
-        await asyncio.sleep(0.2)
-    html = fetch_task.result()
-    log.info("%s fetch    ok %d chars in %.1fs", rid, len(html), time.perf_counter() - t0)
-    ck("before-extract")                          # skip the (expensive) Claude call if already cancelled
-    if strategy == "tricon_api":                  # API strategies bypass Claude
-        raw_units = fetcher.last_api_units or []
-        incentives = fetcher.last_api_incentives
-        log.info("%s api      %d units (Claude skipped)", rid, len(raw_units))
-    else:
-        t1 = time.perf_counter()
-        log.info("%s extract  start model=%s (%d chars -> Claude)", rid, MODEL, len(html))
-        result = extractor.extract(html, name or "Building", extraction_hint=config.get("extraction_hint", ""), should_cancel=should_cancel)
-        incentives = result.get("incentives")
-        raw_units = result.get("units", [])
-        log.info("%s extract  ok %d raw units in %.1fs", rid, len(raw_units), time.perf_counter() - t1)
-    units = extractor.validate_units(raw_units)
+    res = await scrape_to_result(url, name or "Building", config, extractor,
+                                 fetcher=fetcher, should_cancel=should_cancel)
+    units = res["units"]
     priced = sum(1 for u in units if u.get("rent_price") is not None)
-    dropped = len(raw_units) - len(units)
-    inc_preview = (incentives[:60] + "...") if incentives and len(incentives) > 60 else (incentives or "none")
-    log.info("%s validate %d valid (%d dropped) - %d priced - incentive=%s",
-             rid, len(units), dropped, priced, inc_preview)
-    log.info("%s done     total %.1fs", rid, time.perf_counter() - t0)
-    return {"ok": True, "incentives": incentives, "units": units, "fetchedChars": len(html)}
+    log.info("%s scrape   %s %d units (%d priced) in %.1fs", rid,
+             "BLOCKED" if res.get("blocked") else "ok", len(units), priced, time.perf_counter() - t0)
+    return {"ok": not res.get("blocked"), "incentives": res["incentives"],
+            "units": units, "fetchedChars": res["fetched_chars"], "error": res.get("error")}
 
 
 async def run_tricon_12mo(url: str, name: str, rid: str = "", should_cancel=None) -> dict:
