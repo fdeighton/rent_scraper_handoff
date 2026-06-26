@@ -48,6 +48,7 @@ MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 POLL = float(os.getenv("AGENT_POLL_SECONDS", "5"))
+VERSION = os.getenv("AGENT_VERSION") or "0.1.0"   # baked at build time (build/agent.env); reported on register
 DASHBOARD_URL = os.getenv("HUB_DASHBOARD_URL") or "https://localhost"
 
 
@@ -73,7 +74,7 @@ class TrayAgent:
             log.warning("no cloud token — DEMO mode (in-memory mock hub)")
         # Agent needs at least one handler to advertise a capability; noop keeps the loop valid.
         self.agent = Agent(self.hub, AGENT_ID, handlers or {"noop": lambda p, c: {}},
-                           hostname=socket.gethostname(), poll_seconds=POLL)
+                           hostname=socket.gethostname(), version=VERSION, poll_seconds=POLL)
         self.paused = threading.Event()
         self.stopped = threading.Event()
         self.status = "starting"

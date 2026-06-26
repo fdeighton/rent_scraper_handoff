@@ -20,6 +20,7 @@ echo "1/4  Baking non-secret config -> build/agent.env"
 cat > build/agent.env <<EOF
 SUPABASE_URL=$SUPABASE_URL
 AGENT_AUTHORIZE_URL=$AUTHORIZE_URL
+AGENT_VERSION=$VERSION
 HEADLESS=true
 EOF
 

@@ -22,6 +22,7 @@ Write-Host "1/4  Baking non-secret config -> build/agent.env"
 @"
 SUPABASE_URL=$SupabaseUrl
 AGENT_AUTHORIZE_URL=$AuthorizeUrl
+AGENT_VERSION=$Version
 HEADLESS=true
 "@ | Out-File -FilePath "build/agent.env" -Encoding ascii
 

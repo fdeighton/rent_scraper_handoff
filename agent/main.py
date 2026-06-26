@@ -62,6 +62,7 @@ MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 POLL = float(os.getenv("AGENT_POLL_SECONDS", "5"))
+VERSION = os.getenv("AGENT_VERSION") or "0.1.0"   # baked at build time (build/agent.env); reported on register
 
 
 def main() -> None:
@@ -86,7 +87,8 @@ def main() -> None:
 
     handlers = {TASK_TYPE: make_comps_handler(api_key, MODEL, HEADLESS)}
     hub = SupabaseHubClient(SUPABASE_URL, worker_token)
-    Agent(hub, AGENT_ID, handlers, hostname=socket.gethostname(), poll_seconds=POLL).run_forever()
+    Agent(hub, AGENT_ID, handlers, hostname=socket.gethostname(),
+          version=VERSION, poll_seconds=POLL).run_forever()
 
 
 if __name__ == "__main__":
