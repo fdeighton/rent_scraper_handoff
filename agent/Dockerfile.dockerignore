@@ -1,0 +1,17 @@
+# Keep the headless agent image lean — only code/ (engine) + agent/ are needed.
+.git
+**/__pycache__
+**/*.pyc
+app
+db
+code/tools
+code/tests
+code/local_scrapes.db
+**/.chrome_profiles
+**/debug_screenshots
+node_modules
+agent/assets
+agent/tray.py
+**/.env
+HANDBOOK
+docs

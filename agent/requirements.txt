@@ -1,0 +1,9 @@
+# Fitzrovia Agent dependencies.
+# Reuses the scraper engine's deps (playwright, anthropic, httpx, curl_cffi, dotenv, …)
+# so the comps handler runs the existing pipeline unchanged.
+-r ../code/requirements.txt
+
+# Agent extras:
+pystray>=0.19.0     # system-tray / menu-bar app (shows the Fitzrovia icon)
+pillow>=10.0.0      # tray icon rendering (pystray dependency)
+keyring>=24.0.0     # store the scoped worker token in the OS keychain (device pairing)
