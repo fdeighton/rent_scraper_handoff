@@ -1065,39 +1065,65 @@ class PageFetcher:
             base = today + timedelta(days=14)
         return [f"{c.day:02d}/{c.month:02d}/{c.year}" for c in (base, base + timedelta(days=30))]
 
-    async def _tricon_fetch_12mo(self, apply_url: str, movein_dates: list[str]) -> Optional[float]:
-        """True 12-month monthly rent for ONE unit, from the RentCafe LRO behind
-        apply_url. Bootstraps the session (Cloudflare + app cookies), then tries each
-        move-in date until a valid 12-month quote parses. Returns float or None on ANY
-        failure — never raises into the caller."""
-        if not apply_url:
+    async def _tricon_quote(self, bootstrap_url: str, host: str, uid: str, pid: str,
+                            movein_dates: list[str]) -> Optional[float]:
+        """Quote the true 12-month rent for an explicit UnitID/PropertyId from the RentCafe
+        LRO. Bootstraps the session (Cloudflare + app cookies) by GETting bootstrap_url,
+        then tries each move-in date until a valid 12-month quote parses. Returns float or
+        None on ANY failure — never raises. Shared by both apply-url forms."""
+        if not (uid and pid):
             return None
         try:
             from curl_cffi.requests import AsyncSession
         except Exception as e:
             print(f"      [tricon_12mo] curl_cffi unavailable: {e}", file=sys.stderr)
             return None
+        quote_url = f"{host}/onlineleasing/rcLoadContent.ashx"
+        try:
+            async with AsyncSession(impersonate="chrome", timeout=30) as s:
+                await s.get(bootstrap_url)                   # bootstrap CF + app session cookies
+                for movein in movein_dates:
+                    r = await s.get(quote_url, params={
+                        "contentclass": "olequotesheet", "MoveinDate": movein,
+                        "sLeaseTerm": "12", "UnitId": uid, "PropertyId": pid,
+                    }, headers={"X-Requested-With": "XMLHttpRequest", "Referer": bootstrap_url})
+                    price = self._tricon_parse_12mo_quote(r.text)
+                    if price is not None:
+                        return price
+        except Exception as e:
+            print(f"      [tricon_12mo] quote failed for unit {uid}: {e}", file=sys.stderr)
+            return None
+        return None
+
+    async def _tricon_fetch_12mo(self, apply_url: str, movein_dates: list[str]) -> Optional[float]:
+        """12-month rent for a unit whose apply_url is the UNIT-LEVEL application page
+        (oleapplication.aspx?...&UnitID=...). Parses UnitID/PropertyId straight from the URL."""
+        if not apply_url:
+            return None
         q = dict(parse_qsl(urlsplit(apply_url).query))
         uid, pid = q.get("UnitID"), q.get("myOlePropertyId")
         if not (uid and pid):
             return None
         host = f"https://{urlsplit(apply_url).netloc}"
-        quote_url = f"{host}/onlineleasing/rcLoadContent.ashx"
+        return await self._tricon_quote(apply_url, host, uid, pid, movein_dates)
+
+    async def _tricon_discover_unit_ids(self, availableunits_url: str) -> dict[str, str]:
+        """Some properties (e.g. The Taylor) expose a FLOOR-PLAN listing page
+        (availableunits.aspx?...&floorPlans=...) instead of unit-level apply links — it has
+        no UnitID in the URL. Open it and read each row to map unit_code -> UnitID:
+            <tr ... id='unitrow_<UnitID>' ...> ... data-label='Apartment'>#<unit_code> ...
+        Returns {} on any failure (caller treats those units as 'missing')."""
         try:
+            from curl_cffi.requests import AsyncSession
             async with AsyncSession(impersonate="chrome", timeout=30) as s:
-                await s.get(apply_url)                       # bootstrap CF + app session cookies
-                for movein in movein_dates:
-                    r = await s.get(quote_url, params={
-                        "contentclass": "olequotesheet", "MoveinDate": movein,
-                        "sLeaseTerm": "12", "UnitId": uid, "PropertyId": pid,
-                    }, headers={"X-Requested-With": "XMLHttpRequest", "Referer": apply_url})
-                    price = self._tricon_parse_12mo_quote(r.text)
-                    if price is not None:
-                        return price
+                html = (await s.get(availableunits_url)).text
         except Exception as e:
-            print(f"      [tricon_12mo] fetch failed for unit {uid}: {e}", file=sys.stderr)
-            return None
-        return None
+            print(f"      [tricon_12mo] availableunits fetch failed: {e}", file=sys.stderr)
+            return {}
+        out: dict[str, str] = {}
+        for m in re.finditer(r"id='unitrow_(\d+)'.*?data-label='Apartment'>#?(\w+)", html, re.S):
+            out[m.group(2)] = m.group(1)        # unit_code -> UnitID
+        return out
 
     async def fetch_tricon_12mo(self, url: str, config: Optional[dict] = None,
                                 should_cancel=None) -> list[dict]:
@@ -1127,13 +1153,33 @@ class PageFetcher:
         today = date.today()
         sem = asyncio.Semaphore(2)          # politeness: ~2 concurrent LRO sessions
 
+        # Some properties expose floor-plan listing pages (availableunits.aspx, no UnitID in
+        # the URL) instead of unit-level apply links. For those, fetch each listing page ONCE
+        # and build unit_code -> UnitID, so we can still quote per unit (the "extra step").
+        avail_urls = {u["apply_url"] for u in units
+                      if u.get("apply_url") and "availableunits.aspx" in u["apply_url"]
+                      and "UnitID=" not in u["apply_url"]}
+        code_to_uid: dict[str, dict[str, str]] = {}
+        for au in avail_urls:
+            code_to_uid[au] = await self._tricon_discover_unit_ids(au)
+
         async def _one(u):
             async with sem:
                 if should_cancel():
                     return u, None
                 await asyncio.sleep(0.3)
-                r12 = await self._tricon_fetch_12mo(
-                    u.get("apply_url") or "", self._tricon_movein_candidates(u, today))
+                au = u.get("apply_url") or ""
+                movein = self._tricon_movein_candidates(u, today)
+                if "UnitID=" in au:                         # unit-level apply link (e.g. The Ivy)
+                    r12 = await self._tricon_fetch_12mo(au, movein)
+                elif "availableunits.aspx" in au:           # floor-plan listing (e.g. The Taylor)
+                    uid = (code_to_uid.get(au) or {}).get(str(u.get("unit_code")))
+                    q = dict(parse_qsl(urlsplit(au).query))
+                    pid = q.get("myOlePropertyId") or q.get("myOlePropertyid")
+                    host = f"https://{urlsplit(au).netloc}"
+                    r12 = await self._tricon_quote(au, host, uid, pid, movein) if (uid and pid) else None
+                else:
+                    r12 = None
                 return u, r12
 
         results = await asyncio.gather(*[_one(u) for u in units])
