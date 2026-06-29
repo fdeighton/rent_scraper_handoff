@@ -1,26 +1,24 @@
 -- =============================================================================
--- Migration 0004 — productionize the Tricon 12-month rents feature
+-- Migration 0004 — productionize the Tricon 12-month rents feature (ADDITIVE / SAFE)
 -- =============================================================================
--- The 12-month rent enrichment was local-server-only. This moves it onto the cloud
--- job queue so the website can request it and the agent fulfils it — same shape as
--- comps_scrape, but its results are kept SEPARATE (display-only; never enters the
--- comp_* rollup / analyses).
+-- Moves the 12-month rent enrichment onto the cloud job queue so the website can
+-- request it and the agent fulfils it — results kept SEPARATE (display-only; never
+-- enters the comp_* rollup / analyses).
 --
--- Adds:
---   * scrape_jobs.task_type            -- 'comps_scrape' (default) | 'tricon_12mo'
---   * comp_snapshots_12mo / comp_units_12mo  -- separate 12-month result tables
---   * enqueue_scrape_job(... , p_task_type)  -- so the site can queue a 12mo job
---   * job_complete_12mo(...)           -- agent writes the 12mo rows
+-- SAFETY: purely additive. No DROP, no DELETE, no data is modified. Every statement is
+-- idempotent (IF NOT EXISTS / CREATE OR REPLACE). enqueue_scrape_job is left UNTOUCHED —
+-- the new task_type column defaults to 'comps_scrape', so existing comps jobs are
+-- unaffected; the 12-month path uses a NEW, separate enqueue_12mo_job function.
 -- Run AFTER 0001-0003. Safe to re-run.
 -- =============================================================================
 
 begin;
 
--- 1. Job task type -----------------------------------------------------------
+-- 1. Job task type (additive; existing rows + comps enqueue default to 'comps_scrape')
 alter table public.scrape_jobs
   add column if not exists task_type text not null default 'comps_scrape';
 
--- 2. Separate 12-month result tables (kept out of comp_snapshots/comp_units) --
+-- 2. Separate 12-month result tables (kept out of comp_snapshots/comp_units)
 create table if not exists public.comp_snapshots_12mo (
     id                uuid primary key default gen_random_uuid(),
     comp_building_id  uuid not null references public.comp_buildings(id) on delete cascade,
@@ -48,31 +46,27 @@ create index if not exists idx_comp_snapshots_12mo_building
 create index if not exists idx_comp_units_12mo_snapshot
     on public.comp_units_12mo (snapshot_id);
 
--- 3. enqueue_scrape_job gains p_task_type (drop the old 5-arg form, add 6-arg) -
-drop function if exists public.enqueue_scrape_job(text, uuid, text, jsonb, integer);
-create or replace function public.enqueue_scrape_job(
+-- 3. NEW enqueue function for 12-month jobs (separate from enqueue_scrape_job — no DROP)
+create or replace function public.enqueue_12mo_job(
     p_url text,
     p_comp_building_id uuid default null,
     p_building_name text default null,
     p_config jsonb default '{}'::jsonb,
-    p_priority integer default 0,
-    p_task_type text default 'comps_scrape'
+    p_priority integer default 0
 ) returns uuid
   language plpgsql security definer set search_path to 'public' as $$
 declare v_id uuid;
 begin
     insert into public.scrape_jobs (comp_building_id, building_name, url, config, priority, task_type)
-    values (p_comp_building_id, p_building_name, p_url, coalesce(p_config, '{}'::jsonb), p_priority,
-            coalesce(p_task_type, 'comps_scrape'))
+    values (p_comp_building_id, p_building_name, p_url, coalesce(p_config, '{}'::jsonb), p_priority, 'tricon_12mo')
     returning id into v_id;
     return v_id;
 end; $$;
-grant execute on function
-    public.enqueue_scrape_job(text, uuid, text, jsonb, integer, text)
+grant execute on function public.enqueue_12mo_job(text, uuid, text, jsonb, integer)
   to authenticated, service_role;
 
--- 4. job_complete_12mo: agent writes the 12-month rows + marks the job done ----
--- p_units is the fetch_tricon_12mo() output:
+-- 4. job_complete_12mo: agent writes the 12-month rows + marks the job done.
+-- p_units is fetch_tricon_12mo() output:
 --   [{unit_code, unit_type, beds, baths, sqft, floor, status,
 --     lowest_term_rent, rent_12mo, gap, gap_pct}, ...]
 create or replace function public.job_complete_12mo(
@@ -109,7 +103,7 @@ begin
     update public.scrape_jobs
        set status = 'done', progress = 100, stage = 'done',
            units_found = v_count, finished_at = now(), updated_at = now()
-     where id = p_job_id;            -- note: result_snapshot_id stays null (12mo is a separate table)
+     where id = p_job_id;          -- result_snapshot_id stays null (12mo is a separate table)
 
     update public.scrape_workers
        set status = 'online', current_job_id = null, jobs_done = jobs_done + 1, last_heartbeat = now()
@@ -120,7 +114,7 @@ end; $$;
 grant execute on function public.job_complete_12mo(uuid, text, jsonb)
   to scrape_worker, service_role;
 
--- 5. RLS on the new tables: authenticated read; anon denied -------------------
+-- 5. RLS on the new tables: authenticated read; anon denied
 alter table public.comp_snapshots_12mo enable row level security;
 alter table public.comp_units_12mo     enable row level security;
 do $$
@@ -128,11 +122,13 @@ declare t text;
 begin
   foreach t in array array['comp_snapshots_12mo','comp_units_12mo']
   loop
-    execute format($f$
-      drop policy if exists %1$s_select_authenticated on public.%1$s;
-      create policy %1$s_select_authenticated on public.%1$s
-        for select to authenticated using (true);
-    $f$, t);
+    if not exists (select 1 from pg_policies where schemaname='public' and tablename=t
+                   and policyname = t || '_select_authenticated') then
+      execute format($f$
+        create policy %1$s_select_authenticated on public.%1$s
+          for select to authenticated using (true);
+      $f$, t);
+    end if;
   end loop;
 end $$;
 revoke all on public.comp_snapshots_12mo, public.comp_units_12mo from anon;
