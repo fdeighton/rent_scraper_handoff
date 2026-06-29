@@ -36,6 +36,7 @@ import pystray                   # noqa: E402
 from runtime import Agent        # noqa: E402
 from hub_client import SupabaseHubClient, MockHubClient  # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE  # noqa: E402
+from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
 from pairing import get_credentials                       # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S")
@@ -64,7 +65,7 @@ class TrayAgent:
         worker_token = creds.get("worker_token")
         api_key = creds.get("anthropic_key")
 
-        handlers = {}
+        handlers = {TRICON12_TASK: make_tricon12_handler(HEADLESS)}   # 12mo needs no Anthropic key
         if api_key:
             handlers[TASK_TYPE] = make_comps_handler(api_key, MODEL, HEADLESS)
         if SUPABASE_URL and worker_token:

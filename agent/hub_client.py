@@ -149,6 +149,7 @@ class SupabaseHubClient(HubClient):
 
     def __init__(self, url: str, key: str, timeout: float = 30.0):
         self.base = url.rstrip("/")
+        self._job_types: dict[str, str] = {}    # job_id -> task_type (routes complete())
         self._client = httpx.Client(
             base_url=f"{self.base}/rest/v1",
             headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -182,7 +183,9 @@ class SupabaseHubClient(HubClient):
         # Guard on the primary key so "no job" doesn't get dispatched as a phantom job.
         if not row or not row.get("id"):
             return None
-        return {"id": row["id"], "task_type": "comps_scrape",
+        task_type = row.get("task_type") or "comps_scrape"
+        self._job_types[row["id"]] = task_type          # remember so complete() routes correctly
+        return {"id": row["id"], "task_type": task_type,
                 "payload": {"url": row.get("url"), "name": row.get("building_name"),
                             "config": row.get("config") or {}}}
 
@@ -193,11 +196,16 @@ class SupabaseHubClient(HubClient):
 
     def complete(self, job_id, agent_id, result):
         result = result or {}
-        self._rpc("job_complete", {"p_job_id": job_id, "p_worker_id": agent_id,
-                                   "p_incentives": result.get("incentives"),
-                                   "p_units": result.get("units") or []})
+        if self._job_types.pop(job_id, None) == "tricon_12mo":      # separate 12mo storage
+            self._rpc("job_complete_12mo", {"p_job_id": job_id, "p_worker_id": agent_id,
+                                            "p_units": result.get("units") or []})
+        else:
+            self._rpc("job_complete", {"p_job_id": job_id, "p_worker_id": agent_id,
+                                       "p_incentives": result.get("incentives"),
+                                       "p_units": result.get("units") or []})
 
     def fail(self, job_id, agent_id, error):
+        self._job_types.pop(job_id, None)
         self._rpc("job_fail", {"p_job_id": job_id, "p_worker_id": agent_id,
                                "p_error": error, "p_requeue": True})
 

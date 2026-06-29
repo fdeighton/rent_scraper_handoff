@@ -45,6 +45,7 @@ load_dotenv()
 from runtime import Agent                                  # noqa: E402
 from hub_client import SupabaseHubClient                   # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE   # noqa: E402
+from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
 from pairing import get_credentials                        # noqa: E402
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -85,7 +86,8 @@ def main() -> None:
     if not api_key:
         log.warning("no Anthropic key available — non-API comps scrapes will fail at extraction")
 
-    handlers = {TASK_TYPE: make_comps_handler(api_key, MODEL, HEADLESS)}
+    handlers = {TASK_TYPE: make_comps_handler(api_key, MODEL, HEADLESS),
+                TRICON12_TASK: make_tricon12_handler(HEADLESS)}
     hub = SupabaseHubClient(SUPABASE_URL, worker_token)
     Agent(hub, AGENT_ID, handlers, hostname=socket.gethostname(),
           version=VERSION, poll_seconds=POLL).run_forever()
