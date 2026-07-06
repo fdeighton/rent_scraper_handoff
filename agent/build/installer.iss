@@ -54,8 +54,8 @@ Type: filesandordirs; Name: "{app}"
   NOTE: no /T (tree) — during a silent AUTO-UPDATE the running agent launches this setup
   as a CHILD process, so /T would kill the setup itself mid-install (aborting the update
   and causing a re-download loop). We kill only FitzroviaAgent.exe by name; the agent's
-  Chromium/Playwright children live in a separate cache (don't lock {app}) and exit once
-  their parent is gone. }
+  Chromium/Playwright children live in a separate cache (they do not lock the install
+  folder) and exit once their parent is gone. }
 procedure KillAgent();
 var ResultCode: Integer;
 begin
