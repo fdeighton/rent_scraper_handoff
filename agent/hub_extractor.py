@@ -25,6 +25,7 @@ Contract (from the hub, verified against source):
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
@@ -34,6 +35,30 @@ log = logging.getLogger("agent.hub_extractor")
 
 MAX_CONTENT_CHARS = 600_000              # hub cap (extract.ts MAX_CONTENT_CHARS)
 EXTRACT_TIMEOUT = 90.0                   # Claude call is ~15-40s; allow headroom
+MAX_RENT = 20000                         # a monthly rent above this is almost certainly a
+                                         # sale price (condos.ca contamination; hub also guards)
+
+
+def _money(v):
+    """Parse a bare-number rent string ('2,400', '$25000') to float; None if empty/bad."""
+    if v in (None, ""):
+        return None
+    try:
+        return float(re.sub(r"[^0-9.]", "", str(v)))
+    except ValueError:
+        return None
+
+
+def _drop_contaminated_rents(units):
+    """Contamination defense (handoff Part 2 §D): null any rent > $20k (sale-price leak).
+    We null the number, NOT the row, so the unit-type observation survives (no undercount)."""
+    for u in units:
+        r = _money(u.get("rent_price"))
+        if r is not None and r > MAX_RENT:
+            log.warning("nulling contaminated rent %r (> $%d, likely a sale price)",
+                        u.get("rent_price"), MAX_RENT)
+            u["rent_price"] = ""
+    return units
 
 
 class HubExtractor:
@@ -74,7 +99,8 @@ class HubExtractor:
         if resp.status_code == 200:
             data = resp.json()
             incentives = data.get("incentives") or None
-            return {"units": data.get("units") or [], "incentives": incentives}
+            units = _drop_contaminated_rents(data.get("units") or [])
+            return {"units": units, "incentives": incentives}
 
         # Surface the hub's error verbatim; the handler turns this into a job failure.
         try:
