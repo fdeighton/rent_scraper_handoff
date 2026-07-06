@@ -38,6 +38,7 @@ from hub_client import SupabaseHubClient, MockHubClient  # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE  # noqa: E402
 from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
 from pairing import get_credentials                       # noqa: E402
+from updater import check_and_update                       # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("agent.tray")
@@ -51,6 +52,9 @@ AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:
 POLL = float(os.getenv("AGENT_POLL_SECONDS", "5"))
 VERSION = os.getenv("AGENT_VERSION") or "0.1.0"   # baked at build time (build/agent.env); reported on register
 DASHBOARD_URL = os.getenv("HUB_DASHBOARD_URL") or "https://localhost"
+# How often the running agent re-checks for a newer release and self-updates in the
+# background (no restart needed). Kept modest to stay under GitHub's unauth rate limit.
+UPDATE_CHECK_SECONDS = float(os.getenv("AGENT_UPDATE_CHECK_SECONDS", "3600"))
 
 
 class TrayAgent:
@@ -80,6 +84,7 @@ class TrayAgent:
         self.stopped = threading.Event()
         self.status = "starting"
         self.jobs_done = 0
+        self.icon = None
 
     # background work loop --------------------------------------------------
     def _loop(self):
@@ -104,6 +109,20 @@ class TrayAgent:
         if ran:
             self.jobs_done += 1
         return ran
+
+    def _update_watch(self):
+        # Perpetually-running agent: re-check for a newer release on a timer and self-update
+        # in the background — no restart, nothing visible. stopped.wait() lets Quit interrupt.
+        while not self.stopped.wait(UPDATE_CHECK_SECONDS):
+            try:
+                if check_and_update(VERSION):
+                    log.info("update launched — shutting down so the installer can replace us")
+                    self.stopped.set()
+                    if self.icon is not None:
+                        self.icon.stop()
+                    return
+            except Exception as e:
+                log.debug("update watch error: %s", e)
 
     # menu ------------------------------------------------------------------
     def _title(self, _item=None) -> str:
@@ -132,7 +151,9 @@ class TrayAgent:
             pystray.MenuItem("Quit", self._quit),
         )
         icon = pystray.Icon("fitzrovia-agent", image, title="Fitzrovia Agent", menu=menu)
+        self.icon = icon
         threading.Thread(target=self._loop, daemon=True).start()
+        threading.Thread(target=self._update_watch, daemon=True).start()  # background self-update
         log.info("Fitzrovia Agent running (%s mode) — icon in the tray/menu bar.", self.mode)
         icon.run()   # blocks on the main thread (required on macOS)
 

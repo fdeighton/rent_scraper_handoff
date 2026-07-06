@@ -12,7 +12,8 @@
 param(
   [string]$Version = "0.1.0",
   [Parameter(Mandatory = $true)][string]$SupabaseUrl,
-  [Parameter(Mandatory = $true)][string]$AuthorizeUrl
+  [Parameter(Mandatory = $true)][string]$AuthorizeUrl,
+  [int]$UpdateCheckSeconds = 3600   # how often a running agent re-checks for updates; lower it for demos
 )
 $ErrorActionPreference = "Stop"
 $AgentDir = Split-Path $PSScriptRoot -Parent
@@ -23,6 +24,7 @@ Write-Host "1/4  Baking non-secret config -> build/agent.env"
 SUPABASE_URL=$SupabaseUrl
 AGENT_AUTHORIZE_URL=$AuthorizeUrl
 AGENT_VERSION=$Version
+AGENT_UPDATE_CHECK_SECONDS=$UpdateCheckSeconds
 HEADLESS=true
 "@ | Out-File -FilePath "build/agent.env" -Encoding ascii
 
