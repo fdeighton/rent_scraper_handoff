@@ -199,10 +199,23 @@ class SupabaseHubClient(HubClient):
         if self._job_types.pop(job_id, None) == "tricon_12mo":      # separate 12mo storage
             self._rpc("job_complete_12mo", {"p_job_id": job_id, "p_worker_id": agent_id,
                                             "p_units": result.get("units") or []})
-        else:
-            self._rpc("job_complete", {"p_job_id": job_id, "p_worker_id": agent_id,
-                                       "p_incentives": result.get("incentives"),
-                                       "p_units": result.get("units") or []})
+            return
+        base = {"p_job_id": job_id, "p_worker_id": agent_id,
+                "p_incentives": result.get("incentives"),
+                "p_units": result.get("units") or []}
+        # PR #70: job_complete also stores the captured page text (-> raw_content /
+        # raw_content_len) so the Scrape-All audit can do undercount + fetch/drift
+        # diagnosis. Truncate to 500K. Fall back to the 4-arg form if the DB predates
+        # PR #70 (so the agent is safe to ship in either order).
+        raw = (result.get("raw_content") or "")[:500_000]
+        try:
+            self._rpc("job_complete", {**base, "p_raw_content": raw})
+        except httpx.HTTPStatusError as e:
+            body = (e.response.text if e.response is not None else "") or ""
+            if "PGRST202" in body or "Could not find the function" in body:
+                self._rpc("job_complete", base)     # DB has no p_raw_content arg yet
+            else:
+                raise
 
     def fail(self, job_id, agent_id, error):
         self._job_types.pop(job_id, None)

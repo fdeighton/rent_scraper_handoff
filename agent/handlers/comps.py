@@ -99,7 +99,10 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
             raise RuntimeError(res.get("error") or "blocked/challenge page")
 
         ctx.progress(95, "saving")
+        # raw_content -> job_complete (PR #70): powers the Scrape-All audit's undercount
+        # + fetch/drift diagnosis. hub_client truncates to 500K.
         return {"incentives": res["incentives"], "units": res["units"],
+                "raw_content": res.get("raw_content"),
                 "fetched_chars": res["fetched_chars"]}
 
     return handle
