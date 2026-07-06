@@ -37,8 +37,9 @@ from runtime import Agent        # noqa: E402
 from hub_client import SupabaseHubClient, MockHubClient  # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE  # noqa: E402
 from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
-from pairing import get_credentials                       # noqa: E402
+from pairing import get_credentials, worker_id_from_token  # noqa: E402
 from updater import check_and_update                       # noqa: E402
+from urllib.parse import urlsplit                          # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("agent.tray")
@@ -46,6 +47,10 @@ log = logging.getLogger("agent.tray")
 ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.png")
 SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL", "")
+_hp = urlsplit(AUTHORIZE_URL or "")
+# Hub origin for server-side extraction (POST /api/comp-scrape/extract); baked at build,
+# defaults to the authorize URL's origin (same Vercel deployment).
+HUB_URL = os.environ.get("AGENT_HUB_URL") or (f"{_hp.scheme}://{_hp.netloc}" if _hp.scheme and _hp.netloc else "")
 MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
@@ -67,18 +72,20 @@ class TrayAgent:
             except Exception as e:
                 log.warning("pairing failed (%s) — starting in DEMO mode", e)
         worker_token = creds.get("worker_token")
-        api_key = creds.get("anthropic_key")
 
         handlers = {TRICON12_TASK: make_tricon12_handler(HEADLESS)}   # 12mo needs no Anthropic key
-        if api_key:
-            handlers[TASK_TYPE] = make_comps_handler(api_key, MODEL, HEADLESS)
+        if worker_token and HUB_URL:
+            # Extraction runs on the hub (AIS-73) — the agent needs no Anthropic key.
+            handlers[TASK_TYPE] = make_comps_handler(HUB_URL, worker_token, HEADLESS)
         if SUPABASE_URL and worker_token:
             self.hub, self.mode = SupabaseHubClient(SUPABASE_URL, worker_token), "cloud"
         else:
             self.hub, self.mode = MockHubClient(), "demo"
             log.warning("no cloud token — DEMO mode (in-memory mock hub)")
+        # Claim jobs under the token's `sub` so the hub /extract gate accepts us.
+        self.worker_id = worker_id_from_token(worker_token, AGENT_ID) if worker_token else AGENT_ID
         # Agent needs at least one handler to advertise a capability; noop keeps the loop valid.
-        self.agent = Agent(self.hub, AGENT_ID, handlers or {"noop": lambda p, c: {}},
+        self.agent = Agent(self.hub, self.worker_id, handlers or {"noop": lambda p, c: {}},
                            hostname=socket.gethostname(), version=VERSION, poll_seconds=POLL)
         self.paused = threading.Event()
         self.stopped = threading.Event()
@@ -89,7 +96,7 @@ class TrayAgent:
     # background work loop --------------------------------------------------
     def _loop(self):
         try:
-            self.hub.register(AGENT_ID, self.agent.capabilities, socket.gethostname())
+            self.hub.register(self.worker_id, self.agent.capabilities, socket.gethostname())
         except Exception as e:
             log.debug("register failed: %s", e)
         while not self.stopped.is_set():

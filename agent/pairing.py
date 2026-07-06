@@ -20,6 +20,8 @@ Pairing UX (Slack / GitHub CLI style):
 """
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
 import secrets
@@ -37,6 +39,19 @@ PAIR_TIMEOUT_SECONDS = 300
 
 _ENV_TOKEN_NAMES = ("SCRAPE_WORKER_TOKEN", "SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_ROLE_KEY")
 _ENV_AKEY_NAMES = ("ANTHROPIC_API_KEY_RENT_COMPS", "ANTHROPIC_API_KEY")
+
+
+def worker_id_from_token(token: str, fallback: str = "") -> str:
+    """Return the JWT `sub` claim — the agent MUST claim jobs under this id so the hub's
+    /extract `workerHasRunningJob(sub)` gate matches the running job. Falls back to the
+    given id if the token can't be decoded (e.g. a service-key override)."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)                 # restore base64url padding
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return claims.get("sub") or fallback
+    except Exception:
+        return fallback
 
 
 # --- keychain (with a protected-file fallback if `keyring` isn't available) ----
@@ -191,7 +206,9 @@ def get_credentials(authorize_url: str = "", *, interactive: bool = True) -> dic
     token = _env(_ENV_TOKEN_NAMES) or _load(KEY_TOKEN)
     akey = _env(_ENV_AKEY_NAMES) or _load(KEY_AKEY)
 
-    if token and akey:
+    # Only the worker token is required — extraction runs on the hub now, so the agent
+    # never needs an Anthropic key. Re-pair only when there's no token at all.
+    if token:
         return {"worker_token": token, "anthropic_key": akey}
 
     if interactive:

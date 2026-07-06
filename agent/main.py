@@ -46,8 +46,9 @@ from runtime import Agent                                  # noqa: E402
 from hub_client import SupabaseHubClient                   # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE   # noqa: E402
 from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
-from pairing import get_credentials                        # noqa: E402
+from pairing import get_credentials, worker_id_from_token   # noqa: E402
 from updater import check_and_update                        # noqa: E402
+from urllib.parse import urlsplit                            # noqa: E402
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -60,6 +61,16 @@ log = logging.getLogger("agent")
 # pairing.get_credentials() at runtime (env override → OS keychain → one-click pairing).
 SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL", "")
+
+
+def _origin(u: str) -> str:
+    p = urlsplit(u or "")
+    return f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
+
+
+# Hub origin for server-side extraction (POST /api/comp-scrape/extract). Baked at build;
+# defaults to the authorize URL's origin (same Vercel deployment).
+HUB_URL = os.environ.get("AGENT_HUB_URL") or _origin(AUTHORIZE_URL)
 MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
@@ -82,17 +93,21 @@ def main() -> None:
         log.error("could not obtain credentials: %s", e)
         sys.exit(1)
     worker_token = creds.get("worker_token")
-    api_key = creds.get("anthropic_key")
     if not worker_token:
         log.error("no worker token available (set a token env var or AGENT_AUTHORIZE_URL for pairing)")
         sys.exit(1)
-    if not api_key:
-        log.warning("no Anthropic key available — non-API comps scrapes will fail at extraction")
+    if not HUB_URL:
+        log.error("no hub URL (set AGENT_HUB_URL or AGENT_AUTHORIZE_URL) — extraction runs on the hub")
+        sys.exit(1)
 
-    handlers = {TASK_TYPE: make_comps_handler(api_key, MODEL, HEADLESS),
+    # The agent MUST claim jobs under the token's `sub`, or the hub /extract gate
+    # (workerHasRunningJob(sub)) rejects it. Falls back to AGENT_ID if undecodable.
+    worker_id = worker_id_from_token(worker_token, AGENT_ID)
+
+    handlers = {TASK_TYPE: make_comps_handler(HUB_URL, worker_token, HEADLESS),
                 TRICON12_TASK: make_tricon12_handler(HEADLESS)}
     hub = SupabaseHubClient(SUPABASE_URL, worker_token)
-    Agent(hub, AGENT_ID, handlers, hostname=socket.gethostname(),
+    Agent(hub, worker_id, handlers, hostname=socket.gethostname(),
           version=VERSION, poll_seconds=POLL).run_forever()
 
 

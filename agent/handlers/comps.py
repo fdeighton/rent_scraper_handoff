@@ -30,8 +30,9 @@ for _p in (AGENT_DIR, CODE_DIR):
 
 from runtime import JobCancelled, HandlerContext      # noqa: E402
 from fetcher import PageFetcher, _clean_config         # noqa: E402  (existing engine — unchanged)
-from extractor import RentExtractor, ScrapeCancelled   # noqa: E402
+from extractor import ScrapeCancelled                  # noqa: E402
 from pipeline import scrape_to_result                  # noqa: E402  (shared scrape pipeline)
+from hub_extractor import HubExtractor                 # noqa: E402  (extraction runs on the hub)
 
 log = logging.getLogger("agent.comps")
 SITES_DIR = os.path.join(CODE_DIR, "sites")
@@ -61,10 +62,12 @@ def site_config_for(name: str):
     return None
 
 
-def make_comps_handler(api_key: str, model: str, headless: bool = True):
-    """Build the comps handler bound to the Anthropic creds. Returns a callable
+def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
+    """Build the comps handler. Extraction is delegated to the hub (AIS-73): the agent
+    scrapes the page here and POSTs the text to {hub_url}/api/comp-scrape/extract, which
+    runs Claude and returns units. No Anthropic key on the agent. Returns a callable
     handle(payload, ctx) -> {incentives, units, fetched_chars}."""
-    extractor = RentExtractor(api_key, model)
+    extractor = HubExtractor(hub_url, worker_token)
 
     def handle(payload: dict, ctx: HandlerContext) -> dict:
         url = payload.get("url")

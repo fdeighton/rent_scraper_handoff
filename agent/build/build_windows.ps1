@@ -13,6 +13,7 @@ param(
   [string]$Version = "0.1.0",
   [Parameter(Mandatory = $true)][string]$SupabaseUrl,
   [Parameter(Mandatory = $true)][string]$AuthorizeUrl,
+  [string]$HubUrl = "",             # hub origin for /api/comp-scrape/extract; blank = derive from AuthorizeUrl
   [int]$UpdateCheckSeconds = 3600   # how often a running agent re-checks for updates; lower it for demos
 )
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,7 @@ Write-Host "1/4  Baking non-secret config -> build/agent.env"
 @"
 SUPABASE_URL=$SupabaseUrl
 AGENT_AUTHORIZE_URL=$AuthorizeUrl
+AGENT_HUB_URL=$HubUrl
 AGENT_VERSION=$Version
 AGENT_UPDATE_CHECK_SECONDS=$UpdateCheckSeconds
 HEADLESS=true
