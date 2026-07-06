@@ -26,6 +26,8 @@ datas = [
     (os.path.join(AGENT_DIR, "pairing.py"), "agent"),
     (os.path.join(AGENT_DIR, "updater.py"), "agent"),
     (os.path.join(AGENT_DIR, "hub_extractor.py"), "agent"),
+    (os.path.join(AGENT_DIR, "retry.py"), "agent"),
+    (os.path.join(AGENT_DIR, "qa.py"), "agent"),
     (os.path.join(AGENT_DIR, "assets"), "assets"),
     # The scraper engine + per-building recipes (unchanged), mirrored under code/.
     (os.path.join(CODE_DIR, "fetcher.py"), "code"),

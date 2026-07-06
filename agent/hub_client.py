@@ -203,18 +203,26 @@ class SupabaseHubClient(HubClient):
         base = {"p_job_id": job_id, "p_worker_id": agent_id,
                 "p_incentives": result.get("incentives"),
                 "p_units": result.get("units") or []}
-        # PR #70: job_complete also stores the captured page text (-> raw_content /
-        # raw_content_len) so the Scrape-All audit can do undercount + fetch/drift
-        # diagnosis. Truncate to 500K. Fall back to the 4-arg form if the DB predates
-        # PR #70 (so the agent is safe to ship in either order).
+        # Newer job_complete args are additive + optional; try the richest form first and
+        # fall back if the DB predates a column, so the agent is safe to ship in any order:
+        #   p_raw_content — captured page text (<=500K) for the audit's undercount/drift.
+        #   p_qa          — visual-QA verdict {status, reason} (best-effort; may be null).
         raw = (result.get("raw_content") or "")[:500_000]
-        try:
-            self._rpc("job_complete", {**base, "p_raw_content": raw})
-        except httpx.HTTPStatusError as e:
-            body = (e.response.text if e.response is not None else "") or ""
-            if "PGRST202" in body or "Could not find the function" in body:
-                self._rpc("job_complete", base)     # DB has no p_raw_content arg yet
-            else:
+        qa = result.get("qa")
+        attempts = []
+        if qa is not None:
+            attempts.append({**base, "p_raw_content": raw, "p_qa": qa})
+        attempts.append({**base, "p_raw_content": raw})     # PR #70 schema
+        attempts.append(base)                               # oldest schema
+        for i, args in enumerate(attempts):
+            try:
+                self._rpc("job_complete", args)
+                return
+            except httpx.HTTPStatusError as e:
+                body = (e.response.text if e.response is not None else "") or ""
+                missing_arg = "PGRST202" in body or "Could not find the function" in body
+                if missing_arg and i < len(attempts) - 1:
+                    continue                                # DB lacks this arg → try a leaner call
                 raise
 
     def fail(self, job_id, agent_id, error):

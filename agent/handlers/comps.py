@@ -34,6 +34,7 @@ from extractor import ScrapeCancelled                  # noqa: E402
 from pipeline import scrape_to_result                  # noqa: E402  (shared scrape pipeline)
 from hub_extractor import HubExtractor                 # noqa: E402  (extraction runs on the hub)
 from retry import run_with_retry                       # noqa: E402  (transient backoff-retry)
+from qa import run_qa, pick_screenshot, site_claim_n   # noqa: E402  (keyless visual QA via hub /qa)
 
 log = logging.getLogger("agent.comps")
 SITES_DIR = os.path.join(CODE_DIR, "sites")
@@ -91,8 +92,11 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
         # Fresh browser per attempt; transient errors (429/overloaded/timeout/DNS/nav)
         # get a bounded backoff-retry before we fail (handoff Part 2 §G). Non-transient
         # errors (404/page-not-found, credit balance, auth) fail loud immediately.
+        held = {}
+
         def _scrape_once():
             fetcher = PageFetcher(headless=headless)   # fetch() opens + closes its own browser
+            held["fetcher"] = fetcher                  # keep the winning fetcher for QA screenshots
             return asyncio.run(scrape_to_result(
                 url, name, cfg, extractor, fetcher=fetcher,
                 should_cancel=ctx.should_cancel,
@@ -112,10 +116,22 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
         if res.get("blocked"):                        # bot/challenge page -> fail (don't save 0 units as success)
             raise RuntimeError(res.get("error") or "blocked/challenge page")
 
+        # Visual QA (keyless, best-effort): for vision-configured buildings, send the
+        # screenshot captured during the scrape to the hub /qa gate. A QA failure NEVER
+        # fails or blocks the scrape. This is what makes vision_enrichment /
+        # multi_viewport_screenshots drive real behavior for the hub auto-fix.
+        qa = None
+        if cfg.get("vision_enrichment") or cfg.get("multi_viewport_screenshots"):
+            shot = pick_screenshot(held.get("fetcher"))
+            if shot:
+                ctx.progress(90, "visual QA")
+                qa = run_qa(hub_url, worker_token, shot, name, url,
+                            len(res.get("units") or []), site_claim_n(res.get("raw_content")))
+
         ctx.progress(95, "saving")
         # raw_content -> job_complete (PR #70): powers the Scrape-All audit's undercount
-        # + fetch/drift diagnosis. hub_client truncates to 500K.
-        return {"incentives": res["incentives"], "units": res["units"],
+        # + fetch/drift diagnosis. hub_client truncates to 500K. qa -> p_qa.
+        return {"incentives": res["incentives"], "units": res["units"], "qa": qa,
                 "raw_content": res.get("raw_content"),
                 "fetched_chars": res["fetched_chars"]}
 

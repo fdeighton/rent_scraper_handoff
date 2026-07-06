@@ -110,9 +110,12 @@ class HubExtractor:
         raise RuntimeError(f"/extract {resp.status_code}: {err}")
 
     def extract_sqft_from_screenshots(self, *args, **kwargs) -> dict:
-        # Vision/floorplan sqft is not available via the hub (text-only /extract).
+        # This is the pipeline's SQFT-from-floorplan enrichment hook only — not available
+        # on the agent (the hub /extract is text-only), so sqft comes from page text.
+        # Visual QA is a SEPARATE, real path: the comps handler sends the screenshot to
+        # the hub /qa gate (see agent/qa.py). Returning {} keeps the shared pipeline happy.
         if not self._warned_vision:
-            log.warning("vision sqft skipped — the hub /extract is text-only; sqft comes from page text only")
+            log.warning("sqft-from-vision skipped (hub /extract is text-only); visual QA runs via /qa")
             self._warned_vision = True
         return {}
 
