@@ -44,3 +44,26 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Start {#MyAppName}"; Flags: now
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+
+[Code]
+{ The agent is a long-running tray app. Terminate any running instance (+ its child
+  Chromium/Playwright processes) BEFORE installing (so an update can overwrite the
+  locked exe) and BEFORE uninstalling (so removal succeeds and no orphan is left
+  running). }
+procedure KillAgent();
+var ResultCode: Integer;
+begin
+  Exec('taskkill.exe', '/IM {#MyAppExeName} /T /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillAgent();          { stop a running instance before files are written (update case) }
+  Result := '';
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    KillAgent();        { stop the running instance before removing files }
+end;
