@@ -12,12 +12,19 @@
 #define MyAppName "Fitzrovia Agent"
 #define MyAppPublisher "Fitzrovia"
 #define MyAppExeName "FitzroviaAgent.exe"
+#define MyAppCopyright "Copyright (c) Fitzrovia"
+#define MyAppURL "https://fitzrovia.ca"
 
 [Setup]
 AppId={{F17R0V1A-A6E7-4A11-9C0D-FITZROVIAAGT}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppCopyright={#MyAppCopyright}
+; Per-user install (no admin) at a STABLE path — not temp/random. Keeps the silent
+; auto-update working (Program Files would require elevation on every update).
 DefaultDirName={localappdata}\FitzroviaAgent
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
@@ -28,6 +35,13 @@ SetupIconFile=..\assets\icon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Stable version resource on setup.exe itself (Defender/Sentinel read these).
+VersionInfoVersion={#MyAppVersion}
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription={#MyAppName} Setup
+VersionInfoCopyright={#MyAppCopyright}
 
 [Files]
 ; The whole PyInstaller COLLECT output folder.
