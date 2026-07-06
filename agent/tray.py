@@ -138,4 +138,8 @@ class TrayAgent:
 
 
 if __name__ == "__main__":
+    # Self-update (installed build only): if a newer release exists, launch it + exit.
+    from updater import check_and_update  # noqa: E402
+    if check_and_update(VERSION):
+        sys.exit(0)
     TrayAgent().run()

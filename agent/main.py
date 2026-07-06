@@ -47,6 +47,7 @@ from hub_client import SupabaseHubClient                   # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE   # noqa: E402
 from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
 from pairing import get_credentials                        # noqa: E402
+from updater import check_and_update                        # noqa: E402
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -67,6 +68,8 @@ VERSION = os.getenv("AGENT_VERSION") or "0.1.0"   # baked at build time (build/a
 
 
 def main() -> None:
+    if check_and_update(VERSION):     # installed build: newer release -> launch it + exit
+        return
     if not SUPABASE_URL:
         log.error("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) is required — the agent talks "
                   "directly to the cloud DB. For a local test with no DB, run: python dev_run.py")
