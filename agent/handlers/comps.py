@@ -33,6 +33,7 @@ from fetcher import PageFetcher, _clean_config         # noqa: E402  (existing e
 from extractor import ScrapeCancelled                  # noqa: E402
 from pipeline import scrape_to_result                  # noqa: E402  (shared scrape pipeline)
 from hub_extractor import HubExtractor                 # noqa: E402  (extraction runs on the hub)
+from retry import run_with_retry                       # noqa: E402  (transient backoff-retry)
 
 log = logging.getLogger("agent.comps")
 SITES_DIR = os.path.join(CODE_DIR, "sites")
@@ -85,13 +86,24 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
         # Run the SHARED pipeline (code/pipeline.py) — the exact same fetch -> vision ->
         # block-guard -> extract -> validate -> retry that main.py + local_server use.
         # The agent is a liaison to code/: nothing the engine does can be lost here.
-        fetcher = PageFetcher(headless=headless)      # fetch() opens + closes its own browser
-        try:
-            res = asyncio.run(scrape_to_result(
+        # Fresh browser per attempt; transient errors (429/overloaded/timeout/DNS/nav)
+        # get a bounded backoff-retry before we fail (handoff Part 2 §G). Non-transient
+        # errors (404/page-not-found, credit balance, auth) fail loud immediately.
+        def _scrape_once():
+            fetcher = PageFetcher(headless=headless)   # fetch() opens + closes its own browser
+            return asyncio.run(scrape_to_result(
                 url, name, cfg, extractor, fetcher=fetcher,
                 should_cancel=ctx.should_cancel,
                 on_progress=lambda pct, stage: ctx.progress(pct, stage),
             ))
+
+        def _on_retry(i, n, wait, err):
+            log.warning("%s: transient error (attempt %d/%d), retrying in %ds: %s",
+                        name, i, n, wait, err)
+            ctx.progress(15, "retrying after transient error")
+
+        try:
+            res = run_with_retry(_scrape_once, on_retry=_on_retry)
         except ScrapeCancelled:
             raise JobCancelled()
 
