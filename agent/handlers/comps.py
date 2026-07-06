@@ -76,12 +76,14 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
         if not url:
             raise ValueError("comps_scrape payload missing 'url'")
 
-        # Merge per-building recipe over the requested config (recipe wins) — same as
-        # the proven server path; reuses code/sites/* (College West, Mirvish, VIE, ...).
+        # Merge: bundled recipe is the BASE, DB/job config (scrape_config) WINS. This lets
+        # the hub's diagnose/patch loop (Phase 4) override a recipe key and have it take
+        # effect, while un-patched keys keep the proven bundled recipe (nothing lost). The
+        # DB is the live, patchable source of truth; the bundle is a fallback/base.
         cfg = _clean_config(payload.get("config") or {})
         site = site_config_for(name)
         if site:
-            cfg = {**cfg, **site}
+            cfg = {**site, **cfg}
 
         # Run the SHARED pipeline (code/pipeline.py) — the exact same fetch -> vision ->
         # block-guard -> extract -> validate -> retry that main.py + local_server use.
