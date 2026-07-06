@@ -14,17 +14,55 @@ tag (agent-vX.Y.Z) — not overwrite an existing one — so "latest" advances.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import sys
 import tempfile
+import time
 
 log = logging.getLogger("agent.updater")
 
 REPO = os.getenv("AGENT_UPDATE_REPO", "fdeighton/rent_scraper_handoff")
 # Windows: DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — installer survives our exit.
 _DETACHED = 0x00000008 | 0x00000200
+
+# Persistent state (log + attempt marker) so update behaviour is diagnosable and can't
+# hammer: we won't re-attempt the SAME version within the cooldown window.
+STATE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(), "FitzroviaAgent")
+LOG_PATH = os.path.join(STATE_DIR, "update.log")
+MARKER_PATH = os.path.join(STATE_DIR, "update-attempt.json")
+INSTALL_LOG = os.path.join(STATE_DIR, "install.log")
+COOLDOWN_SECONDS = 900   # don't relaunch the installer for the same version within 15 min
+
+
+def _ulog(msg: str) -> None:
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {msg}\n")
+    except Exception:
+        pass
+    log.info(msg)
+
+
+def _recently_attempted(version: str) -> bool:
+    try:
+        with open(MARKER_PATH, encoding="utf-8") as f:
+            m = json.load(f)
+        return m.get("version") == version and (time.time() - float(m.get("ts", 0))) < COOLDOWN_SECONDS
+    except Exception:
+        return False
+
+
+def _mark_attempt(version: str) -> None:
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(MARKER_PATH, "w", encoding="utf-8") as f:
+            json.dump({"version": version, "ts": time.time()}, f)
+    except Exception:
+        pass
 
 
 def _parse(v: str) -> tuple:
@@ -56,29 +94,35 @@ def check_and_update(current_version: str) -> bool:
         r.raise_for_status()
         rel = r.json()
         latest = rel.get("tag_name") or ""
+        _ulog(f"check: current={current_version} latest={latest}")
         if not _is_newer(latest, current_version):
+            return False
+        if _recently_attempted(latest):
+            _ulog(f"skip: already attempted {latest} within cooldown ({COOLDOWN_SECONDS}s)")
             return False
         asset = next((a for a in rel.get("assets", [])
                       if (a.get("name") or "").lower().endswith(".exe")), None)
         if not asset:
-            log.warning("update %s available but no .exe asset found", latest)
+            _ulog(f"update {latest} available but no .exe asset found")
             return False
 
-        log.info("update available: %s -> %s — downloading %s",
-                 current_version, latest, asset["name"])
+        _ulog(f"downloading {asset['name']} ({current_version} -> {latest})")
         dl = httpx.get(asset["browser_download_url"], follow_redirects=True, timeout=180)
         dl.raise_for_status()
         path = os.path.join(tempfile.gettempdir(), asset["name"])
         with open(path, "wb") as f:
             f.write(dl.content)
 
-        # Launch the installer silently + detached; it kills this agent, installs, relaunches.
+        # Record the attempt BEFORE launching so a failed install can't hammer every tick.
+        _mark_attempt(latest)
+        # Launch the installer silently + detached; it kills this agent (by name, NOT its
+        # process tree — see installer.iss), installs, relaunches. /LOG captures its side.
         subprocess.Popen(
-            [path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+            [path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/LOG={INSTALL_LOG}"],
             creationflags=_DETACHED, close_fds=True,
         )
-        log.info("update launched (%s) — exiting so the installer can take over", latest)
+        _ulog(f"installer launched ({latest}) — exiting so it can take over")
         return True
     except Exception as e:
-        log.warning("update check failed (continuing on current version): %s", e)
+        _ulog(f"update check failed (continuing on current version): {e}")
         return False

@@ -47,14 +47,19 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Start {#MyAppName}"; Flags: now
 Type: filesandordirs; Name: "{app}"
 
 [Code]
-{ The agent is a long-running tray app. Terminate any running instance (+ its child
-  Chromium/Playwright processes) BEFORE installing (so an update can overwrite the
-  locked exe) and BEFORE uninstalling (so removal succeeds and no orphan is left
-  running). }
+{ The agent is a long-running tray app. Terminate any running instance BEFORE installing
+  (so an update can overwrite the locked exe) and BEFORE uninstalling (so removal
+  succeeds and no orphan is left running).
+
+  NOTE: no /T (tree) — during a silent AUTO-UPDATE the running agent launches this setup
+  as a CHILD process, so /T would kill the setup itself mid-install (aborting the update
+  and causing a re-download loop). We kill only FitzroviaAgent.exe by name; the agent's
+  Chromium/Playwright children live in a separate cache (don't lock {app}) and exit once
+  their parent is gone. }
 procedure KillAgent();
 var ResultCode: Integer;
 begin
-  Exec('taskkill.exe', '/IM {#MyAppExeName} /T /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/IM {#MyAppExeName} /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
