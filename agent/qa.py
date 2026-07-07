@@ -96,10 +96,9 @@ def run_qa(hub_base: str, token: str, image_bytes: bytes, building_name: str, ur
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         bypass = os.environ.get("AGENT_HUB_BYPASS_TOKEN")   # reach a protected Vercel preview
         if bypass:
-            headers["x-vercel-protection-bypass"] = bypass
-            headers["x-vercel-set-bypass-cookie"] = "true"
+            headers["x-vercel-protection-bypass"] = bypass   # header only (no set-cookie -> no 307)
         r = httpx.post(f"{hub_base.rstrip('/')}/api/comp-scrape/qa",
-                       headers=headers, json=body, timeout=QA_TIMEOUT)
+                       headers=headers, json=body, timeout=QA_TIMEOUT, follow_redirects=True)
         if r.status_code != 200:
             log.warning("QA skipped: /qa %s: %s", r.status_code, (r.text or "")[:150])
             return None

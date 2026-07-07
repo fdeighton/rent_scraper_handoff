@@ -42,8 +42,9 @@ def hub_headers(token: str) -> dict:
     h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     bypass = os.environ.get("AGENT_HUB_BYPASS_TOKEN")
     if bypass:
+        # Just the bypass header — do NOT request the set-bypass-cookie, which makes
+        # Vercel reply with a 307 redirect (fine for browsers, breaks a stateless POST).
         h["x-vercel-protection-bypass"] = bypass
-        h["x-vercel-set-bypass-cookie"] = "true"
     return h
 
 MAX_CONTENT_CHARS = 600_000              # hub cap (extract.ts MAX_CONTENT_CHARS)
@@ -103,7 +104,7 @@ class HubExtractor:
                 f"{self.base}/api/comp-scrape/extract",
                 headers=hub_headers(self.token),
                 json={"content": body_text, "building_name": building_name},
-                timeout=EXTRACT_TIMEOUT,
+                timeout=EXTRACT_TIMEOUT, follow_redirects=True,
             )
         except httpx.RequestError as e:
             raise RuntimeError(f"/extract request failed: {e}") from e
