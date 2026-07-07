@@ -15,6 +15,7 @@ Run:  cd agent && python tray.py        (needs: pip install pystray pillow)
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -61,17 +62,34 @@ DASHBOARD_URL = os.getenv("HUB_DASHBOARD_URL") or "https://localhost"
 # background (no restart needed). Kept modest to stay under GitHub's unauth rate limit.
 UPDATE_CHECK_SECONDS = float(os.getenv("AGENT_UPDATE_CHECK_SECONDS", "3600"))
 
+# Pairing is prompted automatically ONCE (first install/run); after that an unpaired
+# agent stays quiet and the user pairs from the tray "Sign in" item. This marker records
+# that the one-time prompt has happened, so relaunches/updates don't re-pop the browser.
+_STATE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "FitzroviaAgent")
+_FIRSTRUN_MARKER = os.path.join(_STATE_DIR, "pairing-prompted")
+_DETACHED = (0x00000008 | 0x00000200) if os.name == "nt" else 0   # survive our own exit on relaunch
+
 
 class TrayAgent:
     def __init__(self):
-        # Resolve credentials (env → keychain → one-click browser pairing).
-        creds = {"worker_token": None, "anthropic_key": None}
+        # Resolve credentials WITHOUT opening a browser (env → keychain only). Once paired,
+        # the keychain token is found here forever and no auth window ever appears again.
+        worker_token = None
         if SUPABASE_URL:
             try:
-                creds = get_credentials(AUTHORIZE_URL, interactive=True)
+                worker_token = get_credentials(AUTHORIZE_URL, interactive=False).get("worker_token")
             except Exception as e:
-                log.warning("pairing failed (%s) — starting in DEMO mode", e)
-        worker_token = creds.get("worker_token")
+                log.debug("credential check failed: %s", e)
+
+        # No token: open the pairing page automatically ONLY on the very first run (the
+        # install / first-open moment). On later launches we stay quiet — the user pairs
+        # from the tray "Sign in" item. This stops the auth page popping on every relaunch.
+        if not worker_token and SUPABASE_URL and not os.path.exists(_FIRSTRUN_MARKER):
+            self._mark_first_run()
+            try:
+                worker_token = get_credentials(AUTHORIZE_URL, interactive=True).get("worker_token")
+            except Exception as e:
+                log.warning("first-run pairing not completed (%s) — sign in later from the tray menu", e)
 
         handlers = {TRICON12_TASK: make_tricon12_handler(HEADLESS)}   # 12mo needs no Anthropic key
         if worker_token and HUB_URL:
@@ -92,6 +110,7 @@ class TrayAgent:
         self.status = "starting"
         self.jobs_done = 0
         self.icon = None
+        self.paired = bool(worker_token)   # drives the tray "Sign in" item visibility
 
     # background work loop --------------------------------------------------
     def _loop(self):
@@ -133,7 +152,8 @@ class TrayAgent:
 
     # menu ------------------------------------------------------------------
     def _title(self, _item=None) -> str:
-        return f"Fitzrovia Agent — {self.mode} · {self.status} · {self.jobs_done} done"
+        state = self.status if self.paired else "not signed in"
+        return f"Fitzrovia Agent — {self.mode} · {state} · {self.jobs_done} done"
 
     def _toggle_pause(self, icon, item):
         (self.paused.clear if self.paused.is_set() else self.paused.set)()
@@ -144,6 +164,38 @@ class TrayAgent:
         except Exception:
             pass
 
+    @staticmethod
+    def _mark_first_run():
+        try:
+            os.makedirs(_STATE_DIR, exist_ok=True)
+            open(_FIRSTRUN_MARKER, "a").close()
+        except Exception:
+            pass
+
+    def _sign_in(self, icon, item):
+        # User clicked "Sign in": open the pairing page now. On success, relaunch so we
+        # come back up in cloud mode with the stored token (and never prompt again).
+        self._mark_first_run()
+        try:
+            token = get_credentials(AUTHORIZE_URL, interactive=True).get("worker_token")
+        except Exception as e:
+            log.warning("sign-in did not complete: %s", e)
+            return
+        if token:
+            log.info("signed in — reconnecting")
+            self._relaunch()
+
+    def _relaunch(self):
+        try:
+            args = ([sys.executable] if getattr(sys, "frozen", False)
+                    else [sys.executable, os.path.abspath(__file__)])
+            subprocess.Popen(args, creationflags=_DETACHED, close_fds=True)
+        except Exception as e:
+            log.warning("relaunch failed (%s) — please Quit and reopen to connect", e)
+        self.stopped.set()
+        if self.icon is not None:
+            self.icon.stop()
+
     def _quit(self, icon, item):
         self.stopped.set()
         icon.stop()
@@ -153,6 +205,8 @@ class TrayAgent:
         menu = pystray.Menu(
             pystray.MenuItem(self._title, None, enabled=False),
             pystray.Menu.SEPARATOR,
+            # Shown only when unpaired — opens the pairing page on click (no auto-pop).
+            pystray.MenuItem("Sign in", self._sign_in, visible=lambda i: not self.paired),
             pystray.MenuItem("Pause", self._toggle_pause, checked=lambda i: self.paused.is_set()),
             pystray.MenuItem("Open dashboard", self._open_dashboard),
             pystray.MenuItem("Quit", self._quit),
