@@ -12,7 +12,7 @@ def _pgrst202():
 
 
 def _client(rpc):
-    c = SupabaseHubClient("https://x.supabase.co", "key")
+    c = SupabaseHubClient("https://x.supabase.co", "anon-key", "worker-token")
     c._rpc = rpc
     c._job_types["j"] = "comps_scrape"
     return c

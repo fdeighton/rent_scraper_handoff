@@ -147,12 +147,16 @@ class SupabaseHubClient(HubClient):
         fail   -> job_fail / cancel -> job_cancel / register+heartbeat -> worker_register
     """
 
-    def __init__(self, url: str, key: str, timeout: float = 30.0):
+    def __init__(self, url: str, anon_key: str, token: str, timeout: float = 30.0):
+        # The Supabase gateway requires `apikey` to be the project ANON (or service) key —
+        # it rejects an arbitrary worker JWT there (401 Invalid API key). The scoped worker
+        # token goes in `Authorization: Bearer`, which PostgREST uses to switch into the
+        # scrape_worker role. (anon key is public; the worker token is the scoped secret.)
         self.base = url.rstrip("/")
         self._job_types: dict[str, str] = {}    # job_id -> task_type (routes complete())
         self._client = httpx.Client(
             base_url=f"{self.base}/rest/v1",
-            headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            headers={"apikey": anon_key, "Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             timeout=timeout,
         )
 

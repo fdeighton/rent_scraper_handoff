@@ -60,6 +60,10 @@ log = logging.getLogger("agent")
 # duplicated. The worker token AND the Anthropic key are resolved by
 # pairing.get_credentials() at runtime (env override → OS keychain → one-click pairing).
 SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+# Public anon key — sent as the `apikey` header (the gateway requires anon/service there;
+# the scoped worker token goes in Authorization: Bearer). Safe to bake (it's public).
+SUPABASE_ANON_KEY = (os.environ.get("SUPABASE_ANON_KEY")
+                     or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "")
 AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL", "")
 
 
@@ -99,6 +103,10 @@ def main() -> None:
     if not HUB_URL:
         log.error("no hub URL (set AGENT_HUB_URL or AGENT_AUTHORIZE_URL) — extraction runs on the hub")
         sys.exit(1)
+    if not SUPABASE_ANON_KEY:
+        log.error("no anon key (set SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY) — "
+                  "it's the required Supabase apikey header")
+        sys.exit(1)
 
     # The agent MUST claim jobs under the token's `sub`, or the hub /extract gate
     # (workerHasRunningJob(sub)) rejects it. Falls back to AGENT_ID if undecodable.
@@ -106,7 +114,7 @@ def main() -> None:
 
     handlers = {TASK_TYPE: make_comps_handler(HUB_URL, worker_token, HEADLESS),
                 TRICON12_TASK: make_tricon12_handler(HEADLESS)}
-    hub = SupabaseHubClient(SUPABASE_URL, worker_token)
+    hub = SupabaseHubClient(SUPABASE_URL, SUPABASE_ANON_KEY, worker_token)
     Agent(hub, worker_id, handlers, hostname=socket.gethostname(),
           version=VERSION, poll_seconds=POLL).run_forever()
 

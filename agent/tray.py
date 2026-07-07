@@ -47,6 +47,9 @@ log = logging.getLogger("agent.tray")
 
 ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.png")
 SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+# Public anon key — the required Supabase `apikey` header (worker token goes in Bearer).
+SUPABASE_ANON_KEY = (os.environ.get("SUPABASE_ANON_KEY")
+                     or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "")
 AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL", "")
 _hp = urlsplit(AUTHORIZE_URL or "")
 # Hub origin for server-side extraction (POST /api/comp-scrape/extract); baked at build,
@@ -95,8 +98,8 @@ class TrayAgent:
         if worker_token and HUB_URL:
             # Extraction runs on the hub (AIS-73) — the agent needs no Anthropic key.
             handlers[TASK_TYPE] = make_comps_handler(HUB_URL, worker_token, HEADLESS)
-        if SUPABASE_URL and worker_token:
-            self.hub, self.mode = SupabaseHubClient(SUPABASE_URL, worker_token), "cloud"
+        if SUPABASE_URL and worker_token and SUPABASE_ANON_KEY:
+            self.hub, self.mode = SupabaseHubClient(SUPABASE_URL, SUPABASE_ANON_KEY, worker_token), "cloud"
         else:
             self.hub, self.mode = MockHubClient(), "demo"
             log.warning("no cloud token — DEMO mode (in-memory mock hub)")
