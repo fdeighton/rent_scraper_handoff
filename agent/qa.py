@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import re
 
 import httpx
@@ -92,9 +93,13 @@ def run_qa(hub_base: str, token: str, image_bytes: bytes, building_name: str, ur
         }
         if site_claim is not None:
             body["site_claim_n"] = site_claim
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        bypass = os.environ.get("AGENT_HUB_BYPASS_TOKEN")   # reach a protected Vercel preview
+        if bypass:
+            headers["x-vercel-protection-bypass"] = bypass
+            headers["x-vercel-set-bypass-cookie"] = "true"
         r = httpx.post(f"{hub_base.rstrip('/')}/api/comp-scrape/qa",
-                       headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                       json=body, timeout=QA_TIMEOUT)
+                       headers=headers, json=body, timeout=QA_TIMEOUT)
         if r.status_code != 200:
             log.warning("QA skipped: /qa %s: %s", r.status_code, (r.text or "")[:150])
             return None

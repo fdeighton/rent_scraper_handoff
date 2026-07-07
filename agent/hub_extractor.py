@@ -25,6 +25,7 @@ Contract (from the hub, verified against source):
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 import httpx
@@ -32,6 +33,18 @@ import httpx
 from extractor import ScrapeCancelled   # cooperative-cancel signal shared with the pipeline
 
 log = logging.getLogger("agent.hub_extractor")
+
+
+def hub_headers(token: str) -> dict:
+    """Auth + JSON headers for hub calls, plus the Vercel protection-bypass header when
+    AGENT_HUB_BYPASS_TOKEN is set (so the agent can reach a preview deployment that has
+    Deployment Protection on — humans still hit the wall, the agent doesn't)."""
+    h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    bypass = os.environ.get("AGENT_HUB_BYPASS_TOKEN")
+    if bypass:
+        h["x-vercel-protection-bypass"] = bypass
+        h["x-vercel-set-bypass-cookie"] = "true"
+    return h
 
 MAX_CONTENT_CHARS = 600_000              # hub cap (extract.ts MAX_CONTENT_CHARS)
 EXTRACT_TIMEOUT = 90.0                   # Claude call is ~15-40s; allow headroom
@@ -88,8 +101,7 @@ class HubExtractor:
         try:
             resp = httpx.post(
                 f"{self.base}/api/comp-scrape/extract",
-                headers={"Authorization": f"Bearer {self.token}",
-                         "Content-Type": "application/json"},
+                headers=hub_headers(self.token),
                 json={"content": body_text, "building_name": building_name},
                 timeout=EXTRACT_TIMEOUT,
             )
