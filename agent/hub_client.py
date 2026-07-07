@@ -51,7 +51,7 @@ class HubClient(abc.ABC):
     def complete(self, job_id: str, agent_id: str, result: dict) -> None: ...
 
     @abc.abstractmethod
-    def fail(self, job_id: str, agent_id: str, error: str) -> None: ...
+    def fail(self, job_id: str, agent_id: str, error: str, requeue: bool = True) -> None: ...
 
     @abc.abstractmethod
     def cancel(self, job_id: str, agent_id: str) -> None: ...
@@ -116,11 +116,11 @@ class MockHubClient(HubClient):
             if j:
                 j.update(status="done", progress=100, stage="done", result=result)
 
-    def fail(self, job_id, agent_id, error):
+    def fail(self, job_id, agent_id, error, requeue=True):
         with self._lock:
             j = self.jobs.get(job_id)
             if j:
-                j.update(status="error", error=error)
+                j.update(status=("queued" if requeue else "error"), error=error)
 
     def cancel(self, job_id, agent_id):
         with self._lock:
@@ -229,10 +229,10 @@ class SupabaseHubClient(HubClient):
                     continue                                # DB lacks this arg → try a leaner call
                 raise
 
-    def fail(self, job_id, agent_id, error):
+    def fail(self, job_id, agent_id, error, requeue=True):
         self._job_types.pop(job_id, None)
         self._rpc("job_fail", {"p_job_id": job_id, "p_worker_id": agent_id,
-                               "p_error": error, "p_requeue": True})
+                               "p_error": error, "p_requeue": requeue})
 
     def cancel(self, job_id, agent_id):
         self._rpc("job_cancel", {"p_job_id": job_id, "p_worker_id": agent_id})

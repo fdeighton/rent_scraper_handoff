@@ -111,7 +111,12 @@ class Agent:
             self._safe(lambda: self.hub.cancel(jid, self.agent_id))
         except Exception as e:
             log.exception("job %s failed", jid)
-            self._safe(lambda: self.hub.fail(jid, self.agent_id, str(e)))
+            # Only requeue TRANSIENT failures (429/timeout/DNS/5xx). Fatal ones
+            # (auth/404/protected/credit) would just re-fail in a loop, so let them
+            # terminate — surfaced for human review instead of burning re-scrapes.
+            from retry import is_transient
+            requeue = is_transient(e)
+            self._safe(lambda: self.hub.fail(jid, self.agent_id, str(e), requeue=requeue))
 
     def _install_signals(self) -> None:
         def _h(signum, _frame):
