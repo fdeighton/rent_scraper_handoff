@@ -47,7 +47,7 @@ def test_run_qa_ok(monkeypatch):
         def json(self):
             return {"ok": True, "reason": "looks right"}
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, **kwargs):
         captured.update(url=url, headers=headers, body=json)
         return R()
 
