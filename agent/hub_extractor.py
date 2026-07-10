@@ -48,7 +48,7 @@ def hub_headers(token: str) -> dict:
     return h
 
 MAX_CONTENT_CHARS = 600_000              # hub cap (extract.ts MAX_CONTENT_CHARS)
-EXTRACT_TIMEOUT = 90.0                   # Claude call is ~15-40s; allow headroom
+EXTRACT_TIMEOUT = 300.0                  # match the hub's maxDuration; big listings (700-960 units) can take minutes to extract
 MAX_RENT = 20000                         # a monthly rent above this is almost certainly a
                                          # sale price (condos.ca contamination; hub also guards)
 
