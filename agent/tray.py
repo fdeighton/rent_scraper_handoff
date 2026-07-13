@@ -59,7 +59,7 @@ MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 POLL = float(os.getenv("AGENT_POLL_SECONDS", "5"))
-VERSION = os.getenv("AGENT_VERSION") or "0.1.0"   # baked at build time (build/agent.env); reported on register
+VERSION = os.getenv("AGENT_VERSION") or "0.1.9"   # baked at build time (build/agent.env); reported on register
 DASHBOARD_URL = os.getenv("HUB_DASHBOARD_URL") or "https://localhost"
 # How often the running agent re-checks for a newer release and self-updates in the
 # background (no restart needed). Kept modest to stay under GitHub's unauth rate limit.

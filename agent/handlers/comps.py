@@ -64,6 +64,41 @@ def site_config_for(name: str):
     return None
 
 
+def _map_12mo_to_units(rows):
+    """Map fetch_tricon_12mo rows -> the STANDARD comps unit shape (identical to a normal
+    Tricon scrape's units; see fetcher._fetch_tricon_api), but with the 12-MONTH lease rent
+    as rent_price so it flows through the NORMAL comp rollup. Rows with no unit_type
+    (unknown taxonomy) are skipped, mirroring the standard Tricon path."""
+    out = []
+    for r in (rows or []):
+        ut = r.get("unit_type")
+        if not ut:
+            continue
+        try:
+            rent = float(r["rent_12mo"]) if r.get("rent_12mo") is not None else None
+        except (TypeError, ValueError):
+            rent = None
+        try:
+            sqft = int(r["sqft"]) if r.get("sqft") is not None else None
+        except (TypeError, ValueError):
+            sqft = None
+        psf = round(rent / sqft, 4) if (rent and sqft and sqft > 0) else None
+        out.append({
+            "unit_type": ut,
+            "bathrooms": str(r.get("baths") or "").rstrip("0").rstrip(".") or None,
+            "square_footage": sqft,
+            "rent_price": rent,                       # <- 12-month lease rent
+            "rent_psf": psf,
+            "raw_text": (f"#{r.get('unit_code')} 12mo ${r.get('rent_12mo')} "
+                         f"(lowest-term ${r.get('lowest_term_rent')}) {r.get('beds')} bed "
+                         f"{r.get('baths')} bath {r.get('sqft')} sqft Floor {r.get('floor')} "
+                         f"{r.get('status') or ''}").strip(),
+            "notes": (f"Unit {r.get('unit_code')}, 12-month lease rent; "
+                      f"lowest-term ${r.get('lowest_term_rent')}, gap {r.get('gap_pct')}%"),
+        })
+    return out
+
+
 def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
     """Build the comps handler. Extraction is delegated to the hub (AIS-73): the agent
     scrapes the page here and POSTs the text to {hub_url}/api/comp-scrape/extract, which
@@ -85,6 +120,29 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
         site = site_config_for(name)
         if site:
             cfg = {**site, **cfg}
+
+        # Pricing-basis opt-in (Tricon only): capture the TRUE 12-month lease rent as the
+        # comp rent so it flows through the NORMAL rollup (task stays comps_scrape ->
+        # job_complete -> comp_units), instead of the lowest-term/teaser price. Reuses the
+        # engine's fetch_tricon_12mo verbatim. The manual tricon_12mo task is unaffected.
+        if cfg.get("pricing_basis") == "12mo":
+            if not PageFetcher._tricon_derive_slug(url, cfg):
+                raise RuntimeError(
+                    f"{name}: pricing_basis=12mo but no Tricon slug is derivable from the "
+                    "url/config — this flag is only valid on Tricon buildings")
+            if ctx.progress(10, "fetching 12-month rents"):
+                raise JobCancelled()
+            fetcher = PageFetcher(headless=headless)
+            try:
+                rows = asyncio.run(fetcher.fetch_tricon_12mo(url, cfg, should_cancel=ctx.should_cancel))
+            except ScrapeCancelled:
+                raise JobCancelled()
+            if ctx.should_cancel():
+                raise JobCancelled()
+            units = extractor.validate_units(_map_12mo_to_units(rows))   # passthrough (same as std Tricon)
+            ctx.progress(95, "saving")
+            return {"incentives": None, "units": units, "qa": None,
+                    "raw_content": None, "fetched_chars": 0}
 
         # Run the SHARED pipeline (code/pipeline.py) — the exact same fetch -> vision ->
         # block-guard -> extract -> validate -> retry that main.py + local_server use.
