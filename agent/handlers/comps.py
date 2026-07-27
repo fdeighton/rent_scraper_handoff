@@ -139,6 +139,32 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
                 raise JobCancelled()
             if ctx.should_cancel():
                 raise JobCancelled()
+
+            # Minimum-success guard. A per-unit LRO burst can trip Cloudflare/IP throttling
+            # on the RentCafe host; throttled units come back with a NULL rent. Saving that
+            # partial result would (a) mark the snapshot success and (b) overwrite the prior
+            # good week with mostly-null rents AND a wrong "min" (the truly-cheapest, throttled
+            # units go missing). So if too few units quoted, RAISE a transient error instead:
+            # runtime.is_transient() classifies it as requeue-able, so the job re-runs later
+            # (host un-throttled) rather than persisting bad data. lro_min_success is
+            # config-driven (DB scrape_config wins) with a conservative 0.7 default.
+            try:
+                min_success = float(cfg.get("lro_min_success", 0.7))
+            except (TypeError, ValueError):
+                min_success = 0.7
+            total = len(rows)
+            quoted = sum(1 for r in rows if r.get("rent_12mo") is not None)
+            success_rate = (quoted / total) if total else 1.0
+            log.info("%s: tricon_12mo quoted %d/%d (%.0f%%), min_success=%.0f%%",
+                     name, quoted, total, success_rate * 100, min_success * 100)
+            if total > 0 and success_rate < min_success:
+                # Keep '429'/'rate-limited' in the message so retry.is_transient() -> requeue.
+                raise RuntimeError(
+                    f"{name}: tricon_12mo throttled — only {quoted}/{total} units quoted "
+                    f"({success_rate:.0%} < {min_success:.0%} min_success); likely "
+                    f"rate-limited (429) on the RentCafe host, requeuing rather than "
+                    f"saving partial nulls over good data")
+
             units = extractor.validate_units(_map_12mo_to_units(rows))   # passthrough (same as std Tricon)
             ctx.progress(95, "saving")
             return {"incentives": None, "units": units, "qa": None,

@@ -60,6 +60,49 @@ def _clean_config(config: dict) -> dict:
     return {k: v for k, v in (config or {}).items() if v is not None}
 
 
+# --- Tricon LRO throttle detection -------------------------------------------
+# The 12-month quote path (fetch_tricon_12mo) fires a per-unit RentCafe LRO GET for
+# every unit of every Tricon building in one short batch window. That burst can trip
+# Cloudflare / IP throttling on the securecafe host, which answers with a 4xx/5xx or a
+# CF challenge page instead of a quote sheet. Such a body has no "12 months" line, so
+# the parser used to silently return None -> a throttle was indistinguishable from
+# "this unit genuinely has no 12-month quote", and got saved as a null rent. These
+# helpers let the quote path tell the two apart so it can RETRY a throttle (transient)
+# and only resolve to None on a real, non-throttled quote sheet.
+_TRICON_THROTTLE_STATUS = frozenset({403, 429, 503})
+# Body markers unique to a genuine CF challenge/block INTERSTITIAL. Deliberately NOT
+# including "/cdn-cgi/challenge-platform": Cloudflare injects that sensor script into
+# NORMAL, successfully-served pages too (verified — the healthy 200 KB Ivy bootstrap
+# contains it), so matching on it would flag every good bootstrap as throttled and break
+# the whole feature. The interstitial always carries the "Just a moment…" / "Attention
+# Required!" title and a cf-chl- widget, so those stay as the discriminating signal.
+_TRICON_THROTTLE_MARKERS = (
+    "just a moment",                 # CF managed-challenge interstitial title
+    "attention required",            # CF block (error 1020) title
+    "cf-mitigated",                  # CF mitigation header echoed into an error body
+    "cf-chl-",                       # CF challenge widget/opt element ids (challenge page only)
+)
+
+
+class _TriconThrottled(Exception):
+    """A bootstrap/LRO/listing response was a throttle or Cloudflare challenge (4xx/5xx
+    or a CF marker), NOT a genuine 'no 12-month quote'. Transient — worth a backoff
+    retry. Internal to fetcher; never saved as data."""
+
+
+def _tricon_is_throttled(status_code, body) -> bool:
+    """True when an LRO/bootstrap/listing response looks like a host throttle or a
+    Cloudflare challenge (403/429/503, or a CF challenge marker in the body) rather than
+    a real quote/listing sheet. Only a False here lets a missing 12-month line resolve
+    to a legitimate None."""
+    if status_code in _TRICON_THROTTLE_STATUS:
+        return True
+    if body:
+        low = body.lower()
+        return any(m in low for m in _TRICON_THROTTLE_MARKERS)
+    return False
+
+
 # --- SSRF guards -------------------------------------------------------------
 # Every outbound URL the scraper touches — the top-level target, additional_urls,
 # links discovered on the page, image/og URLs — must be a public http(s) endpoint.
@@ -1065,12 +1108,48 @@ class PageFetcher:
             base = today + timedelta(days=14)
         return [f"{c.day:02d}/{c.month:02d}/{c.year}" for c in (base, base + timedelta(days=30))]
 
+    async def _tricon_quote_once(self, AsyncSession, bootstrap_url: str, quote_url: str,
+                                 uid: str, pid: str, movein_dates: list[str]) -> Optional[float]:
+        """One bootstrap+quote attempt against a fresh session. Returns a float when a
+        move-in date yields a valid 12-month quote, or None when the host served a real
+        (non-throttled) quote sheet with no 12-month line for every date tried. Raises
+        _TriconThrottled on any throttle/challenge response or transport hiccup so the
+        caller can back off and retry instead of misreading it as 'no quote'."""
+        async with AsyncSession(impersonate="chrome", timeout=30) as s:
+            try:
+                b = await s.get(bootstrap_url)               # bootstrap CF + app session cookies
+            except Exception as e:                           # transport reset/timeout -> transient
+                raise _TriconThrottled(f"bootstrap GET failed: {e}") from e
+            if _tricon_is_throttled(getattr(b, "status_code", None), getattr(b, "text", "")):
+                raise _TriconThrottled(
+                    f"bootstrap throttled (status {getattr(b, 'status_code', '?')})")
+            for movein in movein_dates:
+                try:
+                    r = await s.get(quote_url, params={
+                        "contentclass": "olequotesheet", "MoveinDate": movein,
+                        "sLeaseTerm": "12", "UnitId": uid, "PropertyId": pid,
+                    }, headers={"X-Requested-With": "XMLHttpRequest", "Referer": bootstrap_url})
+                except Exception as e:
+                    raise _TriconThrottled(f"quote GET failed: {e}") from e
+                if _tricon_is_throttled(getattr(r, "status_code", None), getattr(r, "text", "")):
+                    raise _TriconThrottled(
+                        f"quote throttled (status {getattr(r, 'status_code', '?')})")
+                price = self._tricon_parse_12mo_quote(r.text)
+                if price is not None:
+                    return price
+        return None                                          # genuine: no 12-month line, not throttled
+
     async def _tricon_quote(self, bootstrap_url: str, host: str, uid: str, pid: str,
-                            movein_dates: list[str]) -> Optional[float]:
+                            movein_dates: list[str], *, max_retries: int = 3,
+                            delay_ms: int = 300) -> Optional[float]:
         """Quote the true 12-month rent for an explicit UnitID/PropertyId from the RentCafe
         LRO. Bootstraps the session (Cloudflare + app cookies) by GETting bootstrap_url,
-        then tries each move-in date until a valid 12-month quote parses. Returns float or
-        None on ANY failure — never raises. Shared by both apply-url forms."""
+        then tries each move-in date until a valid 12-month quote parses. Retries a
+        TRANSIENT throttle (CF challenge / 403 / 429 / 503 / transport hiccup) up to
+        max_retries with exponential backoff + jitter; raises _TriconThrottled if still
+        throttled after the last try (caller counts it as a throttle-drop, NOT a null
+        quote). Returns a float on success, or None ONLY when the host served a genuine,
+        non-throttled quote sheet with no 12-month line. Shared by both apply-url forms."""
         if not (uid and pid):
             return None
         try:
@@ -1079,25 +1158,32 @@ class PageFetcher:
             print(f"      [tricon_12mo] curl_cffi unavailable: {e}", file=sys.stderr)
             return None
         quote_url = f"{host}/onlineleasing/rcLoadContent.ashx"
-        try:
-            async with AsyncSession(impersonate="chrome", timeout=30) as s:
-                await s.get(bootstrap_url)                   # bootstrap CF + app session cookies
-                for movein in movein_dates:
-                    r = await s.get(quote_url, params={
-                        "contentclass": "olequotesheet", "MoveinDate": movein,
-                        "sLeaseTerm": "12", "UnitId": uid, "PropertyId": pid,
-                    }, headers={"X-Requested-With": "XMLHttpRequest", "Referer": bootstrap_url})
-                    price = self._tricon_parse_12mo_quote(r.text)
-                    if price is not None:
-                        return price
-        except Exception as e:
-            print(f"      [tricon_12mo] quote failed for unit {uid}: {e}", file=sys.stderr)
-            return None
-        return None
+        attempts = max(1, int(max_retries))
+        base_delay = max(0.0, delay_ms / 1000.0)
+        last: Optional[_TriconThrottled] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return await self._tricon_quote_once(
+                    AsyncSession, bootstrap_url, quote_url, uid, pid, movein_dates)
+            except _TriconThrottled as e:
+                last = e
+                if attempt < attempts:
+                    # exp backoff seeded on the polite per-unit delay, capped ~8s, + jitter
+                    backoff = min(base_delay * (2 ** attempt), 8.0) or 2.0 * attempt
+                    wait = backoff + random.uniform(0, backoff * 0.5)
+                    print(f"      [tricon_12mo] unit {uid} throttled "
+                          f"(attempt {attempt}/{attempts}), backing off {wait:.1f}s: {e}",
+                          file=sys.stderr)
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+        raise last                                           # unreachable; satisfies type-checkers
 
-    async def _tricon_fetch_12mo(self, apply_url: str, movein_dates: list[str]) -> Optional[float]:
+    async def _tricon_fetch_12mo(self, apply_url: str, movein_dates: list[str], *,
+                                 max_retries: int = 3, delay_ms: int = 300) -> Optional[float]:
         """12-month rent for a unit whose apply_url is the UNIT-LEVEL application page
-        (oleapplication.aspx?...&UnitID=...). Parses UnitID/PropertyId straight from the URL."""
+        (oleapplication.aspx?...&UnitID=...). Parses UnitID/PropertyId straight from the URL.
+        Propagates _TriconThrottled (does not swallow) so throttles are counted, not saved."""
         if not apply_url:
             return None
         q = dict(parse_qsl(urlsplit(apply_url).query))
@@ -1105,23 +1191,48 @@ class PageFetcher:
         if not (uid and pid):
             return None
         host = f"https://{urlsplit(apply_url).netloc}"
-        return await self._tricon_quote(apply_url, host, uid, pid, movein_dates)
+        return await self._tricon_quote(apply_url, host, uid, pid, movein_dates,
+                                        max_retries=max_retries, delay_ms=delay_ms)
 
-    async def _tricon_discover_unit_ids(self, availableunits_url: str) -> dict[str, str]:
+    async def _tricon_discover_unit_ids(self, availableunits_url: str, *,
+                                        max_retries: int = 3, delay_ms: int = 300) -> dict[str, str]:
         """Some properties (e.g. The Taylor) expose a FLOOR-PLAN listing page
         (availableunits.aspx?...&floorPlans=...) instead of unit-level apply links — it has
         no UnitID in the URL. Open it and read each row to map unit_code -> UnitID:
             <tr ... id='unitrow_<UnitID>' ...> ... data-label='Apartment'>#<unit_code> ...
-        Returns {} on any failure (caller treats those units as 'missing')."""
+        A throttle/challenge (CF or 4xx/5xx) is retried with backoff before giving up;
+        returns {} on persistent failure (caller treats those units as 'missing', which the
+        comps min-success guard then catches as a throttle rather than saving null rents)."""
         try:
             from curl_cffi.requests import AsyncSession
-            async with AsyncSession(impersonate="chrome", timeout=30) as s:
-                html = (await s.get(availableunits_url)).text
         except Exception as e:
-            print(f"      [tricon_12mo] availableunits fetch failed: {e}", file=sys.stderr)
+            print(f"      [tricon_12mo] curl_cffi unavailable: {e}", file=sys.stderr)
             return {}
+        attempts = max(1, int(max_retries))
+        base_delay = max(0.0, delay_ms / 1000.0)
+        html = None
+        for attempt in range(1, attempts + 1):
+            try:
+                async with AsyncSession(impersonate="chrome", timeout=30) as s:
+                    resp = await s.get(availableunits_url)
+                if _tricon_is_throttled(getattr(resp, "status_code", None), getattr(resp, "text", "")):
+                    raise _TriconThrottled(
+                        f"availableunits throttled (status {getattr(resp, 'status_code', '?')})")
+                html = resp.text
+                break
+            except Exception as e:                           # throttle OR transport hiccup -> retry
+                if attempt < attempts:
+                    backoff = min(base_delay * (2 ** attempt), 8.0) or 2.0 * attempt
+                    wait = backoff + random.uniform(0, backoff * 0.5)
+                    print(f"      [tricon_12mo] availableunits throttled "
+                          f"(attempt {attempt}/{attempts}), backing off {wait:.1f}s: {e}",
+                          file=sys.stderr)
+                    await asyncio.sleep(wait)
+                    continue
+                print(f"      [tricon_12mo] availableunits fetch failed: {e}", file=sys.stderr)
+                return {}
         out: dict[str, str] = {}
-        for m in re.finditer(r"id='unitrow_(\d+)'.*?data-label='Apartment'>#?(\w+)", html, re.S):
+        for m in re.finditer(r"id='unitrow_(\d+)'.*?data-label='Apartment'>#?(\w+)", html or "", re.S):
             out[m.group(2)] = m.group(1)        # unit_code -> UnitID
         return out
 
@@ -1151,7 +1262,22 @@ class PageFetcher:
         units = [u for u in (payload.get("units") or [])
                  if (u.get("status") or "") in self._TRICON_PUBLIC_STATUSES]
         today = date.today()
-        sem = asyncio.Semaphore(2)          # politeness: ~2 concurrent LRO sessions
+
+        # Pacing is CONFIG-DRIVEN so it can be tuned from the DB scrape_config with NO
+        # rebuild of the frozen agent (the code paths above are baked into the binary; only
+        # these knobs move at runtime). Defaults stay conservative — the whole point is to
+        # avoid the burst that tripped Cloudflare in the first place.
+        def _cfg_int(key, default):
+            try:
+                return max(0, int(config.get(key, default)))
+            except (TypeError, ValueError):
+                return default
+
+        lro_concurrency = max(1, _cfg_int("lro_concurrency", 2))   # concurrent LRO sessions
+        lro_delay_ms = _cfg_int("lro_delay_ms", 300)               # polite per-unit base delay
+        lro_max_retries = max(1, _cfg_int("lro_max_retries", 3))   # per-unit throttle retries
+        sem = asyncio.Semaphore(lro_concurrency)
+        base_delay = lro_delay_ms / 1000.0
 
         # Some properties expose floor-plan listing pages (availableunits.aspx, no UnitID in
         # the URL) instead of unit-level apply links. For those, fetch each listing page ONCE
@@ -1161,30 +1287,46 @@ class PageFetcher:
                       and "UnitID=" not in u["apply_url"]}
         code_to_uid: dict[str, dict[str, str]] = {}
         for au in avail_urls:
-            code_to_uid[au] = await self._tricon_discover_unit_ids(au)
+            code_to_uid[au] = await self._tricon_discover_unit_ids(
+                au, max_retries=lro_max_retries, delay_ms=lro_delay_ms)
 
         async def _one(u):
             async with sem:
                 if should_cancel():
-                    return u, None
-                await asyncio.sleep(0.3)
+                    return u, None, False
+                await asyncio.sleep(base_delay + random.uniform(0, base_delay * 0.5))  # jittered
                 au = u.get("apply_url") or ""
                 movein = self._tricon_movein_candidates(u, today)
-                if "UnitID=" in au:                         # unit-level apply link (e.g. The Ivy)
-                    r12 = await self._tricon_fetch_12mo(au, movein)
-                elif "availableunits.aspx" in au:           # floor-plan listing (e.g. The Taylor)
-                    uid = (code_to_uid.get(au) or {}).get(str(u.get("unit_code")))
-                    q = dict(parse_qsl(urlsplit(au).query))
-                    pid = q.get("myOlePropertyId") or q.get("myOlePropertyid")
-                    host = f"https://{urlsplit(au).netloc}"
-                    r12 = await self._tricon_quote(au, host, uid, pid, movein) if (uid and pid) else None
-                else:
-                    r12 = None
-                return u, r12
+                try:
+                    if "UnitID=" in au:                     # unit-level apply link (e.g. The Ivy)
+                        r12 = await self._tricon_fetch_12mo(
+                            au, movein, max_retries=lro_max_retries, delay_ms=lro_delay_ms)
+                    elif "availableunits.aspx" in au:       # floor-plan listing (e.g. The Taylor)
+                        uid = (code_to_uid.get(au) or {}).get(str(u.get("unit_code")))
+                        q = dict(parse_qsl(urlsplit(au).query))
+                        pid = q.get("myOlePropertyId") or q.get("myOlePropertyid")
+                        host = f"https://{urlsplit(au).netloc}"
+                        r12 = (await self._tricon_quote(au, host, uid, pid, movein,
+                                                        max_retries=lro_max_retries,
+                                                        delay_ms=lro_delay_ms)
+                               if (uid and pid) else None)
+                    else:
+                        r12 = None
+                    return u, r12, False
+                except _TriconThrottled as e:
+                    # Retries exhausted for this unit — it's a throttle-drop, NOT a genuine
+                    # null quote. Tally it separately so the caller (and the comps guard)
+                    # can tell partial-throttle apart from real 'no 12mo quote'.
+                    print(f"      [tricon_12mo] unit {u.get('unit_code')} dropped (throttled): {e}",
+                          file=sys.stderr)
+                    return u, None, True
 
         results = await asyncio.gather(*[_one(u) for u in units])
         rows = []
-        for u, r12 in results:
+        throttled = 0
+        for u, r12, was_throttled in results:
+            if was_throttled:
+                throttled += 1
             try:
                 low = float(u.get("min_rent")) if u.get("min_rent") is not None else None
             except (TypeError, ValueError):
@@ -1202,7 +1344,12 @@ class PageFetcher:
                 "source": "lro_12mo" if r12 is not None else "missing",
             })
         got = sum(1 for r in rows if r["rent_12mo"] is not None)
-        print(f"      [tricon_12mo] {got}/{len(rows)} units returned a 12-month quote")
+        total = len(rows)
+        no_quote = total - got - throttled          # genuine 'no 12mo line' (non-throttled)
+        success_rate = (got / total) if total else 1.0
+        print(f"      [tricon_12mo] {got}/{total} units returned a 12-month quote "
+              f"(throttled_dropped={throttled}, no_quote={no_quote}, "
+              f"success_rate={success_rate:.0%})")
         return rows
 
     async def _fetch_static(self, url: str) -> str:
