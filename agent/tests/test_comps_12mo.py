@@ -1,6 +1,8 @@
 """pricing_basis=12mo: Tricon comps scrape uses the 12-month lease rent as rent_price,
 flowing through the NORMAL comps result (task stays comps_scrape). Non-flagged path
 is unchanged (still calls the shared pipeline)."""
+import pytest
+
 from handlers import comps
 
 SAMPLE_ROWS = [
@@ -63,8 +65,10 @@ def test_handler_12mo_flag_fetches_tricon_not_pipeline(monkeypatch):
     monkeypatch.setattr(comps, "scrape_to_result", _boom)
 
     handle = comps.make_comps_handler("https://hub", "tok", True)
+    # lro_min_success=0 keeps THIS routing test focused on routing (SAMPLE_ROWS is 2/3
+    # quoted, which would otherwise trip the min-success guard exercised below).
     res = handle({"url": "https://triconliving.com/apartment/the-taylor", "name": "The Taylor",
-                  "config": {"pricing_basis": "12mo"}}, _Ctx())
+                  "config": {"pricing_basis": "12mo", "lro_min_success": 0}}, _Ctx())
     assert len(res["units"]) == 2
     assert res["units"][0]["rent_price"] == 2400.0        # 12-month rent in the normal result
     assert res["incentives"] is None and res["raw_content"] is None and res["qa"] is None
@@ -85,6 +89,76 @@ def test_handler_12mo_flag_bad_building_fails_loud(monkeypatch):
     with pytest.raises(RuntimeError, match="Tricon"):
         handle({"url": "https://example.com/x", "name": "Not Tricon",
                 "config": {"pricing_basis": "12mo"}}, _Ctx())
+
+
+def _make_rows(quoted, total):
+    """`total` whitelisted rows, the first `quoted` of them with a real 12-month rent and
+    the rest throttled out (rent_12mo=None). All rows keep a unit_type (throttling nulls
+    the rent, not the taxonomy)."""
+    rows = []
+    for i in range(total):
+        has = i < quoted
+        rows.append({
+            "unit_code": str(100 + i), "unit_type": "1-bed", "beds": 1, "baths": 1,
+            "sqft": 650, "floor": "1", "status": "Available",
+            "lowest_term_rent": 2100.0,
+            "rent_12mo": 2400.0 if has else None,
+            "gap": 300.0 if has else None, "gap_pct": 14.3 if has else None,
+            "source": "lro_12mo" if has else "missing",
+        })
+    return rows
+
+
+def _run_12mo_with_rows(monkeypatch, rows, config):
+    class StubFetcher:
+        def __init__(self, *a, **k):
+            pass
+
+        async def fetch_tricon_12mo(self, url, cfg, should_cancel=None):
+            return rows
+
+        @staticmethod
+        def _tricon_derive_slug(url, cfg):
+            return "the-ivy"
+
+    monkeypatch.setattr(comps, "PageFetcher", StubFetcher)
+    monkeypatch.setattr(comps, "scrape_to_result",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("wrong path")))
+    handle = comps.make_comps_handler("https://hub", "tok", True)
+    payload = {"url": "https://triconliving.com/apartment/the-ivy", "name": "The Ivy",
+               "config": {"pricing_basis": "12mo", **config}}
+    return handle(payload, _Ctx())
+
+
+def test_min_success_guard_raises_transient_on_mostly_null(monkeypatch):
+    # The 2026-07-27 failure: Ivy came back 4/15 quoted (throttle). The guard must RAISE
+    # (not return units) so the snapshot is requeued, not saved over the prior good week.
+    from retry import is_transient
+    rows = _make_rows(quoted=4, total=15)          # 27% << default 0.7
+    with pytest.raises(RuntimeError) as ei:
+        _run_12mo_with_rows(monkeypatch, rows, {})
+    assert "4/15" in str(ei.value)
+    assert is_transient(ei.value)                  # runtime._handle -> requeue, not fatal
+
+
+def test_min_success_guard_passes_when_above_threshold(monkeypatch):
+    # 14/15 quoted (93%) is above 0.7 -> normal save (does NOT raise). Units flow through
+    # unchanged (mapping keeps the one still-null row, same as the standard Tricon path).
+    rows = _make_rows(quoted=14, total=15)
+    res = _run_12mo_with_rows(monkeypatch, rows, {})
+    assert len(res["units"]) == 15
+    assert sum(1 for u in res["units"] if u["rent_price"] is not None) == 14
+
+
+def test_min_success_guard_is_config_tunable(monkeypatch):
+    # A stricter DB-configured threshold trips where the default would pass.
+    from retry import is_transient
+    rows = _make_rows(quoted=8, total=10)          # 80%
+    res = _run_12mo_with_rows(monkeypatch, rows, {"lro_min_success": 0.7})
+    assert len(res["units"]) == 10                 # 0.80 >= 0.70 -> saved (not raised)
+    with pytest.raises(RuntimeError) as ei:
+        _run_12mo_with_rows(monkeypatch, rows, {"lro_min_success": 0.9})   # 0.80 < 0.90 -> raise
+    assert is_transient(ei.value)
 
 
 def test_handler_no_flag_uses_standard_pipeline(monkeypatch):
