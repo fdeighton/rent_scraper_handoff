@@ -1,8 +1,8 @@
 """
 Single source of truth for the per-building scrape pipeline.
 
-fetch -> vision enrichment (floorplan sqft) -> block/challenge guard -> extract
--> validate -> 0-units retry. Everything EXCEPT persistence (DB) and QA.
+fetch -> vision enrichment (floorplan sqft) -> caller content enrichment -> block/challenge
+guard -> extract -> validate -> 0-units retry. Everything EXCEPT persistence (DB) and QA.
 
 Called by ALL three runners so scrape behaviour can never drift between them:
   * code/main.py            (seed batch scraper)
@@ -63,6 +63,7 @@ async def scrape_to_result(
     fetcher,
     should_cancel=None,
     on_progress=None,
+    enrich_content=None,
 ) -> dict:
     """Run the full scrape pipeline for one building. Returns:
         {ok, blocked, error, incentives, units, raw_content, fetched_chars}
@@ -108,6 +109,24 @@ async def scrape_to_result(
                     html = ref + html
         except Exception as e:
             print(f"    Vision enrichment failed (continuing without sqft): {e}")
+
+    # 2b. Caller-supplied content enrichment (optional) ------------------------
+    # A hook, not a strategy: the caller may return an ANNOTATED copy of the captured text
+    # before it goes to the extractor. Used by the agent for Le George's floorplan sqft
+    # (agent/floorplan_sqft.enrich), which needs hub credentials the pipeline has no
+    # business holding. Guarded and falsy-checked so a hook that throws or returns nothing
+    # leaves the scrape exactly as it was.
+    if enrich_content:
+        ck("before-enrich")
+        progress(40, "reading floorplan areas")
+        try:
+            enriched = enrich_content(html)
+            if enriched:
+                html = enriched
+        except ScrapeCancelled:
+            raise
+        except Exception as e:
+            print(f"    Content enrichment failed (continuing without it): {e}")
 
     # 3. Block / challenge-page guard -----------------------------------------
     if _looks_blocked(html):

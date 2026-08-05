@@ -60,6 +60,34 @@ def _clean_config(config: dict) -> dict:
     return {k: v for k, v in (config or {}).items() if v is not None}
 
 
+async def _run_pre_capture_js(page, config: dict) -> None:
+    """Run `pre_capture_js`, then each `pre_capture_js_extra` snippet, in order.
+
+    SEPARATE evaluates on purpose. These snippets are async IIFEs and page.evaluate awaits
+    the value the source evaluates to — so concatenating them into one call (`A; B`) would
+    only await B, starting it before A's scroll-to-stable had finished. One evaluate per
+    snippet is what actually sequences them.
+
+    `pre_capture_js_extra` is for a snippet the AGENT injects in code (see
+    agent/floorplan_sqft.with_harvest_js) rather than one stored in a recipe: it lets a
+    building's own pre_capture_js stay untouched while something runs right after it.
+    Never fatal — a broken snippet degrades the capture, it does not fail the scrape."""
+    snippets = []
+    if config.get("pre_capture_js"):
+        snippets.append(("Pre-capture JS", config["pre_capture_js"]))
+    extra = config.get("pre_capture_js_extra")
+    if extra:
+        for i, src in enumerate(extra if isinstance(extra, list) else [extra]):
+            if src:
+                snippets.append((f"Pre-capture JS extra[{i}]", src))
+    for label, src in snippets:
+        try:
+            await page.evaluate(src)
+            print(f"      {label} executed")
+        except Exception as e:
+            print(f"      {label} failed: {e}")
+
+
 # --- Tricon LRO throttle detection -------------------------------------------
 # The 12-month quote path (fetch_tricon_12mo) fires a per-unit RentCafe LRO GET for
 # every unit of every Tricon building in one short batch window. That burst can trip
@@ -2054,13 +2082,7 @@ class PageFetcher:
                     # Step 7.5: Run custom pre-capture JavaScript (optional)
                     # Useful for injecting hidden data (e.g., data attributes) as visible text
                     # before the content capture step picks it up.
-                    pre_capture_js = config.get("pre_capture_js")
-                    if pre_capture_js:
-                        try:
-                            await page.evaluate(pre_capture_js)
-                            print(f"      Pre-capture JS executed")
-                        except Exception as e:
-                            print(f"      Pre-capture JS failed: {e}")
+                    await _run_pre_capture_js(page, config)
 
                     # Populate fetch meta for QA
                     self._last_fetch_meta = {
@@ -2625,13 +2647,7 @@ class PageFetcher:
                         print(f"      [5/6] Auto Load More disabled in config")
 
                     # Step 5.5: Run custom pre-capture JavaScript (optional)
-                    pre_capture_js = config.get("pre_capture_js")
-                    if pre_capture_js:
-                        try:
-                            await page.evaluate(pre_capture_js)
-                            print(f"      Pre-capture JS executed")
-                        except Exception as e:
-                            print(f"      Pre-capture JS failed: {e}")
+                    await _run_pre_capture_js(page, config)
 
                     # Capture page context before modals (has bedroom counts, plan names, etc.)
                     # This gives Claude the unit type info that modals often lack.

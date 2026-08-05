@@ -266,7 +266,8 @@ async def run_tricon_12mo(url: str, name: str, rid: str = "", should_cancel=None
 # Config keys that execute code or trigger unvalidated outbound fetches. These are
 # accepted ONLY from trusted code/sites/*.json — never from the request body. The
 # legitimate frontend only ever sends strategy / initial_wait_ms / scroll.
-_REQUEST_CONFIG_BLOCKLIST = ("pre_capture_js", "additional_urls", "dynamic_additional_urls_selector")
+_REQUEST_CONFIG_BLOCKLIST = ("pre_capture_js", "pre_capture_js_extra", "additional_urls",
+                             "dynamic_additional_urls_selector")
 
 
 def _allowed_origin(origin):
