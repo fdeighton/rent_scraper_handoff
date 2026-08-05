@@ -14,9 +14,19 @@ HOW. Two halves, both gated:
      551KB), so this is a DOM read — no per-card navigation, no second page load.
   2. RESOLVE (here) — parse those lines, DEDUPE BY FLOORPLAN TYPE (the `Type###` segment
      of the filename; 4 sheets are shared, so 39 units cost 34 calls), fetch each sheet once,
-     downscale with qa.downscale_jpeg, POST to the hub's /api/comp-scrape/floorplan-sqft
-     (same auth + body shape as /qa), then fan the per-type area back out to every unit of
-     that type as `UNIT <n> AREA <sqft> pi2` lines appended to the text sent to /extract.
+     downscale with qa.downscale_jpeg, read the area off it, then fan the per-type area back
+     out to every unit of that type as `UNIT <n> AREA <sqft> pi2` lines appended to the text
+     sent to /extract.
+
+TWO READERS, chosen automatically by pick_reader():
+  * read_sqft_local — DEFAULT here. Calls Claude with this repo's own
+    ANTHROPIC_API_KEY_RENT_COMPS, exactly as code/extractor.py already does (it has its own
+    vision-sqft method). Nothing to deploy, one repo, and the area is available the moment
+    the agent restarts.
+  * read_sqft — the keyless path: POST the image to the hub's /api/comp-scrape/floorplan-sqft
+    (same auth + body shape as /qa) and let the server hold the key. Used when this machine
+    has no key, e.g. a frozen bundle paired via agent/pairing.py.
+Both take the same arguments, so either can be handed to resolve_areas(reader=...).
 
 BEST-EFFORT, ALWAYS. Every failure path here returns the content unchanged. A dead image
 host, a 500 from the hub, an illegible sheet — none of it may fail the job or drop a unit.
@@ -37,6 +47,7 @@ The hub enforces a single-building allowlist, so `building_name` must be exactly
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import re
@@ -174,9 +185,8 @@ def floorplan_type(url: str) -> str:
 
 
 def _clean_sqft(raw) -> str | None:
-    """The hub returns strings; "" means illegible, which is a final answer. Anything that
-    is not a plausible suite area is dropped (a balcony number or a misread), never
-    replaced with a guess."""
+    """"" means illegible, which is a final answer. Anything that is not a plausible suite
+    area is dropped (a balcony number or a misread), never replaced with a guess."""
     if raw in (None, ""):
         return None
     m = _DIGITS_RE.search(str(raw))
@@ -190,6 +200,110 @@ def _clean_sqft(raw) -> str | None:
         log.warning("floorplan sqft %r out of plausible range — ignoring", raw)
         return None
     return str(n)
+
+
+# ── local vision read (this repo's own key) ─────────────────────────────────────────
+# The engine under code/ already calls Claude directly with ANTHROPIC_API_KEY_RENT_COMPS
+# (extractor.ContentExtractor, including its own vision-sqft method), so reading a sheet
+# here is the same posture as a local main.py / local_server run — no hub round-trip, no
+# deploy, nothing to keep in sync across two repos. The hub route stays available as the
+# keyless path for a machine that has no key (see read_sqft / pick_reader).
+_VISION_SYSTEM = (
+    "You read residential floorplan sheets for a rental-comps tool and report only what is "
+    "printed. These are Quebec (Montreal) sheets: areas are in pi2 (square feet) and unit "
+    "sizes are often given in pieces/pieces, which are NOT bedrooms. Report the SUITE area "
+    "only -- sheets also print BALCON, terrace, patio and locker areas, and those must never "
+    "be reported as the suite area. If a value is not clearly legible return an empty "
+    "string. Never estimate, infer from the drawing scale, or guess: an empty string is the "
+    "correct answer for anything you cannot read, and a wrong number is far worse than no "
+    "number."
+)
+_VISION_USER = (
+    "Building: {building}\nUnit: {unit}\n"
+    "This is the floorplan sheet for that unit. Reply with ONLY a JSON object, no prose:\n"
+    '{{"square_footage": "<suite area in sq ft, digits only, e.g. 513>", '
+    '"bedrooms": "<count; if the sheet gives pieces, convert 1.5/2.5=0, 3.5=1, 4.5=2, '
+    '5.5=3, 6.5=4>", "bathrooms": "<count, e.g. 1 or 1.5>"}}\n'
+    "Use an empty string for anything not legible. Ignore any BALCON / balcony / terrace area."
+)
+# Correctness tier, not the cheap tier: a misread area is not a visible failure, it is a
+# plausible wrong number that flows into rent_psf and the comp rollup. Overridable because
+# model availability differs per key.
+DEFAULT_VISION_MODEL = "claude-opus-4-8"
+
+
+def local_api_key() -> str | None:
+    """This repo's comps key, same accessor order as code/config.py and code/worker.py."""
+    return (os.environ.get("ANTHROPIC_API_KEY_RENT_COMPS")
+            or os.environ.get("ANTHROPIC_API_KEY") or None)
+
+
+def vision_model() -> str:
+    return os.environ.get("FLOORPLAN_SQFT_MODEL") or DEFAULT_VISION_MODEL
+
+
+def read_sqft_local(hub_base: str, token: str, url: str, unit: str,
+                    building_name: str = ALLOWED_BUILDING,
+                    client: httpx.Client | None = None) -> str | None:
+    """Fetch one sheet and read its area with THIS machine's key. Signature matches
+    read_sqft so either can be handed to resolve_areas(reader=...). None on any problem —
+    hub_base/token are accepted and ignored so the two are interchangeable."""
+    import anthropic     # already a dependency of the engine (code/requirements.txt)
+
+    key = local_api_key()
+    if not key:
+        return None
+    owns_client = client is None
+    client = client or httpx.Client(timeout=IMAGE_TIMEOUT, follow_redirects=True)
+    try:
+        r = client.get(url, timeout=IMAGE_TIMEOUT)
+        if r.status_code != 200:
+            log.warning("floorplan image %s: HTTP %s", url[:120], r.status_code)
+            return None
+        raw = r.content
+        if not raw or len(raw) > MAX_IMAGE_BYTES:
+            log.warning("floorplan image %s: implausible size %d bytes", url[:120], len(raw or b""))
+            return None
+
+        jpg = downscale_jpeg(raw)      # same downscale the /qa path uses
+        resp = anthropic.Anthropic(api_key=key).messages.create(
+            model=vision_model(),
+            max_tokens=400,
+            system=_VISION_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.b64encode(jpg).decode("ascii")}},
+                    {"type": "text",
+                     "text": _VISION_USER.format(building=building_name, unit=unit)},
+                ],
+            }],
+        )
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        # Tolerate a fenced or prose-wrapped object rather than failing the unit.
+        m = re.search(r"\{.*\}", text, re.S)
+        if not m:
+            log.warning("floorplan sqft: unit %s returned no JSON object", unit)
+            return None
+        return _clean_sqft(json.loads(m.group(0)).get("square_footage"))
+    except Exception as e:      # noqa: BLE001 — best-effort by contract; never propagate
+        log.warning("floorplan sqft skipped for unit %s (best-effort): %s", unit, e)
+        return None
+    finally:
+        if owns_client:
+            client.close()
+
+
+def pick_reader():
+    """Local key -> read it here (no deploy, no hub round-trip). No key -> the hub route,
+    which is the keyless path for a machine that has none. Logged either way so a surprise
+    is visible in the scrape output rather than inferred from the bill."""
+    if local_api_key():
+        log.info("floorplan sqft: reading locally with this repo's key (model=%s)", vision_model())
+        return read_sqft_local
+    log.info("floorplan sqft: no local key — using the hub /floorplan-sqft route")
+    return read_sqft
 
 
 def _hub_headers(token: str) -> dict:
@@ -243,9 +357,10 @@ def read_sqft(hub_base: str, token: str, url: str, unit: str,
 
 def resolve_areas(hub_base: str, token: str, pairs: list[tuple[str, str]],
                   building_name: str = ALLOWED_BUILDING,
-                  reader=read_sqft) -> tuple[dict[str, str], dict[str, int]]:
+                  reader=None) -> tuple[dict[str, str], dict[str, int]]:
     """[(unit, url)] -> ({unit: sqft}, stats). One call per unique floorplan type, at most
     MAX_WORKERS in flight, result cached per type and fanned back out to every unit of it."""
+    reader = reader or pick_reader()
     by_type: dict[str, list[tuple[str, str]]] = {}
     for unit, url in pairs:
         by_type.setdefault(floorplan_type(url), []).append((unit, url))
@@ -286,7 +401,7 @@ def annotate(content: str, areas: dict[str, str]) -> str:
 
 
 def enrich(content: str, *, hub_base: str, token: str,
-           building_name: str = ALLOWED_BUILDING, reader=read_sqft) -> str:
+           building_name: str = ALLOWED_BUILDING, reader=None) -> str:
     """The whole path, non-fatal end to end: harvest lines -> per-type vision -> UNIT/AREA
     lines. Returns content unchanged on any failure, so the 39 units / 39 prices this
     building already returns can only ever gain a square_footage, never lose a row."""
@@ -296,8 +411,11 @@ def enrich(content: str, *, hub_base: str, token: str,
             log.warning("floorplan sqft: no UNITIMG lines in captured content — "
                         "harvest JS did not run or the grid selector moved")
             return content
-        if not (hub_base and token):
-            log.warning("floorplan sqft: hub base/token missing — skipping")
+        reader = reader or pick_reader()
+        # Credentials matter only for the HUB reader; the local one needs the Anthropic key
+        # (already checked by pick_reader), not a hub base/token.
+        if reader is read_sqft and not (hub_base and token):
+            log.warning("floorplan sqft: no local key and no hub base/token — skipping")
             return content
 
         areas, stats = resolve_areas(hub_base, token, pairs, building_name, reader=reader)

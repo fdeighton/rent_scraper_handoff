@@ -1,9 +1,9 @@
 """Floorplan-sqft enrichment (agent/floorplan_sqft.py) — Le George only.
 
-The endpoint is not deployed yet, so the hub call is mocked. What these lock down is
-everything that does NOT depend on the hub: the gate, the type-dedupe/fan-out, the "" ->
-no-area rule, and the guarantee that a failure anywhere leaves the content (and therefore
-the 39 units / 39 prices Le George already returns) untouched.
+Both readers are mocked (no model call, no hub call). What these lock down is the gate, the
+reader choice, the type-dedupe/fan-out, the "" -> no-area rule, and the guarantee that a
+failure anywhere leaves the content (and therefore the 39 units / 39 prices Le George
+already returns) untouched.
 
 Fixtures use the REAL asset URLs and the real 39-unit shape observed live, including the
 four shared sheets (type9-2 is 709/809/1009), so the dedupe arithmetic is the actual one.
@@ -274,12 +274,124 @@ def test_enrich_never_raises_and_never_loses_content():
     assert out.count("$") == CONTENT.count("$")
 
 
-def test_enrich_no_op_without_harvest_lines_or_credentials():
+def test_enrich_no_op_without_harvest_lines():
     plain = "Available\n316\n$1,800\n"
     assert fp.enrich(plain, hub_base="https://hub", token="tok") == plain
 
-    def reader(*a, **k):
-        raise AssertionError("must not call the hub without credentials")
 
-    assert fp.enrich(CONTENT, hub_base="", token="tok", reader=reader) == CONTENT
-    assert fp.enrich(CONTENT, hub_base="https://hub", token="", reader=reader) == CONTENT
+def test_enrich_skips_when_there_is_no_key_and_no_hub(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY_RENT_COMPS", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # pick_reader falls back to the hub reader, which has nothing to talk to.
+    assert fp.enrich(CONTENT, hub_base="", token="tok") == CONTENT
+    assert fp.enrich(CONTENT, hub_base="https://hub", token="") == CONTENT
+
+
+# -- reader choice -------------------------------------------------------------
+def test_pick_reader_prefers_the_local_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY_RENT_COMPS", "sk-local")
+    assert fp.pick_reader() is fp.read_sqft_local
+    # Falls back to ANTHROPIC_API_KEY, same order as code/config.py.
+    monkeypatch.delenv("ANTHROPIC_API_KEY_RENT_COMPS")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-generic")
+    assert fp.pick_reader() is fp.read_sqft_local
+
+
+def test_pick_reader_falls_back_to_the_hub_without_a_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY_RENT_COMPS", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert fp.pick_reader() is fp.read_sqft
+
+
+def test_vision_model_is_overridable(monkeypatch):
+    monkeypatch.delenv("FLOORPLAN_SQFT_MODEL", raising=False)
+    assert fp.vision_model() == fp.DEFAULT_VISION_MODEL
+    monkeypatch.setenv("FLOORPLAN_SQFT_MODEL", "claude-haiku-4-5")
+    assert fp.vision_model() == "claude-haiku-4-5"
+
+
+# -- local reader --------------------------------------------------------------
+def _fake_anthropic(monkeypatch, reply: str, capture: dict | None = None):
+    """Stub the anthropic SDK module the local reader imports lazily."""
+    import sys, types
+
+    class Block:
+        type = "text"
+
+        def __init__(self, text):
+            self.text = text
+
+    class Messages:
+        def create(self, **kw):
+            if capture is not None:
+                capture.update(kw)
+            return types.SimpleNamespace(content=[Block(reply)])
+
+    class Client:
+        def __init__(self, api_key=None):
+            self.messages = Messages()
+
+    mod = types.ModuleType("anthropic")
+    mod.Anthropic = Client
+    monkeypatch.setitem(sys.modules, "anthropic", mod)
+
+
+def _fake_image_client(monkeypatch, status=200):
+    class R:
+        status_code = status
+        content = _jpeg()
+
+    class C:
+        def get(self, url, **kw):
+            return R()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(fp.httpx, "Client", lambda *a, **k: C())
+
+
+def test_read_sqft_local_reads_the_area(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY_RENT_COMPS", "sk-local")
+    cap = {}
+    _fake_anthropic(monkeypatch, '{"square_footage": "513", "bedrooms": "1", "bathrooms": "1"}', cap)
+    _fake_image_client(monkeypatch)
+
+    assert fp.read_sqft_local("", "", f"{BUCKET}/a_Type316_x.jpg", "316") == "513"
+
+    # The image goes as base64 jpeg, and the prompt names the unit + the BALCON rule.
+    img = cap["messages"][0]["content"][0]
+    assert img["source"]["media_type"] == "image/jpeg" and img["source"]["data"]
+    assert "Unit: 316" in cap["messages"][0]["content"][1]["text"]
+    assert "BALCON" in cap["system"]
+
+
+def test_read_sqft_local_tolerates_a_fenced_or_chatty_reply(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY_RENT_COMPS", "sk-local")
+    _fake_anthropic(monkeypatch, 'Sure!\n```json\n{"square_footage": "742"}\n```')
+    _fake_image_client(monkeypatch)
+    assert fp.read_sqft_local("", "", "https://x/a_Type1_.jpg", "1") == "742"
+
+
+def test_read_sqft_local_returns_none_on_illegible_and_junk(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY_RENT_COMPS", "sk-local")
+    _fake_image_client(monkeypatch)
+
+    for reply in ('{"square_footage": ""}',        # illegible — final answer
+                  '{"square_footage": "48"}',      # a balcony, not a suite
+                  'no json here at all'):          # unparseable
+        _fake_anthropic(monkeypatch, reply)
+        assert fp.read_sqft_local("", "", "https://x/a_Type1_.jpg", "1") is None
+
+
+def test_read_sqft_local_needs_a_key(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY_RENT_COMPS", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert fp.read_sqft_local("", "", "https://x/a_Type1_.jpg", "1") is None
+
+
+def test_read_sqft_local_swallows_a_dead_image_host(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY_RENT_COMPS", "sk-local")
+    _fake_anthropic(monkeypatch, '{"square_footage": "500"}')
+    _fake_image_client(monkeypatch, status=404)
+    assert fp.read_sqft_local("", "", "https://x/a_Type1_.jpg", "1") is None
