@@ -164,8 +164,11 @@ def test_min_success_guard_is_config_tunable(monkeypatch):
 def test_handler_no_flag_uses_standard_pipeline(monkeypatch):
     called = {}
 
-    async def fake_scrape(url, name, cfg, extractor, fetcher=None, should_cancel=None, on_progress=None):
+    async def fake_scrape(url, name, cfg, extractor, fetcher=None, should_cancel=None,
+                          on_progress=None, **kw):
         called["ran"] = True
+        called["cfg"] = cfg
+        called["enrich"] = kw.get("enrich_content")
         return {"ok": True, "blocked": False, "incentives": None, "units": [],
                 "raw_content": "x", "fetched_chars": 1}
 
@@ -179,3 +182,40 @@ def test_handler_no_flag_uses_standard_pipeline(monkeypatch):
     res = handle({"url": "https://example.com", "name": "Normal Bldg", "config": {}}, _Ctx())
     assert called.get("ran") is True                       # standard pipeline was used
     assert res["units"] == [] and res["fetched_chars"] == 1
+    # Floorplan-sqft is Le George + flag only: an ordinary building gets no enrich hook and
+    # no injected JS, so its scrape is exactly what it was.
+    assert called["enrich"] is None
+    assert "pre_capture_js_extra" not in called["cfg"]
+
+
+def test_handler_wires_floorplan_sqft_for_le_george_only(monkeypatch):
+    """The gate, from the handler's side: same flag, two buildings."""
+    seen = {}
+
+    async def fake_scrape(url, name, cfg, extractor, fetcher=None, should_cancel=None,
+                          on_progress=None, **kw):
+        seen[name] = {"cfg": cfg, "enrich": kw.get("enrich_content")}
+        return {"ok": True, "blocked": False, "incentives": None, "units": [],
+                "raw_content": "x", "fetched_chars": 1}
+
+    class StubFetcher:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(comps, "PageFetcher", StubFetcher)
+    monkeypatch.setattr(comps, "scrape_to_result", fake_scrape)
+    handle = comps.make_comps_handler("https://hub", "tok", True)
+
+    cfg = {"sqft_from_floorplan": True, "pre_capture_js": "ORIGINAL"}
+    handle({"url": "https://x", "name": "Le George", "config": dict(cfg)}, _Ctx())
+    handle({"url": "https://y", "name": "Other Bldg", "config": dict(cfg)}, _Ctx())
+
+    lg = seen["Le George"]
+    assert callable(lg["enrich"])
+    assert lg["cfg"]["pre_capture_js"] == "ORIGINAL"          # untouched
+    assert "UNITIMG" in lg["cfg"]["pre_capture_js_extra"][0]  # harvest added alongside
+
+    # Same flag, wrong building: the hub allowlists Le George alone, so nothing is wired.
+    other = seen["Other Bldg"]
+    assert other["enrich"] is None
+    assert "pre_capture_js_extra" not in other["cfg"]

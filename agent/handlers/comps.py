@@ -35,6 +35,7 @@ from pipeline import scrape_to_result                  # noqa: E402  (shared scr
 from hub_extractor import HubExtractor                 # noqa: E402  (extraction runs on the hub)
 from retry import run_with_retry                       # noqa: E402  (transient backoff-retry)
 from qa import run_qa, pick_screenshot, site_claim_n   # noqa: E402  (keyless visual QA via hub /qa)
+import floorplan_sqft                                  # noqa: E402  (Le George sqft via hub vision)
 
 log = logging.getLogger("agent.comps")
 SITES_DIR = os.path.join(CODE_DIR, "sites")
@@ -178,6 +179,17 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
         # errors (404/page-not-found, credit balance, auth) fail loud immediately.
         held = {}
 
+        # Floorplan-sqft enrichment (Le George only). Double-gated in floorplan_sqft:
+        # cfg["sqft_from_floorplan"] must be true AND the name must be exactly "Le George"
+        # (the hub allowlists that one building and 403s anything else). When the gate is
+        # shut this is None and the pipeline is byte-for-byte what it was.
+        enrich = None
+        if floorplan_sqft.is_enabled(cfg, name):
+            cfg = floorplan_sqft.with_harvest_js(cfg)   # UNITIMG lines, same page load
+            enrich = lambda text: floorplan_sqft.enrich(   # noqa: E731
+                text, hub_base=hub_url, token=worker_token, building_name=name)
+            log.info("%s: floorplan-sqft enrichment enabled", name)
+
         def _scrape_once():
             fetcher = PageFetcher(headless=headless)   # fetch() opens + closes its own browser
             held["fetcher"] = fetcher                  # keep the winning fetcher for QA screenshots
@@ -185,6 +197,7 @@ def make_comps_handler(hub_url: str, worker_token: str, headless: bool = True):
                 url, name, cfg, extractor, fetcher=fetcher,
                 should_cancel=ctx.should_cancel,
                 on_progress=lambda pct, stage: ctx.progress(pct, stage),
+                enrich_content=enrich,
             ))
 
         def _on_retry(i, n, wait, err):
