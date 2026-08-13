@@ -2,6 +2,13 @@
 .env
 .env.local
 .env.*.local
+# Backup/copy variants: .env.bak was found untracked and NOT matched by the
+# rules above, so `git add -A` would have committed it in plaintext.
+.env.bak
+.env.*.bak
+.env.backup
+.env.orig
+.env.save
 # LOCAL-ONLY demo override (holds the service_role key) — never commit/deploy
 app/config.local.js
 
