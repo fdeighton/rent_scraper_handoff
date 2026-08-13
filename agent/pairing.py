@@ -37,6 +37,12 @@ KEY_TOKEN = "scrape_worker_token"
 KEY_AKEY = "anthropic_key"
 PAIR_TIMEOUT_SECONDS = 300
 
+# The one-time "we already opened the pairing page once" marker (see tray.py). Cleared by
+# reset_pairing() so a forced re-pair actually re-opens the browser. Kept here so both the
+# tray and the CLI recovery flag agree on its location.
+_STATE_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "FitzroviaAgent")
+FIRSTRUN_MARKER = os.path.join(_STATE_DIR, "pairing-prompted")
+
 _ENV_TOKEN_NAMES = ("SCRAPE_WORKER_TOKEN", "SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_ROLE_KEY")
 _ENV_AKEY_NAMES = ("ANTHROPIC_API_KEY_RENT_COMPS", "ANTHROPIC_API_KEY")
 
@@ -66,16 +72,21 @@ def _load(key: str) -> str | None:
         import keyring
         v = keyring.get_password(KEYRING_SERVICE, key)
         if v:
+            log.info("credential %r loaded from OS keychain", key)
             return v
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("keychain read failed for %r (%s) — trying file fallback", key, e)
     try:
         p = _file_path(key)
         if os.path.exists(p):
             with open(p, "r", encoding="utf-8") as f:
-                return f.read().strip() or None
-    except Exception:
-        pass
+                val = f.read().strip() or None
+            if val:
+                log.info("credential %r loaded from file fallback (%s)", key, p)
+                return val
+    except Exception as e:
+        log.warning("file read failed for %r (%s)", key, e)
+    log.info("credential %r not found (keychain + file both empty)", key)
     return None
 
 
@@ -107,6 +118,17 @@ def clear_credentials() -> None:
             os.remove(_file_path(key))
         except OSError:
             pass
+
+
+def reset_pairing() -> None:
+    """Full recovery: forget credentials AND clear the one-time first-run marker so the
+    next start re-opens the /authorize page. Use from `--reset` or the tray."""
+    clear_credentials()
+    try:
+        os.remove(FIRSTRUN_MARKER)
+    except OSError:
+        pass
+    log.info("pairing reset — credentials + first-run marker cleared")
 
 
 # --- loopback pairing ---------------------------------------------------------

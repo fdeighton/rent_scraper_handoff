@@ -2,16 +2,20 @@
 # Build the Fitzrovia Agent macOS app + .dmg.
 #
 #   cd agent
-#   ./build/build_macos.sh 0.1.0 "https://<ref>.supabase.co" "https://your-site/authorize.html"
+#   ./build/build_macos.sh 0.1.0 "https://<ref>.supabase.co" "https://your-site/authorize.html" "<anon_key>" ["https://hub..."]
 #
 # Produces: agent/dist/FitzroviaAgent.app  and  agent/build/FitzroviaAgent-<version>.dmg
 # Prereqs:  pip install -r requirements.txt pyinstaller ; brew install create-dmg
-# NOTE: only NON-secret config is baked in (token + key come via pairing at runtime).
+# NOTE: only NON-secret config is baked in. The PUBLIC anon key IS baked (it is the required
+#       Supabase apikey header — without it the agent silently runs in DEMO mode and never
+#       heartbeats); the scoped worker token still comes via pairing at runtime.
 set -euo pipefail
 
 VERSION="${1:-0.1.0}"
-SUPABASE_URL="${2:?usage: build_macos.sh <version> <supabase_url> <authorize_url>}"
-AUTHORIZE_URL="${3:?usage: build_macos.sh <version> <supabase_url> <authorize_url>}"
+SUPABASE_URL="${2:?usage: build_macos.sh <version> <supabase_url> <authorize_url> <anon_key> [hub_url]}"
+AUTHORIZE_URL="${3:?usage: build_macos.sh <version> <supabase_url> <authorize_url> <anon_key> [hub_url]}"
+ANON_KEY="${4:?usage: build_macos.sh <version> <supabase_url> <authorize_url> <anon_key> [hub_url]}"
+HUB_URL="${5:-}"
 
 AGENT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$AGENT_DIR"
@@ -19,7 +23,9 @@ cd "$AGENT_DIR"
 echo "1/4  Baking non-secret config -> build/agent.env"
 cat > build/agent.env <<EOF
 SUPABASE_URL=$SUPABASE_URL
+SUPABASE_ANON_KEY=$ANON_KEY
 AGENT_AUTHORIZE_URL=$AUTHORIZE_URL
+AGENT_HUB_URL=$HUB_URL
 AGENT_VERSION=$VERSION
 HEADLESS=true
 EOF

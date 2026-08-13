@@ -22,9 +22,15 @@ if (-not (Test-Path $File)) { throw "installer not found: $File  (build it first
 $Tag = "agent-v$Version"
 $Asset = Split-Path $File -Leaf
 
-# Create the release if it doesn't exist yet (idempotent).
-gh release view $Tag --repo $Repo *> $null
-if ($LASTEXITCODE -ne 0) {
+# Create the release if it doesn't exist yet (idempotent). NOTE: for a NOT-YET-EXISTING
+# tag, `gh release view` writes "release not found" to stderr; under ErrorActionPreference
+# = Stop that native stderr becomes a TERMINATING error and aborts the whole publish before
+# the create. So drop to Continue just for the existence probe and branch on the exit code.
+$ErrorActionPreference = "Continue"
+gh release view $Tag --repo $Repo 1>$null 2>$null
+$releaseExists = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = "Stop"
+if (-not $releaseExists) {
   Write-Host "Creating release $Tag"
   gh release create $Tag --repo $Repo --title "Fitzrovia Agent $Version" `
      --notes "Fitzrovia Agent $Version. Download, install, click Authorize once."

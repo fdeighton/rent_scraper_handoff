@@ -153,6 +153,8 @@ class SupabaseHubClient(HubClient):
         # token goes in `Authorization: Bearer`, which PostgREST uses to switch into the
         # scrape_worker role. (anon key is public; the worker token is the scoped secret.)
         self.base = url.rstrip("/")
+        self._hostname: str | None = None       # remembered from register(), resent on heartbeat
+        self._version: str | None = None
         self._job_types: dict[str, str] = {}    # job_id -> task_type (routes complete())
         self._client = httpx.Client(
             base_url=f"{self.base}/rest/v1",
@@ -172,11 +174,15 @@ class SupabaseHubClient(HubClient):
 
     def register(self, agent_id, capabilities, hostname=None, version=None):
         # scrape_workers has no capabilities column yet (single task type); store id/host/version.
+        self._hostname, self._version = hostname, version
         self._rpc("worker_register", {"p_worker_id": agent_id, "p_hostname": hostname, "p_version": version})
 
     def heartbeat(self, agent_id):
-        # worker_register refreshes last_heartbeat (keeps the agent "online" while idle).
-        self._rpc("worker_register", {"p_worker_id": agent_id, "p_hostname": None, "p_version": None})
+        # worker_register refreshes last_heartbeat (keeps the agent "online" while idle). Resend
+        # the hostname/version so heartbeats don't NULL them (which made scrape_workers rows show
+        # host=None and left us unable to tell which machine a worker was).
+        self._rpc("worker_register", {"p_worker_id": agent_id,
+                                      "p_hostname": self._hostname, "p_version": self._version})
 
     def claim(self, agent_id, capabilities):
         row = self._rpc("claim_next_job", {"p_worker_id": agent_id})

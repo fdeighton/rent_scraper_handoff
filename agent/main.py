@@ -46,13 +46,13 @@ from runtime import Agent                                  # noqa: E402
 from hub_client import SupabaseHubClient                   # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE   # noqa: E402
 from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
-from pairing import get_credentials, worker_id_from_token   # noqa: E402
+from pairing import get_credentials, worker_id_from_token, reset_pairing  # noqa: E402
 from updater import check_and_update                        # noqa: E402
+from logging_setup import setup_logging                     # noqa: E402
+from preflight import preflight                             # noqa: E402
 from urllib.parse import urlsplit                            # noqa: E402
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO),
-                    format="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S")
+LOG_PATH = setup_logging()                 # rotating file log (survives the windowed build)
 log = logging.getLogger("agent")
 
 # The agent talks DIRECTLY to the cloud DB (Supabase) — it IS the only backend.
@@ -64,31 +64,50 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUP
 # the scoped worker token goes in Authorization: Bearer). Safe to bake (it's public).
 SUPABASE_ANON_KEY = (os.environ.get("SUPABASE_ANON_KEY")
                      or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "")
-AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL", "")
-
-
 def _origin(u: str) -> str:
     p = urlsplit(u or "")
     return f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
 
 
-# Hub origin for server-side extraction (POST /api/comp-scrape/extract). Baked at build;
-# defaults to the authorize URL's origin (same Vercel deployment).
-HUB_URL = os.environ.get("AGENT_HUB_URL") or _origin(AUTHORIZE_URL)
+# Hub base URL for server-side extraction (POST /api/comp-scrape/extract) AND pairing
+# (/authorize). Defaults to the STABLE custom domain: the *.vercel.app URLs sit behind
+# Vercel Deployment Protection (every /extract 401s "Protected deployment"), but the
+# custom domain is EXEMPT and survives redeploys. Override per-machine with
+# FITZROVIA_HUB_URL (or the legacy AGENT_HUB_URL) — no rebuild needed.
+DEFAULT_HUB_URL = "https://aistudio.fitzrovia.ca"
+HUB_URL = (os.environ.get("FITZROVIA_HUB_URL") or os.environ.get("AGENT_HUB_URL")
+           or _origin(os.environ.get("AGENT_AUTHORIZE_URL", "")) or DEFAULT_HUB_URL)
+# Pairing uses the SAME base (a baked AGENT_AUTHORIZE_URL still wins, for back-compat).
+AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL") or f"{HUB_URL}/authorize"
 MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 POLL = float(os.getenv("AGENT_POLL_SECONDS", "5"))
-VERSION = os.getenv("AGENT_VERSION") or "0.1.9"   # baked at build time (build/agent.env); reported on register
+VERSION = os.getenv("AGENT_VERSION") or "0.1.10"   # baked at build time (build/agent.env); reported on register
 
 
 def main() -> None:
+    # Recovery flags (run: FitzroviaAgent --reset  /  --pair). Both forget creds + the
+    # first-run marker so pairing re-opens; --reset then exits, --pair continues into the
+    # normal flow (which, with no stored token, triggers interactive pairing immediately).
+    argv = sys.argv[1:]
+    if "--reset" in argv or "--pair" in argv:
+        reset_pairing()
+        if "--pair" not in argv:
+            log.info("credentials reset — relaunch (or run --pair) to authorize again")
+            return
+    log.info("Fitzrovia Agent starting (version=%s, log=%s)", VERSION, LOG_PATH)
+    log.info("hub_url = %s", HUB_URL)
+
     if check_and_update(VERSION):     # installed build: newer release -> launch it + exit
         return
     if not SUPABASE_URL:
         log.error("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) is required — the agent talks "
                   "directly to the cloud DB. For a local test with no DB, run: python dev_run.py")
         sys.exit(1)
+
+    # Fail LOUD if a backend host can't be resolved/reached (managed-machine DNS filter).
+    preflight({"supabase": SUPABASE_URL, "hub": HUB_URL or _origin(AUTHORIZE_URL)})
 
     # Resolve credentials: env override → OS keychain → one-click browser pairing.
     try:

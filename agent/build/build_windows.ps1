@@ -19,6 +19,11 @@ param(
   [string]$Version = "0.1.0",
   [Parameter(Mandatory = $true)][string]$SupabaseUrl,
   [Parameter(Mandatory = $true)][string]$AuthorizeUrl,
+  # PUBLIC anon key (NEXT_PUBLIC_SUPABASE_ANON_KEY). It is the REQUIRED Supabase `apikey`
+  # header — WITHOUT it the agent silently falls back to in-memory DEMO mode and never
+  # registers/heartbeats/claims a job. It is not a secret (it ships in every hub page),
+  # so it is baked; the scoped worker token still comes at runtime via pairing.
+  [Parameter(Mandatory = $true)][string]$AnonKey,
   [string]$HubUrl = "",              # hub origin for /api/comp-scrape/extract; blank = derive from AuthorizeUrl
   [int]$UpdateCheckSeconds = 3600,   # how often a running agent re-checks for updates; lower it for demos
   [string]$SignThumbprint = "",      # SHA1 thumbprint of a cert in the Windows cert store
@@ -54,6 +59,7 @@ function Invoke-Sign([string]$File) {
 Write-Host "1/5  Baking non-secret config -> build/agent.env"
 @"
 SUPABASE_URL=$SupabaseUrl
+SUPABASE_ANON_KEY=$AnonKey
 AGENT_AUTHORIZE_URL=$AuthorizeUrl
 AGENT_HUB_URL=$HubUrl
 AGENT_VERSION=$Version

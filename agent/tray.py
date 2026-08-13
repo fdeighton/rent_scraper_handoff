@@ -38,11 +38,13 @@ from runtime import Agent        # noqa: E402
 from hub_client import SupabaseHubClient, MockHubClient  # noqa: E402
 from handlers.comps import make_comps_handler, TASK_TYPE  # noqa: E402
 from handlers.tricon12 import make_tricon12_handler, TASK_TYPE as TRICON12_TASK  # noqa: E402
-from pairing import get_credentials, worker_id_from_token  # noqa: E402
+from pairing import get_credentials, worker_id_from_token, reset_pairing  # noqa: E402
 from updater import check_and_update                       # noqa: E402
+from logging_setup import setup_logging                    # noqa: E402
+from preflight import preflight                            # noqa: E402
 from urllib.parse import urlsplit                          # noqa: E402
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s %(message)s", datefmt="%H:%M:%S")
+LOG_PATH = setup_logging()   # rotating file log — the windowed build has NO console/stderr
 log = logging.getLogger("agent.tray")
 
 ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.png")
@@ -50,16 +52,28 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUP
 # Public anon key — the required Supabase `apikey` header (worker token goes in Bearer).
 SUPABASE_ANON_KEY = (os.environ.get("SUPABASE_ANON_KEY")
                      or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "")
-AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL", "")
-_hp = urlsplit(AUTHORIZE_URL or "")
-# Hub origin for server-side extraction (POST /api/comp-scrape/extract); baked at build,
-# defaults to the authorize URL's origin (same Vercel deployment).
-HUB_URL = os.environ.get("AGENT_HUB_URL") or (f"{_hp.scheme}://{_hp.netloc}" if _hp.scheme and _hp.netloc else "")
+# Hub base URL for server-side extraction (POST /api/comp-scrape/extract) AND pairing
+# (/authorize). Defaults to the STABLE custom domain: the *.vercel.app URLs sit behind
+# Vercel Deployment Protection (every /extract 401s "Protected deployment"), but the
+# custom domain is EXEMPT and survives redeploys. Override per-machine with
+# FITZROVIA_HUB_URL (or the legacy AGENT_HUB_URL) — no rebuild needed.
+DEFAULT_HUB_URL = "https://aistudio.fitzrovia.ca"
+
+
+def _origin(u: str) -> str:
+    p = urlsplit(u or "")
+    return f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else ""
+
+
+HUB_URL = (os.environ.get("FITZROVIA_HUB_URL") or os.environ.get("AGENT_HUB_URL")
+           or _origin(os.environ.get("AGENT_AUTHORIZE_URL", "")) or DEFAULT_HUB_URL)
+# Pairing uses the SAME base (a baked AGENT_AUTHORIZE_URL still wins, for back-compat).
+AUTHORIZE_URL = os.environ.get("AGENT_AUTHORIZE_URL") or f"{HUB_URL}/authorize"
 MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 HEADLESS = os.getenv("HEADLESS", "true").lower() != "false"
 AGENT_ID = os.getenv("AGENT_ID") or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 POLL = float(os.getenv("AGENT_POLL_SECONDS", "5"))
-VERSION = os.getenv("AGENT_VERSION") or "0.1.9"   # baked at build time (build/agent.env); reported on register
+VERSION = os.getenv("AGENT_VERSION") or "0.1.10"   # baked at build time (build/agent.env); reported on register
 DASHBOARD_URL = os.getenv("HUB_DASHBOARD_URL") or "https://localhost"
 # How often the running agent re-checks for a newer release and self-updates in the
 # background (no restart needed). Kept modest to stay under GitHub's unauth rate limit.
@@ -100,9 +114,20 @@ class TrayAgent:
             handlers[TASK_TYPE] = make_comps_handler(HUB_URL, worker_token, HEADLESS)
         if SUPABASE_URL and worker_token and SUPABASE_ANON_KEY:
             self.hub, self.mode = SupabaseHubClient(SUPABASE_URL, SUPABASE_ANON_KEY, worker_token), "cloud"
+            log.info("CLOUD mode — supabase=%s hub=%s", SUPABASE_URL, HUB_URL or SUPABASE_URL)
+            # Preflight the hosts we depend on; a blocked host is the #1 cause of a silent
+            # no-heartbeat on these managed machines, and this makes it show in the log.
+            preflight({"supabase": SUPABASE_URL, "hub": HUB_URL or SUPABASE_URL})
         else:
             self.hub, self.mode = MockHubClient(), "demo"
-            log.warning("no cloud token — DEMO mode (in-memory mock hub)")
+            # Spell out EXACTLY why we can't go cloud — a silent demo fallback (esp. a build
+            # with no baked SUPABASE_ANON_KEY) was the root cause of the no-heartbeat outage.
+            missing = [n for n, v in (("SUPABASE_URL", SUPABASE_URL),
+                                      ("worker_token(pairing)", worker_token),
+                                      ("SUPABASE_ANON_KEY", SUPABASE_ANON_KEY)) if not v]
+            log.error("DEMO mode (in-memory mock hub) — NOT connected to Supabase; missing: %s. "
+                      "The agent will NOT register/heartbeat/claim jobs until this is resolved.",
+                      ", ".join(missing) or "unknown")
         # Claim jobs under the token's `sub` so the hub /extract gate accepts us.
         self.worker_id = worker_id_from_token(worker_token, AGENT_ID) if worker_token else AGENT_ID
         # Agent needs at least one handler to advertise a capability; noop keeps the loop valid.
@@ -118,16 +143,23 @@ class TrayAgent:
     # background work loop --------------------------------------------------
     def _loop(self):
         try:
-            self.hub.register(self.worker_id, self.agent.capabilities, socket.gethostname())
+            self.hub.register(self.worker_id, self.agent.capabilities, socket.gethostname(), VERSION)
         except Exception as e:
-            log.debug("register failed: %s", e)
+            log.warning("register failed: %s", e)
         while not self.stopped.is_set():
             if self.paused.is_set():
                 self.status = "paused"
                 time.sleep(POLL)
                 continue
             try:
-                self.status = "running" if self._claim_and_run() else "idle"
+                if self._claim_and_run():
+                    self.status = "running"
+                else:
+                    self.status = "idle"
+                    # Idle tick: refresh the worker heartbeat so the hub keeps us ONLINE.
+                    # claim_next_job does NOT bump last_heartbeat, so without this the worker
+                    # goes stale seconds after start even though it's polling fine.
+                    self.hub.heartbeat(self.worker_id)
             except Exception as e:
                 log.debug("loop error: %s", e)
                 self.status = "idle"
@@ -223,6 +255,16 @@ class TrayAgent:
 
 
 if __name__ == "__main__":
+    # Recovery flags on the installed exe:  FitzroviaAgent.exe --reset  /  --pair
+    # Both clear creds + the first-run marker so the pairing page re-opens next start.
+    _argv = sys.argv[1:]
+    if "--reset" in _argv or "--pair" in _argv:
+        reset_pairing()
+        log.info("pairing reset via %s", " ".join(_argv))
+        if "--reset" in _argv and "--pair" not in _argv:
+            sys.exit(0)
+    log.info("Fitzrovia Agent (tray) starting — version=%s log=%s", VERSION, LOG_PATH)
+    log.info("hub_url = %s", HUB_URL)
     # Self-update (installed build only): if a newer release exists, launch it + exit.
     from updater import check_and_update  # noqa: E402
     if check_and_update(VERSION):

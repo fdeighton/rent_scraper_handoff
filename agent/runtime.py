@@ -70,19 +70,48 @@ class Agent:
         self.version = version
         self.poll = poll_seconds
         self._stop = False
+        self._fails = 0          # consecutive loop-RPC failures (see _watched)
 
     def run_forever(self) -> None:
         self._install_signals()
-        self._safe(lambda: self.hub.register(self.agent_id, self.capabilities, self.hostname, self.version))
-        log.info("agent %s online — capabilities=%s poll=%.0fs", self.agent_id, self.capabilities, self.poll)
+        # Registration is the first real RPC — if the token/anon-key/host is wrong it fails
+        # HERE. Surface it loudly (not swallowed to debug) so a stuck agent is diagnosable.
+        try:
+            self.hub.register(self.agent_id, self.capabilities, self.hostname, self.version)
+            log.info("agent %s registered — capabilities=%s poll=%.0fs", self.agent_id, self.capabilities, self.poll)
+        except Exception:
+            log.exception("agent %s: worker_register FAILED — will keep retrying in the loop; "
+                          "no heartbeat will appear until this succeeds (check token/anon key/network)",
+                          self.agent_id)
+        self._fails = 0
         while not self._stop:
-            job = self._safe(lambda: self.hub.claim(self.agent_id, self.capabilities))
+            job = self._watched("claim", lambda: self.hub.claim(self.agent_id, self.capabilities))
             if not job:
-                self._safe(lambda: self.hub.heartbeat(self.agent_id))
+                # heartbeat also re-registers (worker_register) — its success is what makes a
+                # worker show up in scrape_workers, so a persistent failure here IS the bug.
+                self._watched("heartbeat", lambda: self.hub.heartbeat(self.agent_id))
                 time.sleep(self.poll)
                 continue
             self._handle(job)
         log.info("agent %s shutting down", self.agent_id)
+
+    def _watched(self, label: str, fn, default=None):
+        """Run a loop RPC, tracking consecutive failures. Logs the FIRST failure and then
+        every 12th (~1/min at poll=5s) at ERROR, so an ongoing auth/DNS/token problem is
+        visible in the log instead of hidden — without spamming every tick."""
+        try:
+            out = fn()
+            if self._fails:
+                log.info("%s recovered after %d consecutive failure(s)", label, self._fails)
+            self._fails = 0
+            return out
+        except Exception as e:
+            self._fails += 1
+            if self._fails == 1 or self._fails % 12 == 0:
+                log.error("%s FAILED (%d in a row): %s", label, self._fails, e)
+            else:
+                log.debug("%s failed (%d): %s", label, self._fails, e)
+            return default
 
     def run_once(self) -> bool:
         """Claim + run a single job if one is available. Returns True if it ran one.
